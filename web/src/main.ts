@@ -30,6 +30,27 @@ type ViewerPayload = {
   edges: ViewerEdge[];
 };
 
+type GraphTheme = {
+  endpointTextColor: string;
+  deviceTextColor: string;
+  edgeColor: string;
+  edgeTextColor: string;
+};
+
+function cssVar(name: string, fallback: string): string {
+  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return value || fallback;
+}
+
+function graphThemeFromCss(): GraphTheme {
+  return {
+    endpointTextColor: cssVar("--graph-node-endpoint-text", "#f0f2f7"),
+    deviceTextColor: cssVar("--graph-node-device-text", "#111111"),
+    edgeColor: cssVar("--graph-edge-color", "#7b8496"),
+    edgeTextColor: cssVar("--graph-edge-text", "#9aa3b2"),
+  };
+}
+
 function mountLayout(): {
   metaEl: HTMLDivElement;
   detailsEl: HTMLDivElement;
@@ -41,9 +62,9 @@ function mountLayout(): {
   }
   app.innerHTML = `
     <div class="layout">
-      <div id="graph"></div>
+      <div id="graph" class="graph"></div>
       <div class="panel">
-        <h1>Tunnet Topology Viewer</h1>
+        <h1 class="panel-title">Tunnet Topology Viewer</h1>
         <div id="meta" class="meta"></div>
         <div class="hint">Drag nodes, zoom, and click a node to inspect settings.</div>
         <div id="details" class="details">No node selected.</div>
@@ -60,13 +81,14 @@ function mountLayout(): {
 
 function render(payload: ViewerPayload): void {
   const { metaEl, detailsEl, graphEl } = mountLayout();
+  const theme = graphThemeFromCss();
 
   metaEl.textContent =
     `Phase: ${payload.metadata.phase}\n` +
     `Generated: ${payload.metadata.generatedAt}\n` +
     `Devices: ${payload.metadata.deviceCount}  Links: ${payload.metadata.linkCount}  Flows: ${payload.metadata.flowCount}`;
 
-  const nodes = new DataSet(
+  const nodes = new DataSet<any>(
     payload.nodes.map((n) => ({
       id: n.id,
       label: n.label,
@@ -74,23 +96,26 @@ function render(payload: ViewerPayload): void {
       shape: n.type === "endpoint" ? "dot" : "box",
       size: n.type === "endpoint" ? 12 : 16,
       borderWidth: 1,
-      margin: 8,
-      font: { color: "#f0f2f7", size: 12 },
+      margin: { top: 8, right: 8, bottom: 8, left: 8 },
+      font: {
+        color: n.type === "endpoint" ? theme.endpointTextColor : theme.deviceTextColor,
+        size: 12,
+      },
       raw: n,
       title: n.settings,
     })),
   );
 
-  const edges = new DataSet(
+  const edges = new DataSet<any>(
     payload.edges.map((e) => ({
       id: e.id,
       from: e.from,
       to: e.to,
       label: e.label,
-      color: { color: "#7b8496", opacity: 0.6 },
+      color: { color: theme.edgeColor, opacity: 0.6 },
       width: 1,
-      smooth: { enabled: true, type: "dynamic" as const },
-      font: { color: "#9aa3b2", size: 10, align: "middle" as const },
+      smooth: { enabled: true, type: "dynamic", roundness: 0.5 },
+      font: { color: theme.edgeTextColor, size: 10, align: "middle" as const },
       arrows: { to: { enabled: false } },
     })),
   );

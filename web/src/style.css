@@ -1,8 +1,23 @@
+:root {
+  --bg-main: #0f1115;
+  --text-main: #e6e6e6;
+  --panel-border: #2a2f3a;
+  --meta-text: #b6beca;
+  --hint-text: #9aa3b2;
+  --details-bg: #161a22;
+  --details-border: #2f3745;
+
+  --graph-node-endpoint-text: #f0f2f7;
+  --graph-node-device-text: #111111;
+  --graph-edge-color: #7b8496;
+  --graph-edge-text: #9aa3b2;
+}
+
 body {
   margin: 0;
   font-family: Inter, Segoe UI, Arial, sans-serif;
-  background: #0f1115;
-  color: #e6e6e6;
+  background: var(--bg-main);
+  color: var(--text-main);
 }
 
 .layout {
@@ -11,9 +26,9 @@ body {
   height: 100vh;
 }
 
-#graph {
+.graph {
   height: 100vh;
-  border-right: 1px solid #2a2f3a;
+  border-right: 1px solid var(--panel-border);
 }
 
 .panel {
@@ -21,13 +36,13 @@ body {
   overflow: auto;
 }
 
-h1 {
+.panel-title {
   margin: 0 0 8px;
   font-size: 18px;
 }
 
 .meta {
-  color: #b6beca;
+  color: var(--meta-text);
   font-size: 13px;
   margin-bottom: 14px;
   line-height: 1.4;
@@ -35,7 +50,7 @@ h1 {
 }
 
 .hint {
-  color: #9aa3b2;
+  color: var(--hint-text);
   font-size: 12px;
   margin-bottom: 12px;
 }
@@ -44,8 +59,8 @@ h1 {
   white-space: pre-wrap;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
-  background: #161a22;
-  border: 1px solid #2f3745;
+  background: var(--details-bg);
+  border: 1px solid var(--details-border);
   border-radius: 6px;
   padding: 10px;
 }
