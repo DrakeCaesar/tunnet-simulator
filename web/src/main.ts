@@ -145,9 +145,34 @@ function filterIdToHubId(filterId: string): string | null {
   return filterId.replace(/^filter:/, "hub:");
 }
 
+function nodeRegionFromId(id: string): string | undefined {
+  const em = /^ep:0\.(\d)\./.exec(id);
+  if (em) return em[1];
+  const rm = /:region:(\d):/.exec(id);
+  return rm?.[1];
+}
+
+function nodeSubnetFromId(id: string, region: string): string | undefined {
+  const ep = new RegExp(`^ep:0\\.${region}\\.(\\d)\\.`).exec(id);
+  if (ep) return ep[1];
+  const hub = new RegExp(`^hub:region:${region}:ep:0\\.${region}\\.(\\d)\\.`).exec(id);
+  if (hub) return hub[1];
+  const filt = new RegExp(`^filter:region:${region}:ep:0\\.${region}\\.(\\d)\\.`).exec(id);
+  if (filt) return filt[1];
+  const gw = new RegExp(`^hub:region:${region}:subnet:(\\d):gateway$`).exec(id);
+  if (gw) return gw[1];
+  const fg = new RegExp(`^filter:region:${region}:subnet:(\\d):gateway$`).exec(id);
+  if (fg) return fg[1];
+  const up = new RegExp(`^hub:region:${region}:subnet:(\\d):uplink$`).exec(id);
+  if (up) return up[1];
+  return undefined;
+}
+
 function computeInitialPositions(payload: ViewerPayload): Map<string, XY> {
   const degree = new Map<string, number>();
   const adj = new Map<string, string[]>();
+  const regionCenters = new Map<string, XY>();
+  const subnetCentersByRegion = new Map<string, XY>();
   for (const n of payload.nodes) {
     degree.set(n.id, 0);
     adj.set(n.id, []);
@@ -168,7 +193,6 @@ function computeInitialPositions(payload: ViewerPayload): Map<string, XY> {
   });
 
   const regionOrder = ["0", "1", "2", "3"];
-  const regionCenters = new Map<string, XY>();
   regionOrder.forEach((r, i) => {
     const a = (i / regionOrder.length) * Math.PI * 2 - Math.PI / 2;
     regionCenters.set(r, { x: Math.cos(a) * 980, y: Math.sin(a) * 980 });
@@ -207,6 +231,9 @@ function computeInitialPositions(payload: ViewerPayload): Map<string, XY> {
       subnetOrder[0] ?? "0",
       alignAngle,
     );
+    subnetCenters.forEach((p, s) => {
+      subnetCentersByRegion.set(`${r}:${s}`, p);
+    });
 
     subnetOrder.forEach((s) => {
       const hubs = subnetHubRingOrder(r, s, payload).filter((id) =>
@@ -234,8 +261,10 @@ function computeInitialPositions(payload: ViewerPayload): Map<string, XY> {
         continue;
       }
       const hubPos = pos.get(hid)!;
-      const vx = hubPos.x - center.x;
-      const vy = hubPos.y - center.y;
+      const subnet = nodeSubnetFromId(hid, r);
+      const anchor = (subnet && subnetCentersByRegion.get(`${r}:${subnet}`)) || center;
+      const vx = hubPos.x - anchor.x;
+      const vy = hubPos.y - anchor.y;
       const len = Math.hypot(vx, vy) || 1;
       const outwardX = vx / len;
       const outwardY = vy / len;
@@ -266,8 +295,13 @@ function computeInitialPositions(payload: ViewerPayload): Map<string, XY> {
       return;
     }
     const base = pos.get(parent)!;
-    const dx = base.x;
-    const dy = base.y;
+    const region = nodeRegionFromId(parent);
+    const subnet = region ? nodeSubnetFromId(parent, region) : undefined;
+    const anchor =
+      (region && subnet && subnetCentersByRegion.get(`${region}:${subnet}`)) ||
+      (region && regionCenters.get(region)) || { x: 0, y: 0 };
+    const dx = base.x - anchor.x;
+    const dy = base.y - anchor.y;
     const len = Math.hypot(dx, dy) || 1;
     const nx = dx / len;
     const ny = dy / len;
