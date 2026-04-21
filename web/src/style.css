@@ -1,0 +1,51 @@
+body {
+  margin: 0;
+  font-family: Inter, Segoe UI, Arial, sans-serif;
+  background: #0f1115;
+  color: #e6e6e6;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: 1fr 360px;
+  height: 100vh;
+}
+
+#graph {
+  height: 100vh;
+  border-right: 1px solid #2a2f3a;
+}
+
+.panel {
+  padding: 14px;
+  overflow: auto;
+}
+
+h1 {
+  margin: 0 0 8px;
+  font-size: 18px;
+}
+
+.meta {
+  color: #b6beca;
+  font-size: 13px;
+  margin-bottom: 14px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+}
+
+.hint {
+  color: #9aa3b2;
+  font-size: 12px;
+  margin-bottom: 12px;
+}
+
+.details {
+  white-space: pre-wrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  background: #161a22;
+  border: 1px solid #2f3745;
+  border-radius: 6px;
+  padding: 10px;
+}

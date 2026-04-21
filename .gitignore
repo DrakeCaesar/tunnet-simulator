@@ -1,0 +1,6 @@
+node_modules/
+dist/
+*.tsbuildinfo
+web/dist/
+out/
+web/public/data/topology.json

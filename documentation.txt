@@ -1,0 +1,96 @@
+Overview
+Hi all, I noticed there wasn't a lot of documentation for this game and wanted to try to create a guide to help new players get over the initial learning curve before burning out. Even though I'm having a blast playing through it, the game seems like it would be hard to understand if you don't have network engineering experience. I've never made a guide before so let me know if there are any improvements I can make. Still working on filling out sections, but I wanted to upload what I got done in a night and see what people think so far.
+
+Guide based on Tunnet v1.1.3-steam
+Packets
+Tunnet is a game about connecting together a series of 'endpoints' so that they are able to send and receive packets. A packet is an individual unit of data that various devices (endpoints, relays, filters, etc) in the game are able to pass along to each other.
+
+The rest of this section serves to break down the individual definitions and properties that packets have, but one thing I want to clarify from the very beginning: it's extremely important to know that packets have no internal logic to help them find their destination. Just because a path exists between the sender and receiver, via hubs, filters, etc, does not necessarily mean that the packet will be able to reach it. Packets essentially follow fixed 'rails', which you have to properly lay out or it will never reach it's destination. Now, to provide some clarity on some of the terms that will be used later in this guide when describing packets.
+
+An endpoint is a device which can:
+1. read packets that are addressed to it (giving you credits every time it does so successfully)
+2. send packets addressed to another endpoint.
+
+If an endpoint reads a packet which is not addressed to it it will:
+If the packet is marked as sensitive, it will destroy it.
+Otherwise, it will 'bounce' the packet back, sending it back out the way it came onto the network while decrementing it's TTL, if it has one.
+
+The parts of the packet that you are most concerned with are the following:
+
+1. src address: the address of the endpoint that created the packet.
+2. dest address: the address that the packet is destined for
+3. TTL (time to live): if specified, this is essentially the amount of 'logical' devices it can interact with before the packet destroys itself. For instance, if a packet bounces off an endpoint it's not addressed to, or a filter analyzes it, it will decrease by 1 each time. If it's simply traveling down a relay or taking a path through a hub, this will not decrement.
+4. s (sensitive): if a packet marked as sensitive reaches an endpoint it isn't intended for, it will destroy itself. This can be mitigated with proper use of filters
+5. subject: for the most part this is flavor text, but it can be useful in some cases (ex: determining if a packet is part of a DDOS attack, or if you're pinging an address with a tester, it will respond with subject: PONG, etc).
+
+Addresses
+In Tunnet, every endpoint is assigned an address with 4 numbers, which is represented in game with the format a.b.c.d. Each number in this series can be be assigned as either 0, 1, 2, or 3. For instance, the first mainframe (by the way, a mainframe is a type of endpoint) you come across is given the address of 0.0.0.0. The game will group endpoints with similar addresses near each other, so 0.0.0.1, 0.0.0.2, 0.0.0.3 are right next to the mainframe at 0.0.0.0. If I want to refer to all 4 of these endpoints (the mainframe + the three endpoints in the 0.0.0 range), I can use the concept of a 'wildcard' in the address, which is when a number is replaced by an asterisk *. The address 0.0.0.* refers to the entire block that I just described.
+
+There are 4 mainframes in the game, they are given the addresses of 0.0.0.0, 0.1.0.0, 0.2.0.0, and 0.3.0.0. You can also use a single address with a wildcard to refer to this entire block, can you figure out how? The address that refers to all of these mainframes is 0.*.0.0. As far as I know, the first number of every address in the game is always 0, which means that there are 4^3 = 64 total endpoints in the game.
+
+This is a simplification of the IPv4 addressing scheme used on networking interfaces in real computers. The primary difference is that in Tunnet, each of the four numbers in the address is a 2-bit number (0-3) as opposed to an 8 bit numbers in IPv4 (0-255). In IPv4, each number is referred to as an 'octet' given that it's composed of 8 bits. The best equivalent I've found to refer to a single number in a Tunnet address is a dibit, which is the first term in the Wikipedia list that refers to this unit of information (https://en.wikipedia.org/wiki/Units_of_information#Dibit), so this is how I will refer to them for the rest of the guide. However, I can be persuaded to go with 'snort' :)
+
+Ports
+It's important to keep in mind that a packet is not kept on a device, but rather it is kept on a port, which a device may carry a number of. For instance, a hub contains 3 ports, a filter contains 2, and relays also contain 2. Thankfully, endpoints in this game only contain a single port, so concepts such as internal/external networks don't need to be considered.
+Relays
+Relays are the simplest component of the network. Every tick, a packet from port 0 will be transferred to port 1, and vice versa. These are essentially the 'wires' of the game. Relays do not decrement the TTL of a packet, and a packet collision can not occur on a relay.
+
+This relay is receiving a packet on port 0. In the next tick, the packet will be sent out via port 1. Relays only display packets that they are receiving, so the packet will not appear under port 1 in the next tick.
+Hubs
+Hubs are a fundamental network component in Tunnet. These devices may seem intimidating at first glance, but are actually quite simple. A hub has 3 ports. Every tick, a packet received on one port will be sent out on another port. Which port the packet will be sent out on depends on the configuration it is in, either 'clockwise' or 'counterclockwise'. Clicking on the hub with the hand will toggle between the two configurations.
+
+In a 'clockwise' configuration (0->1->2->0):
+A packet received on port 0 will be sent out on port 1
+A packet received on port 1 will be sent out on port 2
+A packet received on port 2 will be sent out on port 0
+
+In a 'counterclockwise' configuration (0->2->1->0):
+A packet received on port 0 will be sent out on port 2
+A packet received on port 2 will be sent out on port 1
+A packet received on port 1 will be sent out on port 0
+
+Show below is a diagram of a hub in a 'clockwise' configuration, each endpoint is labeled with it's address. Packets from 0.0.0.0 are sent out addressed to 0.0.0.1, however, since packets received on port 0 of the hub will be sent out on port 1, which leads to the endpoint 0.0.0.2, the packets will never reach it's intended destination (in this example, endpoints do not bounce back packets). Every other endpoint in this example has the same problem. If the hub is configured into a 'counterclockwise' configuration, all packets will be able to reach their destination.
+
+Importantly, a hub will not decrement the TTL of a packet, which means you can use as many of these as you want in a network and not have to worry about packets expiring.
+
+Properties
+Directionality
+A hub can be used as a 'one way valve' if you want to drop all packets going in an undesired direction. A filter is also capable of this functionality. In a 'clockwise' configuration, ensure packets you want to keep are received on port 0, sent out on port 1, and leave port 2 disconnected. Packets received on port 1 will be sent to the disconnected port 2 and fizzle out. If you don't want to risk accidently connecting something to the disconnected port it in the future, you may connect a tester with default settings to it, which will simply drop any packets it receives.
+
+Merging two signal paths
+Hubs can be used in conjunction with filters to merge two inputs into a single output path. Unfortunately, this will result in decrementing the TTL of one of the paths, so ensure that the least likely used path is the one that uses the filter. I don't believe it's possible to accomplish this without decrementing the TTL of a path, but if anyone knows of a way please let me know!
+
+The example below shows two inputs being merged together with 2 hubs and a filter.
+The signal on 0.0.0.1 goes into the first hub, goes out on port 1, and is bounced back via a filter configured to send back any packets it receives on that side. From there, it goes back into the first hub, is sent out again on port 2 leading to the second hub, which goes to straight to the receiving endpoint on port 1.
+The signal on 0.0.0.2 goes into the filter which is bypassed as it's not configured to act on this side. The TTL is not decremented. It goes into the first hub, then goes straight into the second hub from through port 2, then from the second hub goes into the receiving endpoint via port 1.
+The receiving endpoint 0.0.0.0 is able to send out packets to the rest of the network via the second hub through port two
+
+Filters
+Filters are the primary decision-making component in Tunnet. They are used to determine if a packet should be sent down the line, bounced back the way it came from, or dropped altogether. These devices should be used strategically as any packet received on the operating port will decrement it's TTL. Show below is what the interface looks like on the highest level. It may take some playing with to understand how this device works, so it helps to read the plain-English description on the right side if you're ever confused as to what it's doing.
+
+Filter Settings
+Port
+This setting determines which 'side' the component will act on. All of the filter settings below will only apply to the packets received on this port, packets received on the other port will continue through without decrementing it's TTL.
+Address
+Destination: Filter will act based on the "to" address of the packet received on the operating port. In the example above, the packet received on the operating port has a source of 0.0.0.0 and a destination of 0.0.0.1. Since this setting is set to "Destination", the filter will only consider the destination address of 0.0.0.1.
+Source: Filter will act based on the "from" address of the packet received on the operating port . In the example above, the packet received on the operating port has a source of 0.0.0.0 and a destination of 0.0.0.1. If this was set to "Source," the filter would only consider the source address of 0.0.0.0.
+Operation
+Match: Filter will take action if the criteria below is met
+Differ: Filter will take action if the criteria below is not met
+Mask
+The address received on the operating port is compared to this mask. A star '*' is a wildcard, meaning it will match any number in this dibit (one number of a Tunnet addres). The packet's TTL will be decremented in all of these cases.
+If the address matches the mask, and 'operation' above is set to 'match', then the action set below will be taken.
+If the address matches the mask, and 'operation' above is set to 'differ', then no action will be taken and the packet will proceed on.
+If the address does not match the mask, and 'operation' above is set to 'match', then no action will be taken and the packet will proceed on.
+If the address does not match the mask, and 'operation' above is set to 'differ', then the action set below will be taken.
+Action
+Send back: If the criteria above is met, the filter will send the packet back on the port it was received on.
+Drop: If the criteria above is met, the filter will destroy the packet with a fizzle
+Collision Handling
+Since packets on both ports have the possibility of being routed out through the same port, this setting determines how the filter should handle this possibility. An example of this possibility is if the operating port chooses to send back a packet in the same tick that a packet is received on the non-operating port. Any time I use this setting, even I have to remember how it works. If I'm not sure, I typically just set this to 'Send back Outbound' so the least amount of packets are dropped.
+Drop Inbound: The packet received on the operating port is dropped
+Drop Outbound: The packet received on the non-operating port is dropped
+Send back Outbound: The packet received on the non-operating port is sent back
+
+Directionality
+Like hubs, these devices can be used to enforce directionality of packets (ie. ensure that packets only travel one way). Like with hubs, this will not decrease the TTL of the preserved packet, as the filter only 'analyzes' the port that drops the packets. Additionally, this method doesn't leave you with a dangling port that you might accidently connect a device to. To do this, connect the filter to two links and select the port you want to drop packets for. After this, simply set 'Mask' to *.*.*.*, and set the 'Action' to 'Drop.' Packets will now flow through unimpeded through the unselected port, while every packet going through the other side will be destroyed.

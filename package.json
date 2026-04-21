@@ -1,0 +1,28 @@
+{
+  "name": "tunnet-sim",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Tunnet topology and synchronized tick simulator",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k -n DATA,WEB \"tsx watch src/viewer-build.ts\" \"vite --config web/vite.config.ts\"",
+    "build": "tsc -p tsconfig.json",
+    "start": "tsx src/index.ts",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "viewer:build": "tsx src/viewer-build.ts",
+    "web:dev": "vite --config web/vite.config.ts",
+    "web:build": "vite build --config web/vite.config.ts",
+    "web:preview": "vite preview --config web/vite.config.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.17",
+    "concurrently": "^9.2.1",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.3",
+    "vite": "^8.0.9"
+  },
+  "dependencies": {
+    "vis-data": "^8.0.3",
+    "vis-network": "^10.0.2"
+  }
+}
