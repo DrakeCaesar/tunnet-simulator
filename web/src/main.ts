@@ -2,6 +2,7 @@ import { Network } from "vis-network";
 import { DataSet } from "vis-data";
 import "vis-network/styles/vis-network.css";
 import "./style.css";
+import { Packet, Topology, TunnetSimulator } from "./simulation";
 
 type ViewerNode = {
   id: string;
@@ -29,6 +30,7 @@ type ViewerPayload = {
   };
   nodes: ViewerNode[];
   edges: ViewerEdge[];
+  topology: Topology;
 };
 
 type XY = { x: number; y: number };
@@ -157,7 +159,10 @@ function filterIdToHubId(filterId: string): string | null {
   if (!filterId.startsWith("filter:region:")) {
     return null;
   }
-  return filterId.replace(/^filter:/, "hub:");
+  const base = filterId
+    .replace(/^filter:/, "hub:")
+    .replace(/:(inbound|outbound)$/, "");
+  return base;
 }
 
 function nodeRegionFromId(id: string): string | undefined {
@@ -176,7 +181,9 @@ function nodeSubnetFromId(id: string, region: string): string | undefined {
   if (filt) return filt[1];
   const gw = new RegExp(`^hub:region:${region}:subnet:(\\d+):gateway$`).exec(id);
   if (gw) return gw[1];
-  const fg = new RegExp(`^filter:region:${region}:subnet:(\\d+):gateway$`).exec(id);
+  const fg = new RegExp(`^filter:region:${region}:subnet:(\\d+):gateway(?::(?:inbound|outbound))?$`).exec(
+    id,
+  );
   if (fg) return fg[1];
   const up = new RegExp(`^hub:region:${region}:subnet:(\\d+):uplink$`).exec(id);
   if (up) return up[1];
@@ -353,6 +360,12 @@ function computeInitialPositions(payload: ViewerPayload): Map<string, XY> {
 
 function mountLayout(): {
   metaEl: HTMLDivElement;
+  simEl: HTMLDivElement;
+  playBtn: HTMLButtonElement;
+  pauseBtn: HTMLButtonElement;
+  stepBtn: HTMLButtonElement;
+  speedEl: HTMLSelectElement;
+  sendRateEl: HTMLSelectElement;
   detailsEl: HTMLDivElement;
   graphEl: HTMLDivElement;
 } {
@@ -366,7 +379,32 @@ function mountLayout(): {
       <div class="panel">
         <h1 class="panel-title">Tunnet Topology Viewer</h1>
         <div id="meta" class="meta"></div>
-        <div class="hint">Drag nodes, zoom, and click a node to inspect settings.</div>
+        <div class="sim-controls">
+          <div class="sim-buttons">
+            <button id="sim-play" type="button">Play</button>
+            <button id="sim-pause" type="button">Pause</button>
+            <button id="sim-step" type="button">Step</button>
+            <label class="sim-speed-label">Speed
+              <select id="sim-speed">
+                <option value="0.5">0.5x</option>
+                <option value="1">1x</option>
+                <option value="2" selected>2x</option>
+                <option value="4">4x</option>
+                <option value="8">8x</option>
+              </select>
+            </label>
+            <label class="sim-speed-label">Send rate
+              <select id="sim-send-rate">
+                <option value="0.5">0.5x</option>
+                <option value="1" selected>1x</option>
+                <option value="2">2x</option>
+                <option value="4">4x</option>
+              </select>
+            </label>
+          </div>
+          <div id="sim-meta" class="sim-meta">Simulation paused.</div>
+        </div>
+        <div class="hint">Drag nodes, zoom, click nodes/packets for details. Space toggles play/pause.</div>
         <div id="details" class="details">No node selected.</div>
       </div>
     </div>
@@ -374,6 +412,12 @@ function mountLayout(): {
 
   return {
     metaEl: app.querySelector<HTMLDivElement>("#meta")!,
+    simEl: app.querySelector<HTMLDivElement>("#sim-meta")!,
+    playBtn: app.querySelector<HTMLButtonElement>("#sim-play")!,
+    pauseBtn: app.querySelector<HTMLButtonElement>("#sim-pause")!,
+    stepBtn: app.querySelector<HTMLButtonElement>("#sim-step")!,
+    speedEl: app.querySelector<HTMLSelectElement>("#sim-speed")!,
+    sendRateEl: app.querySelector<HTMLSelectElement>("#sim-send-rate")!,
     detailsEl: app.querySelector<HTMLDivElement>("#details")!,
     graphEl: app.querySelector<HTMLDivElement>("#graph")!,
   };
@@ -409,7 +453,8 @@ function formatFilterSpecLabel(node: ViewerNode): string {
 }
 
 function render(payload: ViewerPayload): void {
-  const { metaEl, detailsEl, graphEl } = mountLayout();
+  const { metaEl, simEl, playBtn, pauseBtn, stepBtn, speedEl, sendRateEl, detailsEl, graphEl } =
+    mountLayout();
   const theme = graphThemeFromCss();
   const seedPos = computeInitialPositions(payload);
   const degree = new Map<string, number>();
@@ -502,18 +547,223 @@ function render(payload: ViewerPayload): void {
   };
   setPhysicsEnabled(physicsEnabled);
 
+  const simulator = new TunnetSimulator(payload.topology, 1337);
+  let currentOccupancy = simulator.getPortOccupancy();
+  let previousOccupancy = currentOccupancy;
+  let progress = 1;
+  let animationHandle: number | null = null;
+  let playing = false;
+  let speed = Number(speedEl.value) || 2;
+  let sendRate = Number(sendRateEl.value) || 1;
+  let animating = false;
+  const packetNodeIds = new Set<string>();
+  let selectedPacketNodeId: string | null = null;
+  const selectedPacketGuideEdgeId = "pkt:selected:guide";
+  let stats = {
+    tick: 0,
+    emitted: 0,
+    delivered: 0,
+    dropped: 0,
+    bounced: 0,
+    ttlExpired: 0,
+    collisions: 0,
+  };
+
+  const formatPacketDetails = (packet: Packet, portDeviceId: string): string =>
+    `packet=${packet.id}\n` +
+    `at=${portDeviceId}\n` +
+    `src=${packet.src}\n` +
+    `dst=${packet.dest}\n` +
+    `ttl=${packet.ttl ?? "inf"}\n` +
+    `sensitive=${packet.sensitive}\n` +
+    `subject=${packet.subject ?? ""}`;
+
+  const updateSimMeta = (): void => {
+    simEl.textContent =
+      `State: ${playing ? "running" : "paused"}  Speed: ${speed}x  Send rate: ${sendRate}x\n` +
+      `Tick: ${stats.tick}  In-flight: ${currentOccupancy.length}\n` +
+      `Emitted: ${stats.emitted}  Delivered: ${stats.delivered}  Dropped: ${stats.dropped}\n` +
+      `Bounced: ${stats.bounced}  TTL expired: ${stats.ttlExpired}  Collisions: ${stats.collisions}`;
+  };
+
+  const byPacketId = (
+    occupancy: Array<{ port: { deviceId: string; port: number }; packet: Packet }>,
+  ): Map<number, { deviceId: string; port: number; packet: Packet }> => {
+    const out = new Map<number, { deviceId: string; port: number; packet: Packet }>();
+    occupancy.forEach((entry) => {
+      out.set(entry.packet.id, { deviceId: entry.port.deviceId, port: entry.port.port, packet: entry.packet });
+    });
+    return out;
+  };
+
+  const packetOffset = (port: number): XY => {
+    const a = (port % 4) * (Math.PI / 2);
+    return { x: Math.cos(a) * 20, y: Math.sin(a) * 20 };
+  };
+
+  const renderPackets = (t: number): void => {
+    progress = t;
+    const prev = byPacketId(previousOccupancy);
+    const curr = byPacketId(currentOccupancy);
+    const nextPacketIds = new Set<string>();
+    const updates: any[] = [];
+    curr.forEach(({ deviceId, port, packet }, packetId) => {
+      const packetNodeId = `pkt:${packetId}`;
+      nextPacketIds.add(packetNodeId);
+      const from = prev.get(packetId);
+      const fromDevice = from?.deviceId ?? deviceId;
+      const p0 = network.getPosition(fromDevice);
+      const p1 = network.getPosition(deviceId);
+      const x = p0.x + (p1.x - p0.x) * t;
+      const y = p0.y + (p1.y - p0.y) * t;
+      const offset = packetOffset(port);
+      updates.push({
+        id: packetNodeId,
+        x: x + offset.x,
+        y: y + offset.y,
+        fixed: { x: true, y: true },
+        physics: false,
+        shape: "dot",
+        size: packetNodeId === selectedPacketNodeId ? 10 : 7,
+        color:
+          packetNodeId === selectedPacketNodeId
+            ? { background: "#fab387", border: "#f9e2af" }
+            : { background: "#f38ba8", border: "#eba0ac" },
+        borderWidth: packetNodeId === selectedPacketNodeId ? 3 : 1,
+        label: "",
+        rawPacket: packet,
+        packetAt: deviceId,
+        title: `id=${packet.id}\nsrc=${packet.src}\ndst=${packet.dest}\nttl=${packet.ttl ?? "inf"}`,
+      });
+    });
+    nodes.update(updates);
+    packetNodeIds.forEach((oldId) => {
+      if (!nextPacketIds.has(oldId)) {
+        nodes.remove(oldId);
+      }
+    });
+    packetNodeIds.clear();
+    nextPacketIds.forEach((id) => packetNodeIds.add(id));
+
+    if (!selectedPacketNodeId) {
+      edges.remove(selectedPacketGuideEdgeId);
+      return;
+    }
+    const selected = nodes.get(selectedPacketNodeId) as { rawPacket?: Packet } | null;
+    const selectedPacket = selected?.rawPacket;
+    if (!selectedPacket) {
+      edges.remove(selectedPacketGuideEdgeId);
+      return;
+    }
+    const destinationNodeId = `ep:${selectedPacket.dest}`;
+    if (!nodes.get(destinationNodeId)) {
+      edges.remove(selectedPacketGuideEdgeId);
+      return;
+    }
+    edges.update({
+      id: selectedPacketGuideEdgeId,
+      from: selectedPacketNodeId,
+      to: destinationNodeId,
+      color: { color: "#f9e2af", opacity: 0.25 },
+      width: 1,
+      dashes: [4, 8],
+      smooth: false,
+      physics: false,
+      selectable: false,
+      hoverWidth: 0,
+      label: "",
+    });
+  };
+
+  const runOneTick = (): void => {
+    if (animating) return;
+    animating = true;
+    previousOccupancy = currentOccupancy;
+    const snapshot = simulator.step();
+    stats = snapshot.stats;
+    currentOccupancy = simulator.getPortOccupancy();
+    updateSimMeta();
+    const durationMs = Math.max(120, 1000 / Math.max(speed, 0.1));
+    const start = performance.now();
+    const animate = (now: number): void => {
+      const t = Math.min(1, (now - start) / durationMs);
+      renderPackets(t);
+      if (t < 1) {
+        animationHandle = requestAnimationFrame(animate);
+        return;
+      }
+      animating = false;
+      animationHandle = null;
+      if (playing) {
+        runOneTick();
+      }
+    };
+    animationHandle = requestAnimationFrame(animate);
+  };
+
+  const setPlaying = (enabled: boolean): void => {
+    playing = enabled;
+    if (!playing && animationHandle !== null) {
+      cancelAnimationFrame(animationHandle);
+      animationHandle = null;
+      animating = false;
+      renderPackets(1);
+    }
+    if (playing && !animating) {
+      runOneTick();
+    }
+    updateSimMeta();
+  };
+
   window.addEventListener("keydown", (ev) => {
     if (ev.code !== "Space") return;
     ev.preventDefault();
-    setPhysicsEnabled(!physicsEnabled);
+    setPlaying(!playing);
   });
+
+  simulator.setSendRateMultiplier(sendRate);
+  playBtn.addEventListener("click", () => setPlaying(true));
+  pauseBtn.addEventListener("click", () => setPlaying(false));
+  stepBtn.addEventListener("click", () => {
+    if (!playing) {
+      runOneTick();
+    }
+  });
+  speedEl.addEventListener("change", () => {
+    const parsed = Number(speedEl.value);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      speed = parsed;
+      updateSimMeta();
+    }
+  });
+  sendRateEl.addEventListener("change", () => {
+    const parsed = Number(sendRateEl.value);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      sendRate = parsed;
+      simulator.setSendRateMultiplier(sendRate);
+      updateSimMeta();
+    }
+  });
+
+  network.on("dragging", () => renderPackets(progress));
+  network.on("zoom", () => renderPackets(progress));
+  renderPackets(1);
+  updateSimMeta();
 
   network.on("click", (params) => {
     if (!params.nodes.length) {
       detailsEl.textContent = "No node selected.";
       return;
     }
-    const node = nodes.get(params.nodes[0]) as { raw?: ViewerNode } | null;
+    const node = nodes.get(params.nodes[0]) as
+      | { raw?: ViewerNode; rawPacket?: Packet; packetAt?: string }
+      | null;
+    if (node?.rawPacket) {
+      selectedPacketNodeId = params.nodes[0];
+      renderPackets(progress);
+      detailsEl.textContent = formatPacketDetails(node.rawPacket, node.packetAt ?? "?");
+      return;
+    }
     if (!node?.raw) {
       detailsEl.textContent = "No details.";
       return;

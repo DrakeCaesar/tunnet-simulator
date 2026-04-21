@@ -55,6 +55,42 @@ body {
   margin-bottom: 12px;
 }
 
+.sim-controls {
+  margin-bottom: 12px;
+}
+
+.sim-buttons {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.sim-buttons button,
+.sim-speed-label select {
+  background: #1d2230;
+  border: 1px solid var(--panel-border);
+  color: var(--text-main);
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-size: 12px;
+}
+
+.sim-speed-label {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 12px;
+  color: var(--meta-text);
+}
+
+.sim-meta {
+  color: var(--meta-text);
+  font-size: 12px;
+  white-space: pre-wrap;
+  line-height: 1.35;
+}
+
 .details {
   white-space: pre-wrap;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;

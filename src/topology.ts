@@ -701,12 +701,14 @@ export function synthesizePhase5HierarchicalRings(flowGraph: FlowGraph): Synthes
     const regionUplinkHubs: string[] = [];
     for (const subnet of subnets) {
       const subnetGatewayHub = `hub:region:${region}:subnet:${subnet}:gateway`;
-      const subnetGatewayFilter = `filter:region:${region}:subnet:${subnet}:gateway`;
+      const subnetGatewayFilterOut = `filter:region:${region}:subnet:${subnet}:gateway`;
+      const subnetGatewayFilterIn = `filter:region:${region}:subnet:${subnet}:gateway:inbound`;
       const subnetUplinkHub = `hub:region:${region}:subnet:${subnet}:uplink`;
 
       devices[subnetGatewayHub] = { id: subnetGatewayHub, type: "hub", rotation: "clockwise" };
-      devices[subnetGatewayFilter] = {
-        id: subnetGatewayFilter,
+      // Outbound filter: subnet -> region, keep subnet-local packets on subnet ring.
+      devices[subnetGatewayFilterOut] = {
+        id: subnetGatewayFilterOut,
         type: "filter",
         operatingPort: 0,
         addressField: "destination",
@@ -715,16 +717,31 @@ export function synthesizePhase5HierarchicalRings(flowGraph: FlowGraph): Synthes
         action: "send_back",
         collisionHandling: "send_back_outbound",
       };
+      // Inbound filter: region -> subnet, reject non-subnet packets back to region ring.
+      devices[subnetGatewayFilterIn] = {
+        id: subnetGatewayFilterIn,
+        type: "filter",
+        operatingPort: 1,
+        addressField: "destination",
+        operation: "differ",
+        mask: `*.${region}.${subnet}.*`,
+        action: "send_back",
+        collisionHandling: "send_back_outbound",
+      };
       devices[subnetUplinkHub] = { id: subnetUplinkHub, type: "hub", rotation: "clockwise" };
 
-      // Subnet gateway station internals:
-      // subnet ring <-> subnetGatewayHub:1 <-> filter:0 ; filter:1 <-> region uplink hub:1
+      // Subnet<->region boundary is always a 2-filter chain:
+      // subnetGatewayHub:1 <-> outFilter:0 <-> outFilter:1 <-> inFilter:0 <-> inFilter:1 <-> subnetUplinkHub:1
       links.push({
-        a: { deviceId: subnetGatewayFilter, port: 0 },
+        a: { deviceId: subnetGatewayFilterOut, port: 0 },
         b: { deviceId: subnetGatewayHub, port: 1 },
       });
       links.push({
-        a: { deviceId: subnetGatewayFilter, port: 1 },
+        a: { deviceId: subnetGatewayFilterOut, port: 1 },
+        b: { deviceId: subnetGatewayFilterIn, port: 0 },
+      });
+      links.push({
+        a: { deviceId: subnetGatewayFilterIn, port: 1 },
         b: { deviceId: subnetUplinkHub, port: 1 },
       });
 
@@ -749,10 +766,12 @@ export function synthesizePhase5HierarchicalRings(flowGraph: FlowGraph): Synthes
 
     // Add one region gateway station to the regional ring.
     const gwHub = `hub:region:${region}:gateway`;
-    const gwFilter = `filter:region:${region}:gateway`;
+    const gwFilterOut = `filter:region:${region}:gateway`;
+    const gwFilterIn = `filter:region:${region}:gateway:inbound`;
     devices[gwHub] = { id: gwHub, type: "hub", rotation: "clockwise" };
-    devices[gwFilter] = {
-      id: gwFilter,
+    // Outbound filter: region -> core, keep region-local packets on region ring.
+    devices[gwFilterOut] = {
+      id: gwFilterOut,
       type: "filter",
       operatingPort: 0,
       addressField: "destination",
@@ -761,7 +780,20 @@ export function synthesizePhase5HierarchicalRings(flowGraph: FlowGraph): Synthes
       action: "send_back",
       collisionHandling: "send_back_outbound",
     };
-    links.push({ a: { deviceId: gwFilter, port: 0 }, b: { deviceId: gwHub, port: 1 } });
+    // Inbound filter: core -> region, reject non-region packets back to core ring.
+    devices[gwFilterIn] = {
+      id: gwFilterIn,
+      type: "filter",
+      operatingPort: 1,
+      addressField: "destination",
+      operation: "differ",
+      mask: `*.${region}.*.*`,
+      action: "send_back",
+      collisionHandling: "send_back_outbound",
+    };
+    // Region<->core boundary is always a 2-filter chain.
+    links.push({ a: { deviceId: gwFilterOut, port: 0 }, b: { deviceId: gwHub, port: 1 } });
+    links.push({ a: { deviceId: gwFilterOut, port: 1 }, b: { deviceId: gwFilterIn, port: 0 } });
     const regionRingHubs = [...regionUplinkHubs, gwHub];
 
     // Regional ring hub2 -> next hub0
@@ -780,9 +812,9 @@ export function synthesizePhase5HierarchicalRings(flowGraph: FlowGraph): Synthes
     const coreHub = `hub:core:${region}`;
     devices[coreHub] = { id: coreHub, type: "hub", rotation: "clockwise" };
 
-    // Gateway filter non-operating side (port 1) links to core hub port 1.
+    // Gateway inbound filter non-operating side (port 1) links to core hub port 1.
     links.push({
-      a: { deviceId: `filter:region:${region}:gateway`, port: 1 },
+      a: { deviceId: `filter:region:${region}:gateway:inbound`, port: 1 },
       b: { deviceId: coreHub, port: 1 },
     });
   }

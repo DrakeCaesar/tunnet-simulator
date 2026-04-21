@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { synthesizePhase5HierarchicalRings } from "./topology.js";
-import { Device, FlowEdge, FlowGraph } from "./types.js";
+import { Device, FlowEdge, FlowGraph, Topology } from "./types.js";
 
 interface ViewerNode {
   id: string;
@@ -29,6 +29,7 @@ interface ViewerPayload {
   };
   nodes: ViewerNode[];
   edges: ViewerEdge[];
+  topology: Topology;
 }
 
 interface NormalizedEndpointRow {
@@ -216,6 +217,7 @@ function buildViewerPayload(): ViewerPayload {
     },
     nodes,
     edges,
+    topology: phase5.topology,
   };
 }
 
