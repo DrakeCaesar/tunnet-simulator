@@ -8,7 +8,8 @@ type ViewerNode = {
   label: string;
   type: string;
   color: string;
-  settings: string;
+  settings: string | Record<string, string>;
+  settingsText?: string;
 };
 
 type ViewerEdge = {
@@ -38,6 +39,20 @@ type GraphTheme = {
   edgeColor: string;
   edgeTextColor: string;
 };
+
+// Layout tuning knobs for seeded positions (non-physics).
+const LAYOUT = {
+  regionOrder: ["0", "1", "2", "3"] as const,
+  coreRingRadius: 700 ,
+  regionCenterRadius: 10000,
+  regionRingRadiusMin: 1000  ,
+  regionRingRadiusPerHub: 300,
+  subnetCenterRadiusFactor: 3,
+  subnetRingRadiusMin: 1000,
+  subnetRingRadiusPerHub: 180,
+  filterOffsetFromHub: 500 ,
+  leafOffsetFromParent: 500 ,
+} as const;
 
 function cssVar(name: string, fallback: string): string {
   const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -99,7 +114,7 @@ function placeOnCircleAligned(
 
 function inferRegion(node: ViewerNode): string | undefined {
   if (node.type === "endpoint") {
-    const m = /^ep:0\.(\d)\./.exec(node.id);
+    const m = /^ep:\d+\.(\d+)\./.exec(node.id);
     return m?.[1];
   }
   const r = /:region:(\d):/.exec(node.id);
@@ -146,24 +161,24 @@ function filterIdToHubId(filterId: string): string | null {
 }
 
 function nodeRegionFromId(id: string): string | undefined {
-  const em = /^ep:0\.(\d)\./.exec(id);
+  const em = /^ep:\d+\.(\d+)\./.exec(id);
   if (em) return em[1];
-  const rm = /:region:(\d):/.exec(id);
+  const rm = /:region:(\d+):/.exec(id);
   return rm?.[1];
 }
 
 function nodeSubnetFromId(id: string, region: string): string | undefined {
-  const ep = new RegExp(`^ep:0\\.${region}\\.(\\d)\\.`).exec(id);
+  const ep = new RegExp(`^ep:\\d+\\.${region}\\.(\\d+)\\.`).exec(id);
   if (ep) return ep[1];
-  const hub = new RegExp(`^hub:region:${region}:ep:0\\.${region}\\.(\\d)\\.`).exec(id);
+  const hub = new RegExp(`^hub:region:${region}:ep:\\d+\\.${region}\\.(\\d+)\\.`).exec(id);
   if (hub) return hub[1];
-  const filt = new RegExp(`^filter:region:${region}:ep:0\\.${region}\\.(\\d)\\.`).exec(id);
+  const filt = new RegExp(`^filter:region:${region}:ep:\\d+\\.${region}\\.(\\d+)\\.`).exec(id);
   if (filt) return filt[1];
-  const gw = new RegExp(`^hub:region:${region}:subnet:(\\d):gateway$`).exec(id);
+  const gw = new RegExp(`^hub:region:${region}:subnet:(\\d+):gateway$`).exec(id);
   if (gw) return gw[1];
-  const fg = new RegExp(`^filter:region:${region}:subnet:(\\d):gateway$`).exec(id);
+  const fg = new RegExp(`^filter:region:${region}:subnet:(\\d+):gateway$`).exec(id);
   if (fg) return fg[1];
-  const up = new RegExp(`^hub:region:${region}:subnet:(\\d):uplink$`).exec(id);
+  const up = new RegExp(`^hub:region:${region}:subnet:(\\d+):uplink$`).exec(id);
   if (up) return up[1];
   return undefined;
 }
@@ -187,23 +202,25 @@ function computeInitialPositions(payload: ViewerPayload): Map<string, XY> {
   const pos = new Map<string, XY>();
 
   /** Core ring order matches synthesis: region index 0→1→2→3. */
-  const coreHubs = ["0", "1", "2", "3"].map((r) => `hub:core:${r}`);
-  placeOnCircle(coreHubs, { x: 0, y: 0 }, 260).forEach((p, id) => {
+  const coreHubs = LAYOUT.regionOrder.map((r) => `hub:core:${r}`);
+  placeOnCircle(coreHubs, { x: 0, y: 0 }, LAYOUT.coreRingRadius).forEach((p, id) => {
     pos.set(id, p);
   });
 
-  const regionOrder = ["0", "1", "2", "3"];
-  regionOrder.forEach((r, i) => {
-    const a = (i / regionOrder.length) * Math.PI * 2 - Math.PI / 2;
-    regionCenters.set(r, { x: Math.cos(a) * 980, y: Math.sin(a) * 980 });
+  LAYOUT.regionOrder.forEach((r, i) => {
+    const a = (i / LAYOUT.regionOrder.length) * Math.PI * 2 - Math.PI / 2;
+    regionCenters.set(r, {
+      x: Math.cos(a) * LAYOUT.regionCenterRadius,
+      y: Math.sin(a) * LAYOUT.regionCenterRadius,
+    });
   });
 
-  for (const r of regionOrder) {
+  for (const r of LAYOUT.regionOrder) {
     const center = regionCenters.get(r)!;
     const hubOrder = regionalHubRingOrder(r, payload).filter((id) =>
       payload.nodes.some((n) => n.id === id),
     );
-    const radius = Math.max(220, hubOrder.length * 28);
+    const radius = Math.max(LAYOUT.regionRingRadiusMin, hubOrder.length * LAYOUT.regionRingRadiusPerHub);
     const coreHubId = `hub:core:${r}`;
     const corePos = pos.get(coreHubId);
     const gatewayId = `hub:region:${r}:gateway`;
@@ -213,24 +230,42 @@ function computeInitialPositions(payload: ViewerPayload): Map<string, XY> {
         : -Math.PI / 2;
     const baseRing = placeOnCircleAligned(hubOrder, center, radius, gatewayId, alignAngle);
 
-    // Keep gateway on the outer regional loop (bridge toward core).
-    const gatewayPos = baseRing.get(gatewayId);
-    if (gatewayPos) {
-      pos.set(gatewayId, gatewayPos);
-    }
+    // Place all regional-ring hubs (subnet uplinks + region gateway).
+    baseRing.forEach((p, id) => {
+      pos.set(id, p);
+    });
 
     // Split x.x.0.0..x.x.3.3 into four subnet rings (third dibit s=0..3).
     const subnetOrder = ["0", "1", "2", "3"].filter((s) =>
       payload.nodes.some((n) => n.id.startsWith(`ep:`) && n.id.includes(`.${r}.${s}.`)),
     );
-    const subnetCenterRadius = radius * 0.52;
-    const subnetCenters = placeOnCircleAligned(
+    const subnetCenterRadius = radius * LAYOUT.subnetCenterRadiusFactor;
+    const subnetCenters = new Map<string, XY>();
+    const fallbackSubnetCenters = placeOnCircleAligned(
       subnetOrder,
       center,
       subnetCenterRadius,
       subnetOrder[0] ?? "0",
       alignAngle,
     );
+    subnetOrder.forEach((s) => {
+      const uplinkId = `hub:region:${r}:subnet:${s}:uplink`;
+      const uplinkPos = baseRing.get(uplinkId);
+      if (!uplinkPos) {
+        const fallback = fallbackSubnetCenters.get(s);
+        if (fallback) {
+          subnetCenters.set(s, fallback);
+        }
+        return;
+      }
+      const dx = uplinkPos.x - center.x;
+      const dy = uplinkPos.y - center.y;
+      const len = Math.hypot(dx, dy) || 1;
+      subnetCenters.set(s, {
+        x: center.x + (dx / len) * subnetCenterRadius,
+        y: center.y + (dy / len) * subnetCenterRadius,
+      });
+    });
     subnetCenters.forEach((p, s) => {
       subnetCentersByRegion.set(`${r}:${s}`, p);
     });
@@ -243,9 +278,11 @@ function computeInitialPositions(payload: ViewerPayload): Map<string, XY> {
       if (!subnetCenter || hubs.length === 0) {
         return;
       }
-      const outwardAngle = Math.atan2(subnetCenter.y - center.y, subnetCenter.x - center.x);
-      const subnetRadius = Math.max(70, hubs.length * 18);
-      placeOnCircleAligned(hubs, subnetCenter, subnetRadius, hubs[0], outwardAngle).forEach(
+      const inwardAngle = Math.atan2(center.y - subnetCenter.y, center.x - subnetCenter.x);
+      const subnetRadius = Math.max(LAYOUT.subnetRingRadiusMin, hubs.length * LAYOUT.subnetRingRadiusPerHub);
+      const gatewayId = `hub:region:${r}:subnet:${s}:gateway`;
+      const alignId = hubs.includes(gatewayId) ? gatewayId : hubs[0];
+      placeOnCircleAligned(hubs, subnetCenter, subnetRadius, alignId, inwardAngle).forEach(
         (p, id) => {
           pos.set(id, p);
         },
@@ -268,7 +305,7 @@ function computeInitialPositions(payload: ViewerPayload): Map<string, XY> {
       const len = Math.hypot(vx, vy) || 1;
       const outwardX = vx / len;
       const outwardY = vy / len;
-      const filterR = 78;
+      const filterR = LAYOUT.filterOffsetFromHub;
       pos.set(fid, {
         x: hubPos.x + outwardX * filterR,
         y: hubPos.y + outwardY * filterR,
@@ -289,7 +326,7 @@ function computeInitialPositions(payload: ViewerPayload): Map<string, XY> {
     .filter((n) => n.type === "endpoint" && (degree.get(n.id) ?? 0) <= 1)
     .map((n) => n.id)
     .sort();
-  leaves.forEach((id, i) => {
+  leaves.forEach((id) => {
     const parent = adj.get(id)?.[0];
     if (!parent || !pos.has(parent)) {
       return;
@@ -305,10 +342,9 @@ function computeInitialPositions(payload: ViewerPayload): Map<string, XY> {
     const len = Math.hypot(dx, dy) || 1;
     const nx = dx / len;
     const ny = dy / len;
-    const jitter = ((i % 7) - 3) * 12;
     pos.set(id, {
-      x: base.x + nx * 240 - ny * jitter,
-      y: base.y + ny * 240 + nx * jitter,
+      x: base.x + nx * LAYOUT.leafOffsetFromParent,
+      y: base.y + ny * LAYOUT.leafOffsetFromParent,
     });
   });
 
@@ -343,10 +379,45 @@ function mountLayout(): {
   };
 }
 
+function getSettingsMap(node: ViewerNode): Record<string, string> {
+  if (typeof node.settings === "object" && node.settings !== null) {
+    return node.settings;
+  }
+  const out: Record<string, string> = {};
+  const settingsText = typeof node.settings === "string" ? node.settings : "";
+  for (const line of settingsText.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const idx = trimmed.indexOf("=");
+    if (idx < 0) continue;
+    const k = trimmed.slice(0, idx).trim();
+    const v = trimmed.slice(idx + 1).trim();
+    out[k] = v;
+  }
+  return out;
+}
+
+function formatFilterSpecLabel(node: ViewerNode): string {
+  const map = getSettingsMap(node);
+  const entries = Object.entries(map);
+  if (entries.length === 0) {
+    return node.label;
+  }
+  const keyWidth = entries.reduce((m, [k]) => Math.max(m, k.length), 0);
+  const rows = entries.map(([k, v]) => `${k.padEnd(keyWidth, " ")}   ${v}`);
+  return `${node.id}\n${rows.join("\n")}`;
+}
+
 function render(payload: ViewerPayload): void {
   const { metaEl, detailsEl, graphEl } = mountLayout();
   const theme = graphThemeFromCss();
   const seedPos = computeInitialPositions(payload);
+  const degree = new Map<string, number>();
+  payload.nodes.forEach((n) => degree.set(n.id, 0));
+  payload.edges.forEach((e) => {
+    degree.set(e.from, (degree.get(e.from) ?? 0) + 1);
+    degree.set(e.to, (degree.get(e.to) ?? 0) + 1);
+  });
 
   metaEl.textContent =
     `Phase: ${payload.metadata.phase}\n` +
@@ -354,22 +425,35 @@ function render(payload: ViewerPayload): void {
     `Devices: ${payload.metadata.deviceCount}  Links: ${payload.metadata.linkCount}  Flows: ${payload.metadata.flowCount}`;
 
   const nodes = new DataSet<any>(
-    payload.nodes.map((n) => ({
-      id: n.id,
-      label: n.label,
-      color: n.color,
-      shape: n.type === "endpoint" ? "dot" : "box",
-      size: n.type === "endpoint" ? 12 : 16,
-      borderWidth: 1,
-      margin: { top: 8, right: 8, bottom: 8, left: 8 },
-      font: {
-        color: n.type === "endpoint" ? theme.endpointTextColor : theme.deviceTextColor,
-        size: 12,
-      },
-      ...(seedPos.get(n.id) ?? {}),
-      raw: n,
-      title: n.settings,
-    })),
+    payload.nodes.map((n) => {
+      const isLeafEndpoint = n.type === "endpoint" && (degree.get(n.id) ?? 0) <= 1;
+      return {
+        id: n.id,
+        label:
+          n.type === "filter"
+            ? formatFilterSpecLabel(n)
+            : isLeafEndpoint
+              ? n.id.replace(/^ep:/, "")
+              : n.label,
+        color: n.color,
+        shape: isLeafEndpoint ? "box" : n.type === "endpoint" ? "dot" : "box",
+        size: n.type === "endpoint" ? 12 : 16,
+        borderWidth: 1,
+        margin: { top: 8, right: 8, bottom: 8, left: 8 },
+        font: {
+          color: n.type === "endpoint" ? theme.endpointTextColor : theme.deviceTextColor,
+          size: 12,
+          align: n.type === "filter" ? ("left" as const) : ("center" as const),
+          face: n.type === "filter" ? "Consolas, Menlo, monospace" : "Inter, Segoe UI, Arial, sans-serif",
+        },
+        ...(seedPos.get(n.id) ?? {}),
+        raw: n,
+        title:
+          n.type === "filter"
+            ? undefined
+            : n.settingsText ?? (typeof n.settings === "string" ? n.settings : ""),
+      };
+    }),
   );
 
   const edges = new DataSet<any>(
@@ -392,7 +476,7 @@ function render(payload: ViewerPayload): void {
     {
       interaction: { hover: true, multiselect: false, dragView: true, zoomView: true },
       physics: {
-        enabled: true,
+        enabled: false,
         solver: "forceAtlas2Based",
         stabilization: { iterations: 800, fit: true },
         forceAtlas2Based: {
@@ -408,6 +492,24 @@ function render(payload: ViewerPayload): void {
       edges: { selectionWidth: 2 },
     },
   );
+
+  let physicsEnabled = false;
+  const setPhysicsEnabled = (enabled: boolean): void => {
+    physicsEnabled = enabled;
+    network.setOptions({ physics: { enabled } });
+    if (enabled) {
+      network.startSimulation();
+    } else {
+      network.stopSimulation();
+    }
+  };
+  setPhysicsEnabled(false);
+
+  window.addEventListener("keydown", (ev) => {
+    if (ev.code !== "Space") return;
+    ev.preventDefault();
+    setPhysicsEnabled(!physicsEnabled);
+  });
 
   network.on("click", (params) => {
     if (!params.nodes.length) {

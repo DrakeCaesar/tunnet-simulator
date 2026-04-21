@@ -10,6 +10,7 @@
     "start": "tsx src/index.ts",
     "check": "tsc -p tsconfig.json --noEmit",
     "data:normalize": "tsx src/normalize-endpoint-data.ts",
+    "data:missing-ranges": "tsx src/report-missing-address-ranges.ts",
     "viewer:build": "tsx src/viewer-build.ts",
     "web:dev": "vite --config web/vite.config.ts",
     "web:build": "vite build --config web/vite.config.ts",
