@@ -447,6 +447,7 @@ function formatSpeedLabel(exp: number): string {
 function mountLayout(): {
   metaEl: HTMLDivElement;
   simEl: HTMLDivElement;
+  timingBodyEl: HTMLTableSectionElement;
   playBtn: HTMLButtonElement;
   pauseBtn: HTMLButtonElement;
   stepBtn: HTMLButtonElement;
@@ -466,8 +467,8 @@ function mountLayout(): {
       <div id="graph" class="graph"></div>
       <div class="panel">
         <h1 class="panel-title">Tunnet Topology Viewer</h1>
-        <div id="meta" class="meta"></div>
-        <div class="sim-controls">
+        <div id="meta" class="meta card"></div>
+        <div class="sim-controls card">
           <div class="sim-buttons">
             <button id="sim-play" type="button">Play</button>
             <button id="sim-pause" type="button">Pause</button>
@@ -503,7 +504,27 @@ function mountLayout(): {
           </div>
           <div id="sim-meta" class="sim-meta">Simulation paused.</div>
         </div>
-        <div class="hint">Drag nodes, zoom, click nodes/packets for details. Space toggles play/pause.</div>
+        <div class="card timings-card">
+          <div class="section-title">Step Timing</div>
+          <div class="timings-wrap">
+            <table class="timings-table">
+              <thead>
+                <tr>
+                  <th>tick</th>
+                  <th>interval</th>
+                  <th>step</th>
+                  <th>animate</th>
+                  <th>sched</th>
+                  <th>sum</th>
+                  <th>delta</th>
+                </tr>
+              </thead>
+              <tbody id="timing-body"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="hint">Space toggles play/pause. Click nodes or packets for details.</div>
+        <div class="section-title">Selection</div>
         <div id="details" class="details">No node selected.</div>
       </div>
     </div>
@@ -512,6 +533,7 @@ function mountLayout(): {
   return {
     metaEl: app.querySelector<HTMLDivElement>("#meta")!,
     simEl: app.querySelector<HTMLDivElement>("#sim-meta")!,
+    timingBodyEl: app.querySelector<HTMLTableSectionElement>("#timing-body")!,
     playBtn: app.querySelector<HTMLButtonElement>("#sim-play")!,
     pauseBtn: app.querySelector<HTMLButtonElement>("#sim-pause")!,
     stepBtn: app.querySelector<HTMLButtonElement>("#sim-step")!,
@@ -554,8 +576,20 @@ function formatFilterSpecLabel(node: ViewerNode): string {
 }
 
 function render(payload: ViewerPayload): void {
-  const { metaEl, simEl, playBtn, pauseBtn, stepBtn, speedEl, speedValueEl, sendRateEl, sendRateValueEl, detailsEl, graphEl } =
-    mountLayout();
+  const {
+    metaEl,
+    simEl,
+    timingBodyEl,
+    playBtn,
+    pauseBtn,
+    stepBtn,
+    speedEl,
+    speedValueEl,
+    sendRateEl,
+    sendRateValueEl,
+    detailsEl,
+    graphEl,
+  } = mountLayout();
   const theme = graphThemeFromCss();
   const seedPos = computeInitialPositions(payload);
   const degree = new Map<string, number>();
@@ -565,10 +599,16 @@ function render(payload: ViewerPayload): void {
     degree.set(e.to, (degree.get(e.to) ?? 0) + 1);
   });
 
-  metaEl.textContent =
-    `Phase: ${payload.metadata.phase}\n` +
-    `Generated: ${payload.metadata.generatedAt}\n` +
-    `Devices: ${payload.metadata.deviceCount}  Links: ${payload.metadata.linkCount}  Flows: ${payload.metadata.flowCount}`;
+  metaEl.innerHTML = `
+    <div class="section-title">Build</div>
+    <div class="kv"><span>Phase</span><strong>${payload.metadata.phase}</strong></div>
+    <div class="kv"><span>Generated</span><strong>${payload.metadata.generatedAt}</strong></div>
+    <div class="stats-row">
+      <div class="stat-pill"><span>Devices</span><strong>${payload.metadata.deviceCount}</strong></div>
+      <div class="stat-pill"><span>Links</span><strong>${payload.metadata.linkCount}</strong></div>
+      <div class="stat-pill"><span>Flows</span><strong>${payload.metadata.flowCount}</strong></div>
+    </div>
+  `;
 
   const nodes = new DataSet<any>(
     payload.nodes.map((n) => {
@@ -680,6 +720,23 @@ function render(payload: ViewerPayload): void {
   /** Smoothed sim ticks per wall second; null until first completed tick. */
   let emaAchievedSpeed: number | null = null;
   const ACHIEVED_SPEED_EMA_ALPHA = 0.12;
+  /** Next-state compute time for simulator.step() only (ms). */
+  let lastStepComputeMs: number | null = null;
+  let emaStepComputeMs: number | null = null;
+  const STEP_COMPUTE_EMA_ALPHA = 0.2;
+  type StepTimingRow = {
+    tick: number;
+    intervalMs: number | null;
+    stepMs: number;
+    animateMs: number;
+    schedulingMs: number | null;
+    sumMs: number;
+    deltaMs: number | null;
+  };
+  const timingRows: StepTimingRow[] = [];
+  const MAX_TIMING_ROWS = 160;
+  let pendingTimingIndex: number | null = null;
+  let previousStepStartMs: number | null = null;
 
   const formatPacketDetails = (packet: Packet, portDeviceId: string): string =>
     `packet=${packet.id}\n` +
@@ -698,17 +755,62 @@ function render(payload: ViewerPayload): void {
     speedValueEl.textContent = formatSpeedLabel(speedExponent);
   };
 
+  const fmtMs = (n: number | null): string => (n === null ? "—" : n.toFixed(2));
+
+  const renderTimingTable = (): void => {
+    const rows = timingRows
+      .slice()
+      .reverse()
+      .map((r) => {
+        const deltaClass = r.deltaMs !== null && Math.abs(r.deltaMs) > 0.2 ? "warn" : "";
+        return `<tr>
+          <td>${r.tick}</td>
+          <td>${fmtMs(r.intervalMs)}</td>
+          <td>${fmtMs(r.stepMs)}</td>
+          <td>${fmtMs(r.animateMs)}</td>
+          <td>${fmtMs(r.schedulingMs)}</td>
+          <td>${fmtMs(r.sumMs)}</td>
+          <td class="${deltaClass}">${fmtMs(r.deltaMs)}</td>
+        </tr>`;
+      })
+      .join("");
+    timingBodyEl.innerHTML =
+      rows ||
+      `<tr><td colspan="7" class="table-empty">No completed steps yet.</td></tr>`;
+  };
+
   const updateSimMeta = (): void => {
     const achievedLine =
       emaAchievedSpeed === null
         ? `achieved: — (no tick finished yet)`
         : `achieved ~${emaAchievedSpeed.toFixed(2)}× (${Math.min(999, Math.round((emaAchievedSpeed / Math.max(speed, 1e-9)) * 100))}% of ${speed.toFixed(2)}× target)`;
-    simEl.textContent =
-      `State: ${playing ? "running" : "paused"}  Speed: ${formatSpeedLabel(speedExponent)}  ${achievedLine}\n` +
-      `Send rate: ${formatSendRateLabel(sendRateExponent)}\n` +
-      `Tick: ${stats.tick}  In-flight: ${currentOccupancy.length}\n` +
-      `Emitted: ${stats.emitted}  Delivered: ${stats.delivered}  Dropped: ${stats.dropped}\n` +
-      `Bounced: ${stats.bounced}  TTL expired: ${stats.ttlExpired}  Collisions: ${stats.collisions}`;
+    const stepComputeLine =
+      lastStepComputeMs === null
+        ? `step compute: —`
+        : `step compute: ${lastStepComputeMs.toFixed(2)}ms (ema ${(
+            emaStepComputeMs ?? lastStepComputeMs
+          ).toFixed(2)}ms)`;
+    simEl.innerHTML = `
+      <div class="status-row">
+        <span class="status-chip">${playing ? "running" : "paused"}</span>
+        <span class="status-label">speed ${formatSpeedLabel(speedExponent)}</span>
+        <span class="status-label">${achievedLine}</span>
+      </div>
+      <div class="status-row">
+        <span class="status-label">send rate ${formatSendRateLabel(sendRateExponent)}</span>
+        <span class="status-label">${stepComputeLine}</span>
+      </div>
+      <div class="stats-row">
+        <div class="stat-pill"><span>Tick</span><strong>${stats.tick}</strong></div>
+        <div class="stat-pill"><span>In-flight</span><strong>${currentOccupancy.length}</strong></div>
+        <div class="stat-pill"><span>Emitted</span><strong>${stats.emitted}</strong></div>
+        <div class="stat-pill"><span>Delivered</span><strong>${stats.delivered}</strong></div>
+        <div class="stat-pill"><span>Dropped</span><strong>${stats.dropped}</strong></div>
+        <div class="stat-pill"><span>Bounced</span><strong>${stats.bounced}</strong></div>
+        <div class="stat-pill"><span>TTL expired</span><strong>${stats.ttlExpired}</strong></div>
+        <div class="stat-pill"><span>Collisions</span><strong>${stats.collisions}</strong></div>
+      </div>
+    `;
   };
 
   const byPacketId = (
@@ -837,9 +939,27 @@ function render(payload: ViewerPayload): void {
   const runOneTick = (): void => {
     if (animating) return;
     const tickWallStartMs = performance.now();
+    if (pendingTimingIndex !== null && previousStepStartMs !== null) {
+      const prev = timingRows[pendingTimingIndex];
+      const intervalMs = tickWallStartMs - previousStepStartMs;
+      const schedulingMs = Math.max(0, intervalMs - prev.sumMs);
+      const recomposed = prev.stepMs + prev.animateMs + schedulingMs;
+      prev.intervalMs = intervalMs;
+      prev.schedulingMs = schedulingMs;
+      prev.deltaMs = intervalMs - recomposed;
+      renderTimingTable();
+    }
+    previousStepStartMs = tickWallStartMs;
     animating = true;
     previousOccupancy = currentOccupancy;
+    const stepStartMs = performance.now();
     const snapshot = simulator.step();
+    const stepMs = performance.now() - stepStartMs;
+    lastStepComputeMs = stepMs;
+    emaStepComputeMs =
+      emaStepComputeMs === null
+        ? stepMs
+        : STEP_COMPUTE_EMA_ALPHA * stepMs + (1 - STEP_COMPUTE_EMA_ALPHA) * emaStepComputeMs;
     stats = snapshot.stats;
     currentOccupancy = simulator.getPortOccupancy();
     updateSimMeta();
@@ -852,6 +972,21 @@ function render(payload: ViewerPayload): void {
         animationHandle = requestAnimationFrame(animate);
         return;
       }
+      const animateMs = performance.now() - start;
+      timingRows.push({
+        tick: stats.tick,
+        intervalMs: null,
+        stepMs,
+        animateMs,
+        schedulingMs: null,
+        sumMs: stepMs + animateMs,
+        deltaMs: null,
+      });
+      if (timingRows.length > MAX_TIMING_ROWS) {
+        timingRows.splice(0, timingRows.length - MAX_TIMING_ROWS);
+      }
+      pendingTimingIndex = timingRows.length - 1;
+      renderTimingTable();
       const wallMs = performance.now() - tickWallStartMs;
       if (wallMs > 1) {
         const instantAchieved = 1000 / wallMs;
@@ -935,6 +1070,7 @@ function render(payload: ViewerPayload): void {
   network.on("dragging", () => renderPackets(progress));
   network.on("zoom", () => renderPackets(progress));
   renderPackets(1);
+  renderTimingTable();
   updateSimMeta();
 
   network.on("click", (params) => {

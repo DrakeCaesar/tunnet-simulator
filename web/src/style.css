@@ -22,7 +22,7 @@ body {
 
 .layout {
   display: grid;
-  grid-template-columns: 1fr 360px;
+  grid-template-columns: 1fr 480px;
   height: 100vh;
 }
 
@@ -34,19 +34,48 @@ body {
 .panel {
   padding: 14px;
   overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
 .panel-title {
-  margin: 0 0 8px;
-  font-size: 18px;
+  margin: 0;
+  font-size: 19px;
+}
+
+.card {
+  background: #141923;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.section-title {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #c0c8d8;
+  margin-bottom: 6px;
 }
 
 .meta {
   color: var(--meta-text);
   font-size: 13px;
-  margin-bottom: 14px;
   line-height: 1.4;
-  white-space: pre-wrap;
+}
+
+.kv {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.kv strong {
+  color: #e3e8f5;
+  font-weight: 600;
 }
 
 .hint {
@@ -55,15 +84,12 @@ body {
   margin-bottom: 12px;
 }
 
-.sim-controls {
-  margin-bottom: 12px;
-}
-
 .sim-buttons {
   display: flex;
   gap: 8px;
   align-items: center;
   margin-bottom: 8px;
+  flex-wrap: wrap;
 }
 
 .sim-buttons button {
@@ -111,8 +137,102 @@ body {
 .sim-meta {
   color: var(--meta-text);
   font-size: 12px;
-  white-space: pre-wrap;
   line-height: 1.35;
+}
+
+.status-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.status-chip {
+  background: #2f6f44;
+  color: #d8ffe2;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.status-label {
+  font-size: 12px;
+  color: var(--meta-text);
+}
+
+.stats-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.stat-pill {
+  background: #0f131b;
+  border: 1px solid #2a3242;
+  border-radius: 6px;
+  padding: 6px 8px;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.stat-pill span {
+  color: var(--meta-text);
+  font-size: 11px;
+}
+
+.stat-pill strong {
+  color: #d9e1f3;
+  font-size: 12px;
+}
+
+.timings-card {
+  padding-bottom: 6px;
+}
+
+.timings-wrap {
+  max-height: 200px;
+  overflow: auto;
+  border: 1px solid #2a3242;
+  border-radius: 6px;
+}
+
+.timings-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.timings-table th,
+.timings-table td {
+  border-bottom: 1px solid #232b3b;
+  padding: 4px 6px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.timings-table th:first-child,
+.timings-table td:first-child {
+  text-align: left;
+}
+
+.timings-table thead th {
+  position: sticky;
+  top: 0;
+  background: #1a2130;
+  color: #b7c1d7;
+  z-index: 1;
+}
+
+.timings-table td.warn {
+  color: #f9e2af;
+}
+
+.table-empty {
+  text-align: center !important;
+  color: #8f99ab;
 }
 
 .details {
