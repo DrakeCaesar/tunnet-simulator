@@ -672,6 +672,19 @@ export function synthesizePhase5HierarchicalRingsWithOrder(
   const regions = [...regionMap.keys()].sort();
   const boundaryChannels = boundaryChannelLabels(boundaryOrder);
 
+  /**
+   * One literal dibit per mask (game rule); rest are `*`.
+   * First dibit is always 0 in Tunnet, so no filter for it.
+   */
+  function dibitMasksForAddress(address: string): [string, string, string] {
+    const parts = address.split(".");
+    if (parts.length !== 4) {
+      throw new Error(`Invalid Tunnet address "${address}" (expected a.b.c.d)`);
+    }
+    const [, b, c, d] = parts;
+    return [`*.${b}.*.*`, `*.*.${c}.*`, `*.*.*.${d}`];
+  }
+
   for (const region of regions) {
     const regionAddresses = regionMap.get(region) ?? [];
     const subnetMap = new Map<string, string[]>();
@@ -687,7 +700,12 @@ export function synthesizePhase5HierarchicalRingsWithOrder(
     for (const address of regionAddresses) {
       const epId = `ep:${address}`;
       const hubId = `hub:region:${region}:ep:${address}`;
-      const filterId = `filter:region:${region}:ep:${address}`;
+      const dibitMasks = dibitMasksForAddress(address);
+      const filterIds = [
+        `filter:region:${region}:ep:${address}:d1`,
+        `filter:region:${region}:ep:${address}:d2`,
+        `filter:region:${region}:ep:${address}:d3`,
+      ];
 
       devices[epId] = {
         id: epId,
@@ -696,20 +714,28 @@ export function synthesizePhase5HierarchicalRingsWithOrder(
         state: { nextSendTick: 0 },
       };
       devices[hubId] = { id: hubId, type: "hub", rotation: "clockwise" };
-      devices[filterId] = {
-        id: filterId,
-        type: "filter",
-        operatingPort: 0,
-        addressField: "destination",
-        operation: "differ",
-        mask: address,
-        action: "send_back",
-        collisionHandling: "send_back_outbound",
-      };
+      for (let i = 0; i < 3; i += 1) {
+        devices[filterIds[i]] = {
+          id: filterIds[i],
+          type: "filter",
+          operatingPort: 0,
+          addressField: "destination",
+          operation: "differ",
+          mask: dibitMasks[i],
+          action: "send_back",
+          collisionHandling: "send_back_outbound",
+        };
+      }
 
-      // Endpoint station internals.
-      links.push({ a: { deviceId: epId, port: 0 }, b: { deviceId: filterId, port: 1 } });
-      links.push({ a: { deviceId: filterId, port: 0 }, b: { deviceId: hubId, port: 1 } });
+      // Endpoint station internals: ep -> 3 single-dibit filters (dibit 0 is always 0) -> hub.
+      links.push({ a: { deviceId: epId, port: 0 }, b: { deviceId: filterIds[0], port: 1 } });
+      for (let i = 0; i < 2; i += 1) {
+        links.push({
+          a: { deviceId: filterIds[i], port: 0 },
+          b: { deviceId: filterIds[i + 1], port: 1 },
+        });
+      }
+      links.push({ a: { deviceId: filterIds[2], port: 0 }, b: { deviceId: hubId, port: 1 } });
     }
 
     const regionUplinkHubs: string[] = [];
@@ -717,48 +743,77 @@ export function synthesizePhase5HierarchicalRingsWithOrder(
       const subnetGatewayHubs: string[] = [];
       for (const channel of boundaryChannels) {
         const subnetGatewayHub = `hub:region:${region}:subnet:${subnet}:gateway:${channel}`;
-        const subnetGatewayFilterOut = `filter:region:${region}:subnet:${subnet}:gateway:${channel}`;
-        const subnetGatewayFilterIn = `filter:region:${region}:subnet:${subnet}:gateway:${channel}:inbound`;
+        const subnetGatewayFilterOutR = `filter:region:${region}:subnet:${subnet}:gateway:${channel}:out-r`;
+        const subnetGatewayFilterOutS = `filter:region:${region}:subnet:${subnet}:gateway:${channel}:out-s`;
+        const subnetGatewayFilterInR = `filter:region:${region}:subnet:${subnet}:gateway:${channel}:in-r`;
+        const subnetGatewayFilterInS = `filter:region:${region}:subnet:${subnet}:gateway:${channel}:in-s`;
         const subnetUplinkHub = `hub:region:${region}:subnet:${subnet}:uplink:${channel}`;
 
         devices[subnetGatewayHub] = { id: subnetGatewayHub, type: "hub", rotation: "clockwise" };
-        // Outbound filter: subnet -> region, keep subnet-local packets on subnet ring.
-        devices[subnetGatewayFilterOut] = {
-          id: subnetGatewayFilterOut,
+        // Egress toward region: `differ` + send_back keeps packets that are NOT for this region/subnet on the subnet ring.
+        devices[subnetGatewayFilterOutR] = {
+          id: subnetGatewayFilterOutR,
           type: "filter",
           operatingPort: 0,
           addressField: "destination",
-          operation: "match",
-          mask: `*.${region}.${subnet}.*`,
+          operation: "differ",
+          mask: `*.${region}.*.*`,
           action: "send_back",
           collisionHandling: "send_back_outbound",
         };
-        // Inbound filter: region -> subnet, reject non-subnet packets back to region ring.
-        devices[subnetGatewayFilterIn] = {
-          id: subnetGatewayFilterIn,
+        devices[subnetGatewayFilterOutS] = {
+          id: subnetGatewayFilterOutS,
+          type: "filter",
+          operatingPort: 0,
+          addressField: "destination",
+          operation: "differ",
+          mask: `*.*.${subnet}.*`,
+          action: "send_back",
+          collisionHandling: "send_back_outbound",
+        };
+        devices[subnetGatewayFilterInR] = {
+          id: subnetGatewayFilterInR,
           type: "filter",
           operatingPort: 1,
           addressField: "destination",
           operation: "differ",
-          mask: `*.${region}.${subnet}.*`,
+          mask: `*.${region}.*.*`,
+          action: "send_back",
+          collisionHandling: "send_back_outbound",
+        };
+        devices[subnetGatewayFilterInS] = {
+          id: subnetGatewayFilterInS,
+          type: "filter",
+          operatingPort: 1,
+          addressField: "destination",
+          operation: "differ",
+          mask: `*.*.${subnet}.*`,
           action: "send_back",
           collisionHandling: "send_back_outbound",
         };
         devices[subnetUplinkHub] = { id: subnetUplinkHub, type: "hub", rotation: "clockwise" };
 
-        // Subnet<->region boundary channel (2-filter chain):
-        // subnetGatewayHub:1 <-> outFilter:0 <-> outFilter:1 <-> inFilter:0 <-> inFilter:1 <-> subnetUplinkHub:1
+        // Subnet<->region boundary: four single-dibit filters (game-accurate masks) between gateway hub and uplink.
+        // subnetGatewayHub:1 <-> outR:0 <-> outR:1 <-> outS:0 <-> outS:1 <-> inR:0 <-> inR:1 <-> inS:0 <-> inS:1 <-> subnetUplinkHub:1
         links.push(
           {
-            a: { deviceId: subnetGatewayFilterOut, port: 0 },
+            a: { deviceId: subnetGatewayFilterOutR, port: 0 },
             b: { deviceId: subnetGatewayHub, port: 1 },
           },
           {
-            a: { deviceId: subnetGatewayFilterOut, port: 1 },
-            b: { deviceId: subnetGatewayFilterIn, port: 0 },
+            a: { deviceId: subnetGatewayFilterOutR, port: 1 },
+            b: { deviceId: subnetGatewayFilterOutS, port: 0 },
           },
           {
-            a: { deviceId: subnetGatewayFilterIn, port: 1 },
+            a: { deviceId: subnetGatewayFilterOutS, port: 1 },
+            b: { deviceId: subnetGatewayFilterInR, port: 0 },
+          },
+          {
+            a: { deviceId: subnetGatewayFilterInR, port: 1 },
+            b: { deviceId: subnetGatewayFilterInS, port: 0 },
+          },
+          {
+            a: { deviceId: subnetGatewayFilterInS, port: 1 },
             b: { deviceId: subnetUplinkHub, port: 1 },
           },
         );
