@@ -11,7 +11,14 @@ import {
   updateEntityPosition,
   updateEntitySettings,
 } from "./state";
-import { expandBuilderState, layerColumns, layerTitle, orderedLayersTopDown, segmentLabel } from "./clone-engine";
+import {
+  expandBuilderState,
+  expandLinksForBuilderCanvas,
+  layerColumns,
+  layerTitle,
+  orderedLayersTopDown,
+  segmentLabel,
+} from "./clone-engine";
 import {
   exportBuilderStateText,
   importBuilderStateText,
@@ -55,6 +62,76 @@ const HUB_LAYOUT = hubEquilateralLayout();
 
 function hubPortPinStyle(c: HubVec): string {
   return `left:${(c.x / HUB_VIEW.w) * 100}%;top:${(c.y / HUB_VIEW.h) * 100}%;transform:translate(-50%,-50%)`;
+}
+
+/** Port pins on a rotating layer: keep port labels world-upright. */
+function hubPortPinUprightStyle(c: HubVec, faceDeg: number): string {
+  return `left:${(c.x / HUB_VIEW.w) * 100}%;top:${(c.y / HUB_VIEW.h) * 100}%;transform:translate(-50%,-50%) rotate(${-faceDeg}deg)`;
+}
+
+/** Band outside the equilateral (model space) for rotation; inside = move. */
+const HUB_RING_PX = 30;
+
+function hubLocalToModel(localX: number, localY: number, faceDeg: number): HubVec {
+  const g = HUB_LAYOUT.G;
+  const rad = (-faceDeg * Math.PI) / 180;
+  const c = Math.cos(rad);
+  const s = Math.sin(rad);
+  const relx = localX - g.x;
+  const rely = localY - g.y;
+  return { x: g.x + relx * c - rely * s, y: g.y + relx * s + rely * c };
+}
+
+function hubPointInOrOnTri(p: HubVec, t: HubVec, l: HubVec, r: HubVec): boolean {
+  const v0x = l.x - t.x;
+  const v0y = l.y - t.y;
+  const v1x = r.x - t.x;
+  const v1y = r.y - t.y;
+  const v2x = p.x - t.x;
+  const v2y = p.y - t.y;
+  const d00 = v0x * v0x + v0y * v0y;
+  const d01 = v0x * v1x + v0y * v1y;
+  const d11 = v1x * v1x + v1y * v1y;
+  const d20 = v2x * v0x + v2y * v0y;
+  const d21 = v2x * v1x + v2y * v1y;
+  const denom = d00 * d11 - d01 * d01;
+  if (Math.abs(denom) < 1e-9) return false;
+  const v = (d11 * d20 - d01 * d21) / denom;
+  const w = (d00 * d21 - d01 * d20) / denom;
+  const u = 1 - v - w;
+  const e = 1e-4;
+  return u >= -e && v >= -e && w >= -e;
+}
+
+function hubDistToSeg(p: HubVec, a: HubVec, b: HubVec): number {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const l2 = dx * dx + dy * dy;
+  if (l2 < 1e-9) return Math.hypot(p.x - a.x, p.y - a.y);
+  let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / l2;
+  t = Math.max(0, Math.min(1, t));
+  const qx = a.x + t * dx;
+  const qy = a.y + t * dy;
+  return Math.hypot(p.x - qx, p.y - qy);
+}
+
+function hubPointerMode(
+  localX: number,
+  localY: number,
+  faceDeg: number,
+): "move" | "rotate" | "none" {
+  const t = HUB_LAYOUT.T;
+  const l = HUB_LAYOUT.L;
+  const r = HUB_LAYOUT.R;
+  const p = hubLocalToModel(localX, localY, faceDeg);
+  if (hubPointInOrOnTri(p, t, l, r)) return "move";
+  const d = Math.min(
+    hubDistToSeg(p, t, l),
+    hubDistToSeg(p, l, r),
+    hubDistToSeg(p, r, t),
+  );
+  if (d <= HUB_RING_PX) return "rotate";
+  return "none";
 }
 
 function hvDist(a: HubVec, b: HubVec): number {
@@ -175,6 +252,7 @@ function hubTriangleSvg(instanceId: string, rotation: string | undefined): strin
         <path d="M0,0 L4,2 L0,4 Z" fill="rgba(255,255,255,0.4)" />
       </marker>
     </defs>
+    <path class="builder-hub-rotate-hint" d="${d}" />
     <path class="builder-hub-triangle" d="${d}" pointer-events="visiblePainted" />
     <g pointer-events="none">${arrows}</g>
   </svg>`;
@@ -341,15 +419,16 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     );
   }
 
-  function renderWireOverlay(links: ReturnType<typeof expandBuilderState>["links"]): void {
+  function renderWireOverlay(): void {
     const wrap = wireOverlayEl.parentElement;
     if (!wrap) return;
+    const viewLinks = expandLinksForBuilderCanvas(state.links, state.entities);
     const wrapRect = wrap.getBoundingClientRect();
     const overlayWidth = Math.max(wrap.clientWidth, wrap.scrollWidth);
     wireOverlayEl.setAttribute("width", String(Math.ceil(overlayWidth)));
     wireOverlayEl.setAttribute("height", String(Math.ceil(wrapRect.height)));
     wireOverlayEl.innerHTML = "";
-    for (const link of links) {
+    for (const link of viewLinks) {
       const from = canvasEl.querySelector<HTMLButtonElement>(
         `.builder-port[data-instance-id="${link.fromInstanceId}"][data-port="${link.fromPort}"]`,
       );
@@ -503,14 +582,20 @@ export function mountBuilderView(options: BuilderMountOptions): void {
                                 `
                                 : "";
                             const hubCw = (entity.settings.rotation ?? "clockwise") !== "counterclockwise";
+                            const hubFaceDeg =
+                              ((Number.parseFloat(entity.settings.faceAngle ?? "0") % 360) + 360) % 360;
+                            const hubOriginX = (HUB_LAYOUT.G.x / HUB_VIEW.w) * 100;
+                            const hubOriginY = (HUB_LAYOUT.G.y / HUB_VIEW.h) * 100;
                             const hubBlock =
                               entity.templateType === "hub"
-                                ? `<div class="builder-hub">
-        ${hubTriangleSvg(entity.instanceId, entity.settings.rotation)}
-        <button type="button" class="builder-port builder-hub-port" style="${hubPortPinStyle(HUB_LAYOUT.T)}" data-instance-id="${entity.instanceId}" data-root-id="${entity.rootId}" data-port="0">0</button>
-        <button type="button" class="builder-port builder-hub-port" style="${hubPortPinStyle(HUB_LAYOUT.R)}" data-instance-id="${entity.instanceId}" data-root-id="${entity.rootId}" data-port="1">1</button>
-        <button type="button" class="builder-port builder-hub-port" style="${hubPortPinStyle(HUB_LAYOUT.L)}" data-instance-id="${entity.instanceId}" data-root-id="${entity.rootId}" data-port="2">2</button>
-        <button type="button" class="builder-hub-reverse" style="left:50%;top:${(HUB_LAYOUT.G.y / HUB_VIEW.h) * 100}%;transform:translate(-50%,-50%)" data-hub-toggle-rotation data-root-id="${entity.rootId}" title="Reverse forwarding direction"><span class="builder-hub-reverse-icon" aria-hidden="true">${hubCw ? "↻" : "↺"}</span></button>
+                                ? `<div class="builder-hub" data-face-angle="${hubFaceDeg}">
+        <div class="builder-hub-rot" style="transform:rotate(${hubFaceDeg}deg);transform-origin:${hubOriginX}% ${hubOriginY}%;">
+          ${hubTriangleSvg(entity.instanceId, entity.settings.rotation)}
+          <button type="button" class="builder-port builder-hub-port" style="${hubPortPinUprightStyle(HUB_LAYOUT.T, hubFaceDeg)}" data-instance-id="${entity.instanceId}" data-root-id="${entity.rootId}" data-port="0">0</button>
+          <button type="button" class="builder-port builder-hub-port" style="${hubPortPinUprightStyle(HUB_LAYOUT.R, hubFaceDeg)}" data-instance-id="${entity.instanceId}" data-root-id="${entity.rootId}" data-port="1">1</button>
+          <button type="button" class="builder-port builder-hub-port" style="${hubPortPinUprightStyle(HUB_LAYOUT.L, hubFaceDeg)}" data-instance-id="${entity.instanceId}" data-root-id="${entity.rootId}" data-port="2">2</button>
+        </div>
+        <button type="button" class="builder-hub-reverse" style="left:${hubOriginX}%;top:${hubOriginY}%;transform:translate(-50%,-50%)" data-hub-toggle-rotation data-root-id="${entity.rootId}" title="Reverse forwarding direction"><span class="builder-hub-reverse-icon" aria-hidden="true">${hubCw ? "↻" : "↺"}</span></button>
       </div>`
                                 : "";
                             const entityShapeClass =
@@ -753,6 +838,66 @@ export function mountBuilderView(options: BuilderMountOptions): void {
         const root = state.entities.find((e) => e.id === rootId);
         const seg = entityEl.closest<HTMLElement>(".builder-segment");
         if (!root || !seg) return;
+        if (root.templateType === "hub") {
+          const hubEl = entityEl.querySelector<HTMLElement>(".builder-hub");
+          if (!hubEl) return;
+          const r0 = hubEl.getBoundingClientRect();
+          const localX = ev.clientX - r0.left;
+          const localY = ev.clientY - r0.top;
+          const faceDeg = ((Number.parseFloat(root.settings.faceAngle ?? "0") % 360) + 360) % 360;
+          const hubMode = hubPointerMode(localX, localY, faceDeg);
+          if (hubMode === "none") return;
+          ev.preventDefault();
+          if (hubMode === "move") {
+            const segRect = seg.getBoundingClientRect();
+            const anchorX = (ev.clientX - segRect.left) / Math.max(1, segRect.width);
+            const anchorY = (ev.clientY - segRect.top) / Math.max(1, segRect.height);
+            const rx = root.x;
+            const ry = root.y;
+            const dx = anchorX - rx;
+            const dy = anchorY - ry;
+            const onMove = (mv: MouseEvent): void => {
+              const x = (mv.clientX - segRect.left) / Math.max(1, segRect.width) - dx;
+              const y = (mv.clientY - segRect.top) / Math.max(1, segRect.height) - dy;
+              state = updateEntityPosition(state, root.id, x, y);
+              renderCanvas();
+            };
+            const onUp = (): void => {
+              window.removeEventListener("mousemove", onMove);
+              window.removeEventListener("mouseup", onUp);
+              persist();
+              renderInspector();
+            };
+            document.body.style.cursor = "grabbing";
+            window.addEventListener("mousemove", onMove);
+            window.addEventListener("mouseup", onUp);
+            return;
+          }
+          const px = r0.left + (HUB_LAYOUT.G.x / HUB_VIEW.w) * r0.width;
+          const py = r0.top + (HUB_LAYOUT.G.y / HUB_VIEW.h) * r0.height;
+          const a0 = Math.atan2(ev.clientY - py, ev.clientX - px);
+          const base = faceDeg;
+          const onMove = (mv: MouseEvent): void => {
+            const a1 = Math.atan2(mv.clientY - py, mv.clientX - px);
+            let newDeg = base + ((a1 - a0) * 180) / Math.PI;
+            newDeg = ((newDeg % 360) + 360) % 360;
+            const cur = state.entities.find((e) => e.id === root.id);
+            if (!cur) return;
+            state = updateEntitySettings(state, cur.id, { ...cur.settings, faceAngle: String(newDeg) });
+            renderCanvas();
+          };
+          const onUp = (): void => {
+            window.removeEventListener("mousemove", onMove);
+            window.removeEventListener("mouseup", onUp);
+            document.body.style.removeProperty("cursor");
+            persist();
+            renderInspector();
+          };
+          document.body.style.cursor = "grabbing";
+          window.addEventListener("mousemove", onMove);
+          window.addEventListener("mouseup", onUp);
+          return;
+        }
         ev.preventDefault();
         const segRect = seg.getBoundingClientRect();
         const anchorX = (ev.clientX - segRect.left) / Math.max(1, segRect.width);
@@ -776,7 +921,31 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       });
     });
 
-    renderWireOverlay(expanded.links);
+    canvasEl.querySelectorAll<HTMLElement>(".builder-hub").forEach((hub) => {
+      const setHover = (ev: MouseEvent): void => {
+        if ((ev.target as Element).closest("button")) {
+          hub.classList.remove("builder-hub--hover-move", "builder-hub--hover-rotate");
+          return;
+        }
+        const r = hub.getBoundingClientRect();
+        const localX = ev.clientX - r.left;
+        const localY = ev.clientY - r.top;
+        const faceRaw = Number.parseFloat(hub.dataset.faceAngle ?? "0");
+        const face = (((Number.isFinite(faceRaw) ? faceRaw : 0) % 360) + 360) % 360;
+        const mode = hubPointerMode(localX, localY, face);
+        hub.classList.toggle("builder-hub--hover-move", mode === "move");
+        hub.classList.toggle("builder-hub--hover-rotate", mode === "rotate");
+      };
+      const clear = (): void => {
+        hub.classList.remove("builder-hub--hover-move", "builder-hub--hover-rotate");
+      };
+      hub.addEventListener("mousemove", setHover);
+      hub.addEventListener("mouseleave", clear);
+    });
+
+    requestAnimationFrame(() => {
+      renderWireOverlay();
+    });
   }
 
   function renderInspector(): void {

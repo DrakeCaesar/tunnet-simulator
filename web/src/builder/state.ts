@@ -113,7 +113,7 @@ export function defaultSettings(type: BuilderTemplateType): Record<string, strin
     };
   }
   if (type === "hub") {
-    return { rotation: "clockwise" };
+    return { rotation: "clockwise", faceAngle: "0" };
   }
   if (type === "endpoint") {
     return { address: "0.0.0.0" };

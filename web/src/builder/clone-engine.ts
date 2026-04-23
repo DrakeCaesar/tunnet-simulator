@@ -152,6 +152,32 @@ function expandLinks(roots: BuilderLinkRoot[], entityRoots: BuilderEntityRoot[])
   return out;
 }
 
+/**
+ * One wire per user link, connecting the primary (placed) instance of each device.
+ * Used for the builder canvas overlay so any two placed entities in any segments connect visually.
+ * (The full `expandLinks` still fans out cloned topology for compile/simulation.)
+ */
+export function expandLinksForBuilderCanvas(roots: BuilderLinkRoot[], entityRoots: BuilderEntityRoot[]): BuilderLinkInstance[] {
+  const byId = new Map(entityRoots.map((e) => [e.id, e]));
+  const out: BuilderLinkInstance[] = [];
+  for (const root of roots) {
+    const from = byId.get(root.fromEntityId);
+    const to = byId.get(root.toEntityId);
+    if (!from || !to) continue;
+    out.push({
+      instanceId: `${root.id}@view`,
+      rootId: root.id,
+      groupId: root.groupId,
+      fromInstanceId: instanceId(from.id, from.segmentIndex),
+      fromPort: root.fromPort,
+      toInstanceId: instanceId(to.id, to.segmentIndex),
+      toPort: root.toPort,
+      isShadow: false,
+    });
+  }
+  return out;
+}
+
 export function expandBuilderState(state: BuilderState): ExpandedBuilderState {
   const entities = expandEntities(state.entities);
   const links = expandLinks(state.links, state.entities);
