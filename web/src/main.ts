@@ -277,10 +277,11 @@ function filterIdToHubId(filterId: string): string | null {
   if (!filterId.startsWith("filter:region:")) {
     return null;
   }
-  const base = filterId
+  return filterId
     .replace(/^filter:/, "hub:")
-    .replace(/:(inbound|outbound)$/, "");
-  return base;
+    .replace(/:(inbound|outbound)$/, "")
+    .replace(/:(out-r|out-s|in-r|in-s)$/, "")
+    .replace(/:d[0-3]$/, "");
 }
 
 function nodeRegionFromId(id: string): string | undefined {
@@ -299,11 +300,7 @@ function nodeSubnetFromId(id: string, region: string): string | undefined {
   if (filt) return filt[1];
   const gw = new RegExp(`^hub:region:${region}:subnet:(\\d+):gateway(?::[a-z0-9_-]+)?$`).exec(id);
   if (gw) return gw[1];
-  const fg = new RegExp(
-    `^filter:region:${region}:subnet:(\\d+):gateway(?::[a-z0-9_-]+)?(?::(?:inbound|outbound))?$`,
-  ).exec(
-    id,
-  );
+  const fg = new RegExp(`^filter:region:${region}:subnet:(\\d+):gateway(?::[^:]+)+$`).exec(id);
   if (fg) return fg[1];
   const up = new RegExp(`^hub:region:${region}:subnet:(\\d+):uplink(?::[a-z0-9_-]+)?$`).exec(id);
   if (up) return up[1];
