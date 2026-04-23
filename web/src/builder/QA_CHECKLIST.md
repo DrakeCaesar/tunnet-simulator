@@ -1,0 +1,7 @@
+- Place a `filter` template in `Middle (16)` segment 0 and set `mask=*.*.1.*`; verify preview/placed shadows show all 16 segments.
+- Change mask to `*.1.*.*`; verify first 4 segments keep `1`, then next 4 use `2`, then `3`, then `0`.
+- Enable link mode, connect two ports once; verify cloned wires appear across the layer.
+- Select a cloned entity and edit filter `mask`; verify whole group updates.
+- Delete a selected cloned entity; verify all group clones and attached links are removed.
+- Export state, reload page, import state; verify roundtrip is lossless.
+- Click `Preview In Viewer`; verify viewer tab loads compiled nodes/links.

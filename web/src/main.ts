@@ -3,6 +3,7 @@ import { DataSet } from "vis-data";
 import "vis-network/styles/vis-network.css";
 import "./style.css";
 import { Packet, Topology, TunnetSimulator } from "./simulation";
+import { mountBuilderView, VIEWER_PREVIEW_KEY } from "./builder/canvas";
 
 type ViewerNode = {
   id: string;
@@ -519,6 +520,10 @@ function formatSpeedLabel(exp: number): string {
 }
 
 function mountLayout(): {
+  tabViewerEl: HTMLButtonElement;
+  tabBuilderEl: HTMLButtonElement;
+  viewerViewEl: HTMLDivElement;
+  builderViewEl: HTMLDivElement;
   metaEl: HTMLDivElement;
   simEl: HTMLDivElement;
   timingBodyEl: HTMLTableSectionElement;
@@ -540,7 +545,11 @@ function mountLayout(): {
     throw new Error("Missing #app root");
   }
   app.innerHTML = `
-    <div class="layout">
+    <div class="app-tabs">
+      <button id="tab-viewer" type="button" class="app-tab active">Viewer</button>
+      <button id="tab-builder" type="button" class="app-tab">Builder</button>
+    </div>
+    <div id="viewer-view" class="layout">
       <div id="graph" class="graph"></div>
       <div class="panel">
         <h1 class="panel-title">Tunnet Topology Viewer</h1>
@@ -613,9 +622,14 @@ function mountLayout(): {
         <div id="details" class="details">No node selected.</div>
       </div>
     </div>
+    <div id="builder-view" class="builder-view hidden"></div>
   `;
 
   return {
+    tabViewerEl: app.querySelector<HTMLButtonElement>("#tab-viewer")!,
+    tabBuilderEl: app.querySelector<HTMLButtonElement>("#tab-builder")!,
+    viewerViewEl: app.querySelector<HTMLDivElement>("#viewer-view")!,
+    builderViewEl: app.querySelector<HTMLDivElement>("#builder-view")!,
     metaEl: app.querySelector<HTMLDivElement>("#meta")!,
     simEl: app.querySelector<HTMLDivElement>("#sim-meta")!,
     timingBodyEl: app.querySelector<HTMLTableSectionElement>("#timing-body")!,
@@ -663,8 +677,12 @@ function formatFilterSpecLabel(node: ViewerNode): string {
   return `${node.id}\n${rows.join("\n")}`;
 }
 
-function render(payload: ViewerPayload, boundaryOrder: number): void {
+function render(payload: ViewerPayload, boundaryOrder: number, initialTab: "viewer" | "builder"): void {
   const {
+    tabViewerEl,
+    tabBuilderEl,
+    viewerViewEl,
+    builderViewEl,
     metaEl,
     simEl,
     timingBodyEl,
@@ -681,6 +699,33 @@ function render(payload: ViewerPayload, boundaryOrder: number): void {
     detailsEl,
     graphEl,
   } = mountLayout();
+
+  let builderMounted = false;
+  const setActiveTab = (tab: "viewer" | "builder"): void => {
+    const viewerActive = tab === "viewer";
+    viewerViewEl.classList.toggle("hidden", !viewerActive);
+    builderViewEl.classList.toggle("hidden", viewerActive);
+    tabViewerEl.classList.toggle("active", viewerActive);
+    tabBuilderEl.classList.toggle("active", !viewerActive);
+    if (!builderMounted && tab === "builder") {
+      mountBuilderView({
+        root: builderViewEl,
+        onPreviewReady: () => {
+          const url = new URL(window.location.href);
+          url.searchParams.set("tab", "viewer");
+          url.searchParams.set("preview", "builder");
+          window.location.href = url.toString();
+        },
+      });
+      builderMounted = true;
+    }
+    const url = new URL(window.location.href);
+    url.searchParams.set("tab", tab);
+    window.history.replaceState(null, "", url.toString());
+  };
+  tabViewerEl.addEventListener("click", () => setActiveTab("viewer"));
+  tabBuilderEl.addEventListener("click", () => setActiveTab("builder"));
+  setActiveTab(initialTab);
   const theme = graphThemeFromCss();
   const seedPos = computeInitialPositions(payload);
   const degree = new Map<string, number>();
@@ -1385,16 +1430,32 @@ function getBoundaryOrderFromUrl(): number {
   return Math.max(1, Math.min(4, Math.round(parsed)));
 }
 
+function getInitialTabFromUrl(): "viewer" | "builder" {
+  const raw = new URLSearchParams(window.location.search).get("tab");
+  return raw === "builder" ? "builder" : "viewer";
+}
+
 async function main(): Promise<void> {
   try {
     const boundaryOrder = getBoundaryOrderFromUrl();
-    const dataUrl = `${import.meta.env.BASE_URL}data/topology.${boundaryOrder}.json`;
-    const res = await fetch(dataUrl);
-    if (!res.ok) {
-      throw new Error(`Unable to load topology data (${res.status})`);
+    const initialTab = getInitialTabFromUrl();
+    let payload: ViewerPayload | null = null;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("preview") === "builder") {
+      const raw = window.sessionStorage.getItem(VIEWER_PREVIEW_KEY);
+      if (raw) {
+        payload = JSON.parse(raw) as ViewerPayload;
+      }
     }
-    const payload = (await res.json()) as ViewerPayload;
-    render(payload, boundaryOrder);
+    if (!payload) {
+      const dataUrl = `${import.meta.env.BASE_URL}data/topology.${boundaryOrder}.json`;
+      const res = await fetch(dataUrl);
+      if (!res.ok) {
+        throw new Error(`Unable to load topology data (${res.status})`);
+      }
+      payload = (await res.json()) as ViewerPayload;
+    }
+    render(payload, boundaryOrder, initialTab);
   } catch (err) {
     const { detailsEl } = mountLayout();
     detailsEl.textContent = `Failed to load topology data.\nRun: pnpm viewer:build\n\n${String(err)}`;
