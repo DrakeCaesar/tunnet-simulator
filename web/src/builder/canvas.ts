@@ -1457,8 +1457,11 @@ export function mountBuilderView(options: BuilderMountOptions): void {
         window.cancelAnimationFrame(wireDragRaf);
         wireDragRaf = null;
       }
-      const el = document.elementFromPoint(e.clientX, e.clientY);
-      const toPort = el?.closest<HTMLButtonElement>(".builder-port");
+      const stack = document.elementsFromPoint(e.clientX, e.clientY);
+      const toPort =
+        stack
+          .map((node) => node.closest<HTMLButtonElement>(".builder-port"))
+          .find((port): port is HTMLButtonElement => port !== null) ?? null;
       linkDrag = null;
       renderWireOverlay();
       if (!toPort) return;
