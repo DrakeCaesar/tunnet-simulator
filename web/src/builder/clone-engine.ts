@@ -3,6 +3,7 @@ import {
   BuilderLayer,
   BuilderLinkRoot,
   BuilderState,
+  isOuterLeafVoidSegment,
   isStaticOuterLeafEndpoint,
   LAYER_COUNTS,
   LAYER_ORDER,
@@ -134,6 +135,19 @@ function expandEntities(roots: BuilderEntityRoot[], opts?: { builderView?: boole
     }
     const count = LAYER_COUNTS[root.layer];
     for (let segment = 0; segment < count; segment += 1) {
+      if (
+        view &&
+        root.layer === "outer64" &&
+        (
+          // For roots placed in the merged 0.0.3.* area, keep only their primary instance.
+          isOuterLeafVoidSegment(root.segmentIndex)
+            ? segment !== root.segmentIndex
+            : // For non-void outer roots, never mirror into 0.0.3.* segments.
+              isOuterLeafVoidSegment(segment) && segment !== root.segmentIndex
+        )
+      ) {
+        continue;
+      }
       out.push({
         instanceId: instanceId(root.id, segment),
         rootId: root.id,

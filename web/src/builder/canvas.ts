@@ -486,6 +486,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   let draggingTemplate: BuilderTemplateType | null = null;
   let dragLayer: BuilderLayer | null = null;
   let dragSegment: number | null = null;
+  let dragOuterVoid = false;
   let selection: Selection = null;
   let linkDrag: { from: LinkSourceSelection; endClient: { x: number; y: number } } | null = null;
   let dragRenderRaf: number | null = null;
@@ -717,14 +718,26 @@ export function mountBuilderView(options: BuilderMountOptions): void {
 
   function previewInstances(): Set<string> {
     if (!draggingTemplate || dragLayer === null || dragSegment === null) {
+      if (!(draggingTemplate && dragOuterVoid)) {
+        return new Set<string>();
+      }
+    }
+    let previewLayer = dragLayer;
+    let previewSegment = dragSegment;
+    if (dragOuterVoid) {
+      previewLayer = "outer64";
+      // Use one representative segment for preview; render path merges 12-15 into one slot.
+      previewSegment = 12;
+    }
+    if (previewLayer === null || previewSegment === null) {
       return new Set<string>();
     }
     const previewRoot: BuilderEntityRoot = {
       id: "preview",
       groupId: "preview",
       templateType: draggingTemplate,
-      layer: dragLayer,
-      segmentIndex: dragSegment,
+      layer: previewLayer,
+      segmentIndex: previewSegment,
       x: 0.08,
       y: 0.08,
       settings: defaultSettings(draggingTemplate),
@@ -1265,8 +1278,9 @@ export function mountBuilderView(options: BuilderMountOptions): void {
                     ? OUTER_CANVAS_VOID_MERGE_KEY
                     : `${layer}:${segment as number}`;
                   const entities = entitiesByLayerSegment.get(key) ?? [];
-                  const isDropTarget =
-                    !isOuterVoid && dragLayer === layer && dragSegment === (segment as number);
+                  const isDropTarget = isOuterVoid
+                    ? dragOuterVoid && dragLayer === "outer64"
+                    : dragLayer === layer && dragSegment === (segment as number);
                   return `
                     <div class="builder-segment ${isDropTarget ? "drop-target" : ""} ${
                       isOuterVoid ? "builder-segment--outer-void-merged" : ""
@@ -1497,9 +1511,11 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       const target = ev.target as HTMLElement | null;
       const cell = target?.closest<HTMLElement>(".builder-segment");
       if (!cell) return;
-      if (cell.dataset.voidOuter === "1") {
-        if (dragLayer !== null || dragSegment !== null) {
-          dragLayer = null;
+      const isOuterVoid = cell.dataset.voidOuter === "1";
+      if (isOuterVoid) {
+        if (!dragOuterVoid || dragLayer !== "outer64" || dragSegment !== null) {
+          dragOuterVoid = true;
+          dragLayer = "outer64";
           dragSegment = null;
           renderCanvas();
         }
@@ -1508,7 +1524,8 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       const nextLayer = cell.dataset.layer as BuilderLayer;
       const nextSegment = Number(cell.dataset.segment);
       if (Number.isNaN(nextSegment)) return;
-      if (dragLayer !== nextLayer || dragSegment !== nextSegment) {
+      if (dragOuterVoid || dragLayer !== nextLayer || dragSegment !== nextSegment) {
+        dragOuterVoid = false;
         dragLayer = nextLayer;
         dragSegment = nextSegment;
         renderCanvas();
@@ -1520,7 +1537,6 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       const target = ev.target as HTMLElement | null;
       const cell = target?.closest<HTMLElement>(".builder-segment");
       if (!cell) return;
-      if (cell.dataset.voidOuter === "1") return;
       const rawDroppedTemplate =
         draggingTemplate ??
         (ev.dataTransfer?.getData("text/plain") || null);
@@ -1530,17 +1546,26 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       const droppedTemplate: BuilderTemplateType = rawDroppedTemplate;
       if (!droppedTemplate) return;
       const layer = cell.dataset.layer as BuilderLayer;
-      const segment = Number(cell.dataset.segment);
-      if (Number.isNaN(segment)) return;
       const entitiesHost =
         cell.querySelector<HTMLElement>(".builder-segment-entities") ?? cell;
       const entitiesRect = entitiesHost.getBoundingClientRect();
       const px = (ev.clientX - entitiesRect.left) / Math.max(1, entitiesRect.width);
       const py = (ev.clientY - entitiesRect.top) / Math.max(1, entitiesRect.height);
+      const segment = (() => {
+        if (cell.dataset.voidOuter !== "1") {
+          const n = Number(cell.dataset.segment);
+          return Number.isNaN(n) ? null : n;
+        }
+        const relX = (ev.clientX - entitiesRect.left) / Math.max(1, entitiesRect.width);
+        const slot = Math.max(0, Math.min(3, Math.floor(relX * 4)));
+        return 12 + slot;
+      })();
+      if (segment === null) return;
       const rootEntity = createEntityRoot(state, droppedTemplate, layer, segment, px, py);
       state = { ...state, entities: [...state.entities, rootEntity] };
       persist();
       draggingTemplate = null;
+      dragOuterVoid = false;
       dragLayer = null;
       dragSegment = null;
       renderCanvas();
@@ -1550,7 +1575,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     const setDropEffectForHover = (ev: DragEvent): void => {
       if (!ev.dataTransfer) return;
       const cell = (ev.target as HTMLElement | null)?.closest<HTMLElement>(".builder-segment");
-      ev.dataTransfer.dropEffect = cell?.dataset.voidOuter === "1" ? "none" : "copy";
+      ev.dataTransfer.dropEffect = cell ? "copy" : "none";
     };
 
     canvasEl.ondragenter = (ev) => {
@@ -1566,6 +1591,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     canvasEl.ondragleave = (ev) => {
       const related = ev.relatedTarget as Node | null;
       if (!related || !canvasEl.contains(related)) {
+        dragOuterVoid = false;
         dragLayer = null;
         dragSegment = null;
         renderCanvas();
