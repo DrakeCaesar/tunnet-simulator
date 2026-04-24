@@ -591,3 +591,23 @@ export function updateEntityPosition(
     entities: state.entities.map((ent) => (ent.id === entityId ? { ...ent, x, y } : ent)),
   };
 }
+
+export function updateEntityPlacement(
+  state: BuilderState,
+  entityId: string,
+  layer: BuilderLayer,
+  segmentIndex: number,
+  x: number,
+  y: number,
+): BuilderState {
+  const ex = state.entities.find((en) => en.id === entityId);
+  if (ex && (ex.isStatic || isStaticOuterLeafEndpoint(ex))) {
+    return state;
+  }
+  return {
+    ...state,
+    entities: state.entities.map((ent) =>
+      ent.id === entityId ? { ...ent, layer, segmentIndex, x, y } : ent,
+    ),
+  };
+}

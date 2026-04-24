@@ -499,6 +499,15 @@ textarea {
   pointer-events: none;
 }
 
+.builder-drag-bounds {
+  position: absolute;
+  z-index: 5;
+  display: none;
+  border: 1px dashed rgba(249, 226, 175, 0.95);
+  background: rgba(249, 226, 175, 0.08);
+  pointer-events: none;
+}
+
 .builder-wire-overlay {
   position: absolute;
   inset: 0;

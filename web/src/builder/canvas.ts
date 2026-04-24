@@ -15,6 +15,7 @@ import {
   removeEntityGroup,
   removeLinkGroup,
   removeLinksTouchingInstancePort,
+  updateEntityPlacement,
   updateEntityPosition,
   updateEntitySettings,
 } from "./state";
@@ -651,8 +652,11 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   const canvasWrapEl = wireOverlayEl.parentElement as HTMLDivElement | null;
   const boxEl = document.createElement("div");
   boxEl.className = "builder-box-selection";
+  const dragBoundsEl = document.createElement("div");
+  dragBoundsEl.className = "builder-drag-bounds";
   if (canvasWrapEl) {
     canvasWrapEl.appendChild(boxEl);
+    canvasWrapEl.appendChild(dragBoundsEl);
   }
   const perfStats = new Map<BuilderPerfKey, BuilderPerfStat>();
   const PERF_EMA_ALPHA = 0.18;
@@ -844,6 +848,85 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     });
   }
 
+  function showDragGroupBounds(ids: string[]): void {
+    if (!canvasWrapEl) return;
+    if (!ids.length) {
+      dragBoundsEl.style.display = "none";
+      return;
+    }
+    const wrapRect = canvasWrapEl.getBoundingClientRect();
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    ids.forEach((id) => {
+      const ent = state.entities.find((e) => e.id === id);
+      if (!ent) return;
+      const host = segmentEntitiesHost(ent.layer, ent.segmentIndex);
+      if (!host) return;
+      const hostRect = host.getBoundingClientRect();
+      const hostLeft = hostRect.left - wrapRect.left + canvasWrapEl.scrollLeft;
+      const hostTop = hostRect.top - wrapRect.top + canvasWrapEl.scrollTop;
+      const fp = entityFootprintOffsets(ent);
+      const gx1 = ent.x + fp.left;
+      const gy1 = ent.y + fp.top;
+      const gx2 = ent.x + fp.right + 1;
+      const gy2 = ent.y + fp.bottom + 1;
+      const x1 = hostLeft + gx1 * BUILDER_GRID_TILE_SIZE_X_PX;
+      const y1 = hostTop + gy1 * BUILDER_GRID_TILE_SIZE_Y_PX;
+      const x2 = hostLeft + gx2 * BUILDER_GRID_TILE_SIZE_X_PX;
+      const y2 = hostTop + gy2 * BUILDER_GRID_TILE_SIZE_Y_PX;
+      minX = Math.min(minX, x1);
+      minY = Math.min(minY, y1);
+      maxX = Math.max(maxX, x2);
+      maxY = Math.max(maxY, y2);
+    });
+    if (!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(maxX) || !Number.isFinite(maxY)) {
+      dragBoundsEl.style.display = "none";
+      return;
+    }
+    dragBoundsEl.style.display = "block";
+    dragBoundsEl.style.left = `${minX}px`;
+    dragBoundsEl.style.top = `${minY}px`;
+    dragBoundsEl.style.width = `${Math.max(0, maxX - minX)}px`;
+    dragBoundsEl.style.height = `${Math.max(0, maxY - minY)}px`;
+  }
+
+  function hideDragGroupBounds(): void {
+    dragBoundsEl.style.display = "none";
+    dragBoundsEl.style.width = "0px";
+    dragBoundsEl.style.height = "0px";
+  }
+
+  function entityFootprintOffsets(entity: BuilderEntityRoot): {
+    left: number;
+    right: number;
+    top: number;
+    bottom: number;
+  } {
+    if (entity.templateType === "hub") {
+      // Hub anchor is its center cell.
+      return { left: -1, right: 1, top: -1, bottom: 1 };
+    }
+    if (entity.templateType === "relay") {
+      // Relay anchor is top-left of a 2x2 footprint.
+      return { left: 0, right: 1, top: 0, bottom: 1 };
+    }
+    if (entity.templateType === "filter") {
+      // Filter anchor is top-left.
+      const width = hideEntityPropertyLabels ? 6 : 9;
+      const height = 11;
+      return { left: 0, right: width - 1, top: 0, bottom: height - 1 };
+    }
+    if (entity.templateType === "endpoint") {
+      // Endpoint anchor is top-left.
+      const width = hideEntityPropertyLabels ? 6 : 9;
+      const height = 3;
+      return { left: 0, right: width - 1, top: 0, bottom: height - 1 };
+    }
+    return { left: 0, right: 0, top: 0, bottom: 0 };
+  }
+
   function setSelection(next: Selection): void {
     selection = next;
     selectedEntityRootIds.clear();
@@ -875,7 +958,49 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     return { left, top };
   }
 
-  function applyCopyGhostPositions(posById: Map<string, { x: number; y: number }>): void {
+  type DragPlacement = { layer: BuilderLayer; segment: number; x: number; y: number };
+
+  function segmentEntitiesHost(layer: BuilderLayer, segment: number): HTMLElement | null {
+    if (layer === "outer64" && isOuterLeafVoidSegment(segment)) {
+      const outerVoidCell = canvasEl.querySelector<HTMLElement>('.builder-segment[data-layer="outer64"][data-void-outer="1"]');
+      return outerVoidCell?.querySelector<HTMLElement>(".builder-segment-entities") ?? outerVoidCell ?? null;
+    }
+    const cell = canvasEl.querySelector<HTMLElement>(
+      `.builder-segment[data-layer="${layer}"][data-segment="${segment}"]`,
+    );
+    return cell?.querySelector<HTMLElement>(".builder-segment-entities") ?? cell ?? null;
+  }
+
+  function segmentFromClientPoint(clientX: number, clientY: number): {
+    layer: BuilderLayer;
+    segment: number;
+    host: HTMLElement;
+    rect: DOMRect;
+    widthPx: number;
+    heightPx: number;
+  } | null {
+    const cell =
+      document
+        .elementsFromPoint(clientX, clientY)
+        .map((node) => node.closest<HTMLElement>(".builder-segment"))
+        .find((seg): seg is HTMLElement => seg !== null) ?? null;
+    if (!cell) return null;
+    const layer = cell.dataset.layer as BuilderLayer;
+    const host = cell.querySelector<HTMLElement>(".builder-segment-entities") ?? cell;
+    const rect = host.getBoundingClientRect();
+    const widthPx = Math.max(1, host.clientWidth);
+    const heightPx = Math.max(1, host.clientHeight);
+    if (cell.dataset.voidOuter === "1") {
+      const relX = (clientX - rect.left) / Math.max(1, host.clientWidth);
+      const slot = Math.max(0, Math.min(3, Math.floor(relX * 4)));
+      return { layer: "outer64", segment: 12 + slot, host, rect, widthPx, heightPx };
+    }
+    const segment = Number(cell.dataset.segment);
+    if (Number.isNaN(segment)) return null;
+    return { layer, segment, host, rect, widthPx, heightPx };
+  }
+
+  function applyCopyGhostPositions(posById: Map<string, DragPlacement>): void {
     canvasEl.querySelectorAll<HTMLElement>(".builder-entity.copy-ghost-preview").forEach((el) => {
       el.remove();
     });
@@ -890,14 +1015,14 @@ export function mountBuilderView(options: BuilderMountOptions): void {
           ghostEl.removeAttribute("data-root-id");
           ghostEl.style.left = left;
           ghostEl.style.top = top;
-          srcEl.parentElement?.appendChild(ghostEl);
+          (segmentEntitiesHost(pos.layer, pos.segment) ?? srcEl.parentElement)?.appendChild(ghostEl);
         });
     });
   }
 
   function commitCopiedGroup(
     sourceRootIds: string[],
-    targetPosBySourceId: Map<string, { x: number; y: number }>,
+    targetPosBySourceId: Map<string, DragPlacement>,
   ): void {
     const sourceSet = new Set(sourceRootIds);
     let nextState = state;
@@ -909,8 +1034,8 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       const created = createEntityRoot(
         nextState,
         src.templateType,
-        src.layer,
-        src.segmentIndex,
+        targetPos.layer,
+        targetPos.segment,
         targetPos.x,
         targetPos.y,
       );
@@ -943,6 +1068,49 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     persist();
     renderCanvas();
     renderInspector();
+  }
+
+  function createCopiedGroupInPlace(sourceRootIds: string[]): Map<string, string> {
+    const sourceSet = new Set(sourceRootIds);
+    let nextState = state;
+    const idMap = new Map<string, string>();
+    sourceRootIds.forEach((srcId) => {
+      const src = state.entities.find((e) => e.id === srcId);
+      if (!src || isStaticOuterLeafEndpoint(src)) return;
+      const created = createEntityRoot(
+        nextState,
+        src.templateType,
+        src.layer,
+        src.segmentIndex,
+        src.x,
+        src.y,
+      );
+      nextState = { ...nextState, entities: [...nextState.entities, created] };
+      nextState = updateEntitySettings(nextState, created.id, { ...src.settings });
+      idMap.set(srcId, created.id);
+    });
+    state.links.forEach((link) => {
+      if (!sourceSet.has(link.fromEntityId) || !sourceSet.has(link.toEntityId)) return;
+      const fromId = idMap.get(link.fromEntityId);
+      const toId = idMap.get(link.toEntityId);
+      if (!fromId || !toId) return;
+      const createdLink = createLinkRoot(
+        nextState,
+        fromId,
+        link.fromPort,
+        toId,
+        link.toPort,
+        {
+          fromSegmentIndex: link.fromSegmentIndex,
+          toSegmentIndex: link.toSegmentIndex,
+          sameLayerSegmentDelta: link.sameLayerSegmentDelta,
+          crossLayerBlockSlot: link.crossLayerBlockSlot,
+        },
+      );
+      nextState = { ...nextState, links: [...nextState.links, createdLink] };
+    });
+    state = nextState;
+    return idMap;
   }
 
   function currentEntitySelectionSet(): Set<string> {
@@ -1454,30 +1622,12 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     const seg = entityEl.closest<HTMLElement>(".builder-segment");
     if (!rootEnt || !seg) return;
     if (isStaticOuterLeafEndpoint(rootEnt)) return;
-    const movingRootIds = selectedEntityIdsForAction(rootEnt.id)
+    let movingRootIds = selectedEntityIdsForAction(rootEnt.id)
       .filter((id) => {
         const e = state.entities.find((x) => x.id === id);
         return !!e && !isStaticOuterLeafEndpoint(e);
       });
-    const initialPosById = new Map<string, { x: number; y: number }>();
-    movingRootIds.forEach((id) => {
-      const e = state.entities.find((x) => x.id === id);
-      if (e) initialPosById.set(id, { x: e.x, y: e.y });
-    });
-    const boundsById = new Map<string, { maxX: number; maxY: number }>();
-    movingRootIds.forEach((id) => {
-      const entityAny = canvasEl.querySelector<HTMLElement>(`.builder-entity[data-root-id="${id}"]`);
-      const host =
-        entityAny?.closest<HTMLElement>(".builder-segment")?.querySelector<HTMLElement>(".builder-segment-entities") ??
-        seg.querySelector<HTMLElement>(".builder-segment-entities") ??
-        seg;
-      const w = Math.max(1, host.clientWidth);
-      const h = Math.max(1, host.clientHeight);
-      boundsById.set(id, {
-        maxX: Math.max(0, Math.floor(w / BUILDER_GRID_TILE_SIZE_X_PX) - 1),
-        maxY: Math.max(0, Math.floor(h / BUILDER_GRID_TILE_SIZE_Y_PX) - 1),
-      });
-    });
+    let rootDragId = rootEnt.id;
     if (rootEnt.templateType === "relay") {
       const relayRect = entityEl.getBoundingClientRect();
       const coreEl = entityEl.querySelector<HTMLElement>(".builder-relay-core");
@@ -1566,58 +1716,200 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       }
       ev.preventDefault();
       if (hubMode === "move") {
-        const entitiesHost =
-          seg.querySelector<HTMLElement>(".builder-segment-entities") ?? seg;
-        const segRect = entitiesHost.getBoundingClientRect();
-        const segWidthPx = Math.max(1, entitiesHost.clientWidth);
-        const segHeightPx = Math.max(1, entitiesHost.clientHeight);
-        const anchorX = (ev.clientX - segRect.left) / BUILDER_GRID_TILE_SIZE_X_PX - 0.5;
-        const anchorY = (ev.clientY - segRect.top) / BUILDER_GRID_TILE_SIZE_Y_PX - 0.5;
-        const rx = rootEnt.x;
-        const ry = rootEnt.y;
+        if (ev.ctrlKey) {
+          const idMap = createCopiedGroupInPlace(movingRootIds);
+          const copiedIds = Array.from(idMap.values());
+          if (!copiedIds.length) return;
+          movingRootIds = copiedIds;
+          rootDragId = idMap.get(rootEnt.id) ?? rootEnt.id;
+          setEntitySelectionSet(new Set(movingRootIds));
+          renderCanvas();
+        }
+        const rootDragEnt = state.entities.find((e) => e.id === rootDragId);
+        if (!rootDragEnt) return;
+        const initialPlacementById = new Map<string, { layer: BuilderLayer; segment: number; x: number; y: number }>();
+        movingRootIds.forEach((id) => {
+          const e = state.entities.find((x) => x.id === id);
+          if (!e) return;
+          initialPlacementById.set(id, { layer: e.layer, segment: e.segmentIndex, x: e.x, y: e.y });
+        });
+        const layerOrder = orderedLayersTopDown();
+        const rootInitialLayerIdx = Math.max(0, layerOrder.indexOf(rootDragEnt.layer));
+        const rootInitialSegment = rootDragEnt.segmentIndex;
+        const boundsCache = new Map<string, { maxX: number; maxY: number }>();
+        const boundsFor = (layer: BuilderLayer, segment: number): { maxX: number; maxY: number } => {
+          const key = `${layer}:${segment}`;
+          const cached = boundsCache.get(key);
+          if (cached) return cached;
+          const host = segmentEntitiesHost(layer, segment);
+          const w = Math.max(1, host?.clientWidth ?? 1);
+          const h = Math.max(1, host?.clientHeight ?? 1);
+          const next = {
+            maxX: Math.max(0, Math.floor(w / BUILDER_GRID_TILE_SIZE_X_PX) - 1),
+            maxY: Math.max(0, Math.floor(h / BUILDER_GRID_TILE_SIZE_Y_PX) - 1),
+          };
+          boundsCache.set(key, next);
+          return next;
+        };
+        const clampToRange = (value: number, min: number, max: number): number =>
+          Math.max(min, Math.min(max, value));
+        const buildGroupPlacements = (
+          section: { layer: BuilderLayer; segment: number },
+          primaryX: number,
+          primaryY: number,
+        ): Map<string, DragPlacement> => {
+          const placements = new Map<string, DragPlacement>();
+          const primaryInitial = initialPlacementById.get(rootDragEnt.id) ?? {
+            layer: rootDragEnt.layer,
+            segment: rootDragEnt.segmentIndex,
+            x: rootDragEnt.x,
+            y: rootDragEnt.y,
+          };
+          const rawLayerDelta = layerOrder.indexOf(section.layer) - rootInitialLayerIdx;
+          let minLayerDelta = -Infinity;
+          let maxLayerDelta = Infinity;
+          movingRootIds.forEach((id) => {
+            const p0 = initialPlacementById.get(id);
+            if (!p0) return;
+            const idx = layerOrder.indexOf(p0.layer);
+            minLayerDelta = Math.max(minLayerDelta, -idx);
+            maxLayerDelta = Math.min(maxLayerDelta, layerOrder.length - 1 - idx);
+          });
+          if (minLayerDelta > maxLayerDelta) {
+            return placements;
+          }
+          const layerDelta = clampToRange(rawLayerDelta, minLayerDelta, maxLayerDelta);
+          const targetById = new Map<string, { p0: { layer: BuilderLayer; segment: number; x: number; y: number }; layer: BuilderLayer; segment: number }>();
+          let minSegmentDelta = -Infinity;
+          let maxSegmentDelta = Infinity;
+          movingRootIds.forEach((id) => {
+            const p0 = initialPlacementById.get(id);
+            if (!p0) return;
+            const baseLayerIdx = layerOrder.indexOf(p0.layer);
+            const targetLayer = layerOrder[baseLayerIdx + layerDelta]!;
+            const layerMaxSegment = layerColumns(targetLayer).length - 1;
+            minSegmentDelta = Math.max(minSegmentDelta, -p0.segment);
+            maxSegmentDelta = Math.min(maxSegmentDelta, layerMaxSegment - p0.segment);
+            targetById.set(id, { p0, layer: targetLayer, segment: p0.segment });
+          });
+          const rawSegmentDelta = section.segment - rootInitialSegment;
+          const segmentDelta = clampToRange(rawSegmentDelta, minSegmentDelta, maxSegmentDelta);
+          if (minSegmentDelta > maxSegmentDelta) {
+            return placements;
+          }
+          let minDx = -Infinity;
+          let maxDx = Infinity;
+          let minDy = -Infinity;
+          let maxDy = Infinity;
+          targetById.forEach((t, id) => {
+            const targetSegment = t.p0.segment + segmentDelta;
+            t.segment = targetSegment;
+            const b = boundsFor(t.layer, targetSegment);
+            const ent = state.entities.find((e) => e.id === id);
+            if (!ent) {
+              minDx = Infinity;
+              maxDx = -Infinity;
+              minDy = Infinity;
+              maxDy = -Infinity;
+              return;
+            }
+            const fp = entityFootprintOffsets(ent);
+            const minX = -fp.left;
+            const maxX = b.maxX - fp.right;
+            const minY = -fp.top;
+            const maxY = b.maxY - fp.bottom;
+            if (minX > maxX || minY > maxY) {
+              minDx = Infinity;
+              maxDx = -Infinity;
+              minDy = Infinity;
+              maxDy = -Infinity;
+              return;
+            }
+            minDx = Math.max(minDx, minX - t.p0.x);
+            maxDx = Math.min(maxDx, maxX - t.p0.x);
+            minDy = Math.max(minDy, minY - t.p0.y);
+            maxDy = Math.min(maxDy, maxY - t.p0.y);
+          });
+          if (minDx > maxDx || minDy > maxDy) {
+            return placements;
+          }
+          const dxGrid = clampToRange(primaryX - primaryInitial.x, minDx, maxDx);
+          const dyGrid = clampToRange(primaryY - primaryInitial.y, minDy, maxDy);
+          targetById.forEach((t, id) => {
+            placements.set(id, {
+              layer: t.layer,
+              segment: t.segment,
+              x: t.p0.x + dxGrid,
+              y: t.p0.y + dyGrid,
+            });
+          });
+          return placements;
+        };
+        const initialSection = segmentFromClientPoint(ev.clientX, ev.clientY);
+        const initialHost =
+          initialSection?.host ?? segmentEntitiesHost(rootDragEnt.layer, rootDragEnt.segmentIndex) ?? seg;
+        const initialRect = initialSection?.rect ?? initialHost.getBoundingClientRect();
+        const anchorX = (ev.clientX - initialRect.left) / BUILDER_GRID_TILE_SIZE_X_PX - 0.5;
+        const anchorY = (ev.clientY - initialRect.top) / BUILDER_GRID_TILE_SIZE_Y_PX - 0.5;
+        const rx = rootDragEnt.x;
+        const ry = rootDragEnt.y;
         const dx = anchorX - rx;
         const dy = anchorY - ry;
         let lastX = rx;
         let lastY = ry;
-        const copyOnDrop = ev.ctrlKey;
-        let copyMoved = false;
-        const copyPreviewById = new Map<string, { x: number; y: number }>();
+        let lastLayer = rootEnt.layer;
+        let lastSegment = rootEnt.segmentIndex;
         const onMove = (mv: MouseEvent): void => {
-          const rawX = (mv.clientX - segRect.left) / BUILDER_GRID_TILE_SIZE_X_PX - 0.5 - dx;
-          const rawY = (mv.clientY - segRect.top) / BUILDER_GRID_TILE_SIZE_Y_PX - 0.5 - dy;
+          const hoveredSection = segmentFromClientPoint(mv.clientX, mv.clientY);
+          if (!hoveredSection) return;
+          const section = hoveredSection;
+          const rawX = (mv.clientX - section.rect.left) / BUILDER_GRID_TILE_SIZE_X_PX - 0.5 - dx;
+          const rawY = (mv.clientY - section.rect.top) / BUILDER_GRID_TILE_SIZE_Y_PX - 0.5 - dy;
           const clamped = clampGridToSectionBounds(
             Math.round(rawX),
             Math.round(rawY),
-            segWidthPx,
-            segHeightPx,
+            section.widthPx,
+            section.heightPx,
           );
           const x = clamped.x;
           const y = clamped.y;
-          if (x === lastX && y === lastY) {
+          const placements = buildGroupPlacements(section, x, y);
+          const rootPlacement = placements.get(rootDragEnt.id);
+          if (!rootPlacement) return;
+          if (
+            rootPlacement.x === lastX &&
+            rootPlacement.y === lastY &&
+            rootPlacement.layer === lastLayer &&
+            rootPlacement.segment === lastSegment
+          ) {
             return;
           }
-          lastX = x;
-          lastY = y;
-          const primaryInitial = initialPosById.get(rootEnt.id) ?? { x: rx, y: ry };
-          const dxGrid = x - primaryInitial.x;
-          const dyGrid = y - primaryInitial.y;
-          movingRootIds.forEach((id) => {
-            const p0 = initialPosById.get(id);
-            const b = boundsById.get(id);
-            if (!p0 || !b) return;
-            const nx = Math.max(0, Math.min(b.maxX, p0.x + dxGrid));
-            const ny = Math.max(0, Math.min(b.maxY, p0.y + dyGrid));
-            if (copyOnDrop) {
-              copyPreviewById.set(id, { x: nx, y: ny });
-              if (nx !== p0.x || ny !== p0.y) copyMoved = true;
+          lastX = rootPlacement.x;
+          lastY = rootPlacement.y;
+          lastLayer = rootPlacement.layer;
+          lastSegment = rootPlacement.segment;
+          let shouldRerender = false;
+          placements.forEach((nextPlacement, id) => {
+            const p0 = initialPlacementById.get(id);
+            if (!p0) return;
+            const nx = nextPlacement.x;
+            const ny = nextPlacement.y;
+            const targetLayer = nextPlacement.layer;
+            const targetSegment = nextPlacement.segment;
+            const cur = state.entities.find((e) => e.id === id);
+            if (!cur) return;
+            if (cur.layer !== targetLayer || cur.segmentIndex !== targetSegment) {
+              shouldRerender = true;
+              state = updateEntityPlacement(state, id, targetLayer, targetSegment, nx, ny);
             } else {
               state = updateEntityPosition(state, id, nx, ny);
               setEntityDomPosition(id, nx, ny);
             }
           });
-          if (copyOnDrop) {
-            applyCopyGhostPositions(copyPreviewById);
+          if (shouldRerender) {
+            renderCanvas();
           }
+          showDragGroupBounds(movingRootIds);
           scheduleWireOverlayRender();
         };
         const onUp = (): void => {
@@ -1627,14 +1919,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
             window.cancelAnimationFrame(dragRenderRaf);
             dragRenderRaf = null;
           }
-          if (copyOnDrop) {
-            if (copyMoved) {
-              commitCopiedGroup(movingRootIds, copyPreviewById);
-              return;
-            }
-            renderCanvas();
-            return;
-          }
+          hideDragGroupBounds();
           renderCanvas();
           persist();
           renderInspector();
@@ -1702,53 +1987,194 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     const entitiesHost =
       seg.querySelector<HTMLElement>(".builder-segment-entities") ?? seg;
     const segRect = entitiesHost.getBoundingClientRect();
-    const segWidthPx = Math.max(1, entitiesHost.clientWidth);
-    const segHeightPx = Math.max(1, entitiesHost.clientHeight);
     const anchorX = (ev.clientX - segRect.left) / BUILDER_GRID_TILE_SIZE_X_PX;
     const anchorY = (ev.clientY - segRect.top) / BUILDER_GRID_TILE_SIZE_Y_PX;
-    const dx = anchorX - rootEnt.x;
-    const dy = anchorY - rootEnt.y;
-    let lastX = rootEnt.x;
-    let lastY = rootEnt.y;
-    const copyOnDrop = ev.ctrlKey;
-    let copyMoved = false;
-    const copyPreviewById = new Map<string, { x: number; y: number }>();
+    if (ev.ctrlKey) {
+      const idMap = createCopiedGroupInPlace(movingRootIds);
+      const copiedIds = Array.from(idMap.values());
+      if (!copiedIds.length) return;
+      movingRootIds = copiedIds;
+      rootDragId = idMap.get(rootEnt.id) ?? rootEnt.id;
+      setEntitySelectionSet(new Set(movingRootIds));
+      renderCanvas();
+    }
+    const rootDragEnt = state.entities.find((e) => e.id === rootDragId);
+    if (!rootDragEnt) return;
+    const initialPlacementById = new Map<string, { layer: BuilderLayer; segment: number; x: number; y: number }>();
+    movingRootIds.forEach((id) => {
+      const e = state.entities.find((x) => x.id === id);
+      if (!e) return;
+      initialPlacementById.set(id, { layer: e.layer, segment: e.segmentIndex, x: e.x, y: e.y });
+    });
+    const layerOrder = orderedLayersTopDown();
+    const rootInitialLayerIdx = Math.max(0, layerOrder.indexOf(rootDragEnt.layer));
+    const rootInitialSegment = rootDragEnt.segmentIndex;
+    const boundsCache = new Map<string, { maxX: number; maxY: number }>();
+    const boundsFor = (layer: BuilderLayer, segment: number): { maxX: number; maxY: number } => {
+      const key = `${layer}:${segment}`;
+      const cached = boundsCache.get(key);
+      if (cached) return cached;
+      const host = segmentEntitiesHost(layer, segment);
+      const w = Math.max(1, host?.clientWidth ?? 1);
+      const h = Math.max(1, host?.clientHeight ?? 1);
+      const next = {
+        maxX: Math.max(0, Math.floor(w / BUILDER_GRID_TILE_SIZE_X_PX) - 1),
+        maxY: Math.max(0, Math.floor(h / BUILDER_GRID_TILE_SIZE_Y_PX) - 1),
+      };
+      boundsCache.set(key, next);
+      return next;
+    };
+    const clampToRange = (value: number, min: number, max: number): number =>
+      Math.max(min, Math.min(max, value));
+    const buildGroupPlacements = (
+      section: { layer: BuilderLayer; segment: number },
+      primaryX: number,
+      primaryY: number,
+    ): Map<string, DragPlacement> => {
+      const placements = new Map<string, DragPlacement>();
+      const primaryInitial = initialPlacementById.get(rootDragEnt.id) ?? {
+        layer: rootDragEnt.layer,
+        segment: rootDragEnt.segmentIndex,
+        x: rootDragEnt.x,
+        y: rootDragEnt.y,
+      };
+      const rawLayerDelta = layerOrder.indexOf(section.layer) - rootInitialLayerIdx;
+      let minLayerDelta = -Infinity;
+      let maxLayerDelta = Infinity;
+      movingRootIds.forEach((id) => {
+        const p0 = initialPlacementById.get(id);
+        if (!p0) return;
+        const idx = layerOrder.indexOf(p0.layer);
+        minLayerDelta = Math.max(minLayerDelta, -idx);
+        maxLayerDelta = Math.min(maxLayerDelta, layerOrder.length - 1 - idx);
+      });
+      if (minLayerDelta > maxLayerDelta) {
+        return placements;
+      }
+      const layerDelta = clampToRange(rawLayerDelta, minLayerDelta, maxLayerDelta);
+      const targetById = new Map<string, { p0: { layer: BuilderLayer; segment: number; x: number; y: number }; layer: BuilderLayer; segment: number }>();
+      let minSegmentDelta = -Infinity;
+      let maxSegmentDelta = Infinity;
+      movingRootIds.forEach((id) => {
+        const p0 = initialPlacementById.get(id);
+        if (!p0) return;
+        const baseLayerIdx = layerOrder.indexOf(p0.layer);
+        const targetLayer = layerOrder[baseLayerIdx + layerDelta]!;
+        const layerMaxSegment = layerColumns(targetLayer).length - 1;
+        minSegmentDelta = Math.max(minSegmentDelta, -p0.segment);
+        maxSegmentDelta = Math.min(maxSegmentDelta, layerMaxSegment - p0.segment);
+        targetById.set(id, { p0, layer: targetLayer, segment: p0.segment });
+      });
+      const rawSegmentDelta = section.segment - rootInitialSegment;
+      const segmentDelta = clampToRange(rawSegmentDelta, minSegmentDelta, maxSegmentDelta);
+      if (minSegmentDelta > maxSegmentDelta) {
+        return placements;
+      }
+      let minDx = -Infinity;
+      let maxDx = Infinity;
+      let minDy = -Infinity;
+      let maxDy = Infinity;
+      targetById.forEach((t, id) => {
+        const targetSegment = t.p0.segment + segmentDelta;
+        t.segment = targetSegment;
+        const b = boundsFor(t.layer, targetSegment);
+        const ent = state.entities.find((e) => e.id === id);
+        if (!ent) {
+          minDx = Infinity;
+          maxDx = -Infinity;
+          minDy = Infinity;
+          maxDy = -Infinity;
+          return;
+        }
+        const fp = entityFootprintOffsets(ent);
+        const minX = -fp.left;
+        const maxX = b.maxX - fp.right;
+        const minY = -fp.top;
+        const maxY = b.maxY - fp.bottom;
+        if (minX > maxX || minY > maxY) {
+          minDx = Infinity;
+          maxDx = -Infinity;
+          minDy = Infinity;
+          maxDy = -Infinity;
+          return;
+        }
+        minDx = Math.max(minDx, minX - t.p0.x);
+        maxDx = Math.min(maxDx, maxX - t.p0.x);
+        minDy = Math.max(minDy, minY - t.p0.y);
+        maxDy = Math.min(maxDy, maxY - t.p0.y);
+      });
+      if (minDx > maxDx || minDy > maxDy) {
+        return placements;
+      }
+      const dxGrid = clampToRange(primaryX - primaryInitial.x, minDx, maxDx);
+      const dyGrid = clampToRange(primaryY - primaryInitial.y, minDy, maxDy);
+      targetById.forEach((t, id) => {
+        placements.set(id, {
+          layer: t.layer,
+          segment: t.segment,
+          x: t.p0.x + dxGrid,
+          y: t.p0.y + dyGrid,
+        });
+      });
+      return placements;
+    };
+    const dx = anchorX - rootDragEnt.x;
+    const dy = anchorY - rootDragEnt.y;
+    let lastX = rootDragEnt.x;
+    let lastY = rootDragEnt.y;
+    let lastLayer = rootDragEnt.layer;
+    let lastSegment = rootDragEnt.segmentIndex;
     const onMove = (mv: MouseEvent): void => {
-      const rawX = (mv.clientX - segRect.left) / BUILDER_GRID_TILE_SIZE_X_PX - dx;
-      const rawY = (mv.clientY - segRect.top) / BUILDER_GRID_TILE_SIZE_Y_PX - dy;
+      const hoveredSection = segmentFromClientPoint(mv.clientX, mv.clientY);
+      if (!hoveredSection) return;
+      const section = hoveredSection;
+      const rawX = (mv.clientX - section.rect.left) / BUILDER_GRID_TILE_SIZE_X_PX - dx;
+      const rawY = (mv.clientY - section.rect.top) / BUILDER_GRID_TILE_SIZE_Y_PX - dy;
       const clamped = clampGridToSectionBounds(
         Math.round(rawX),
         Math.round(rawY),
-        segWidthPx,
-        segHeightPx,
+        section.widthPx,
+        section.heightPx,
       );
       const x = clamped.x;
       const y = clamped.y;
-      if (x === lastX && y === lastY) {
+      const placements = buildGroupPlacements(section, x, y);
+      const rootPlacement = placements.get(rootDragEnt.id);
+      if (!rootPlacement) return;
+      if (
+        rootPlacement.x === lastX &&
+        rootPlacement.y === lastY &&
+        rootPlacement.layer === lastLayer &&
+        rootPlacement.segment === lastSegment
+      ) {
         return;
       }
-      lastX = x;
-      lastY = y;
-      const primaryInitial = initialPosById.get(rootEnt.id) ?? { x: rootEnt.x, y: rootEnt.y };
-      const dxGrid = x - primaryInitial.x;
-      const dyGrid = y - primaryInitial.y;
-      movingRootIds.forEach((id) => {
-        const p0 = initialPosById.get(id);
-        const b = boundsById.get(id);
-        if (!p0 || !b) return;
-        const nx = Math.max(0, Math.min(b.maxX, p0.x + dxGrid));
-        const ny = Math.max(0, Math.min(b.maxY, p0.y + dyGrid));
-        if (copyOnDrop) {
-          copyPreviewById.set(id, { x: nx, y: ny });
-          if (nx !== p0.x || ny !== p0.y) copyMoved = true;
+      lastX = rootPlacement.x;
+      lastY = rootPlacement.y;
+      lastLayer = rootPlacement.layer;
+      lastSegment = rootPlacement.segment;
+      let shouldRerender = false;
+      placements.forEach((nextPlacement, id) => {
+        const p0 = initialPlacementById.get(id);
+        if (!p0) return;
+        const nx = nextPlacement.x;
+        const ny = nextPlacement.y;
+        const targetLayer = nextPlacement.layer;
+        const targetSegment = nextPlacement.segment;
+        const cur = state.entities.find((e) => e.id === id);
+        if (!cur) return;
+        if (cur.layer !== targetLayer || cur.segmentIndex !== targetSegment) {
+          shouldRerender = true;
+          state = updateEntityPlacement(state, id, targetLayer, targetSegment, nx, ny);
         } else {
           state = updateEntityPosition(state, id, nx, ny);
           setEntityDomPosition(id, nx, ny);
         }
       });
-      if (copyOnDrop) {
-        applyCopyGhostPositions(copyPreviewById);
+      if (shouldRerender) {
+        renderCanvas();
       }
+      showDragGroupBounds(movingRootIds);
       scheduleWireOverlayRender();
     };
     const onUp = (): void => {
@@ -1758,14 +2184,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
         window.cancelAnimationFrame(dragRenderRaf);
         dragRenderRaf = null;
       }
-      if (copyOnDrop) {
-        if (copyMoved) {
-          commitCopiedGroup(movingRootIds, copyPreviewById);
-          return;
-        }
-        renderCanvas();
-        return;
-      }
+      hideDragGroupBounds();
       renderCanvas();
       persist();
       renderInspector();
@@ -2574,12 +2993,14 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     const rootEnt = rootId ? state.entities.find((e) => e.id === rootId) : null;
     const preserveMulti = !!rootId && selectedEntityRootIds.has(rootId);
     if (rootEnt?.templateType === "hub") {
+      ev.stopImmediatePropagation();
       startEntityDragFromElement(entityEl, ev);
       return;
     }
     if (rootId && !preserveMulti && !ev.shiftKey && !ev.ctrlKey) {
       setSelection({ kind: "entity", rootId });
     }
+    ev.stopImmediatePropagation();
     startEntityDragFromElement(entityEl, ev);
   });
 
