@@ -235,8 +235,8 @@ export function createEntityRoot(
   templateType: BuilderTemplateType,
   layer: BuilderLayer,
   segmentIndex: number,
-  x = 0.08,
-  y = 0.08,
+  x = 0,
+  y = 0,
 ): BuilderEntityRoot {
   const id = nextBuilderId(state, "e");
   return {
@@ -245,8 +245,8 @@ export function createEntityRoot(
     templateType,
     layer,
     segmentIndex,
-    x: Math.max(0, Math.min(1, x)),
-    y: Math.max(0, Math.min(1, y)),
+    x,
+    y,
     settings: normalizeEntitySettings(templateType, defaultSettings(templateType)),
   };
 }
@@ -566,10 +566,8 @@ export function updateEntityPosition(
   if (ex && (ex.isStatic || isStaticOuterLeafEndpoint(ex))) {
     return state;
   }
-  const nx = Math.max(0, Math.min(1, x));
-  const ny = Math.max(0, Math.min(1, y));
   return {
     ...state,
-    entities: state.entities.map((ent) => (ent.id === entityId ? { ...ent, x: nx, y: ny } : ent)),
+    entities: state.entities.map((ent) => (ent.id === entityId ? { ...ent, x, y } : ent)),
   };
 }

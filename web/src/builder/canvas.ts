@@ -36,6 +36,7 @@ import { compileBuilderToViewerPayload } from "./compile";
 
 const VIEWER_PREVIEW_KEY = "tunnet.builder.previewPayload";
 const BUILDER_CANVAS_SCALE_KEY = "tunnet.builder.canvasScale";
+const BUILDER_HIDE_PROP_LABELS_KEY = "tunnet.builder.hidePropertyLabels";
 const BUILDER_LAYER_GAP_PX = 5;
 const BUILDER_GRID_TILE_SIZE_X_PX = 20;
 const BUILDER_GRID_TILE_SIZE_Y_PX = 20;
@@ -513,6 +514,13 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     }
   };
   let canvasScale = loadCanvasScale();
+  const loadHidePropertyLabels = (): boolean => {
+    try {
+      return window.localStorage.getItem(BUILDER_HIDE_PROP_LABELS_KEY) === "1";
+    } catch {
+      return false;
+    }
+  };
 
   root.innerHTML = `
     <div class="builder-layout">
@@ -573,10 +581,14 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   const perfStats = new Map<BuilderPerfKey, BuilderPerfStat>();
   const PERF_EMA_ALPHA = 0.18;
   let perfCounts = { expandedEntities: 0, stateLinks: 0, expandedLinks: 0 };
-  let hideEntityPropertyLabels = false;
+  let hideEntityPropertyLabels = loadHidePropertyLabels();
 
   function persistCanvasScale(): void {
     window.localStorage.setItem(BUILDER_CANVAS_SCALE_KEY, JSON.stringify(canvasScale));
+  }
+
+  function persistHidePropertyLabels(): void {
+    window.localStorage.setItem(BUILDER_HIDE_PROP_LABELS_KEY, hideEntityPropertyLabels ? "1" : "0");
   }
 
   function applyCanvasScale(): void {
@@ -615,26 +627,35 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     };
   }
 
-  function rescaleEntityNormalizedPositionsAfterViewportResize(
-    before: Record<BuilderLayer, { width: number; height: number } | null>,
-    after: Record<BuilderLayer, { width: number; height: number } | null>,
-  ): void {
-    const clamp01 = (v: number): number => Math.max(0, Math.min(1, v));
+  function looksLikeLegacyNormalizedEntityPosition(x: number, y: number): boolean {
+    const inUnitRange = x >= 0 && x <= 1 && y >= 0 && y <= 1;
+    if (!inUnitRange) return false;
+    // New grid coordinates are integral tile indices; legacy values are mostly fractional.
+    return !Number.isInteger(x) || !Number.isInteger(y);
+  }
+
+  function migrateLegacyNormalizedEntityPositionsToGrid(): void {
+    const sizes = layerViewportSizes();
+    let changed = false;
     state = {
       ...state,
       entities: state.entities.map((entity) => {
-        const b = before[entity.layer];
-        const a = after[entity.layer];
-        if (!b || !a) return entity;
-        const scaleX = b.width / a.width;
-        const scaleY = b.height / a.height;
+        if (!looksLikeLegacyNormalizedEntityPosition(entity.x, entity.y)) {
+          return entity;
+        }
+        const layerSize = sizes[entity.layer];
+        if (!layerSize) return entity;
+        changed = true;
         return {
           ...entity,
-          x: clamp01(entity.x * scaleX),
-          y: clamp01(entity.y * scaleY),
+          x: Math.round((entity.x * layerSize.width) / BUILDER_GRID_TILE_SIZE_X_PX),
+          y: Math.round((entity.y * layerSize.height) / BUILDER_GRID_TILE_SIZE_Y_PX),
         };
       }),
     };
+    if (changed) {
+      persist();
+    }
   }
 
   function recordPerf(key: BuilderPerfKey, ms: number): void {
@@ -848,8 +869,8 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   }
 
   function setEntityDomPosition(rootId: string, x: number, y: number): void {
-    const left = `${x * 100}%`;
-    const top = `${y * 100}%`;
+    const left = `calc(${x} * var(--builder-grid-step-x))`;
+    const top = `calc(${y} * var(--builder-grid-step-y))`;
     canvasEl
       .querySelectorAll<HTMLElement>(`.builder-entity[data-root-id="${rootId}"]`)
       .forEach((entityEl) => {
@@ -881,28 +902,12 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       });
   }
 
-  function snapNormalizedToPixels(value: number, sizePx: number): number {
-    const safeSize = Math.max(1, sizePx);
-    return Math.round(value * safeSize) / safeSize;
+  function snapPixelToGridX(pixelX: number): number {
+    return Math.round(pixelX / BUILDER_GRID_TILE_SIZE_X_PX);
   }
 
-  function snapNormalizedToGridX(
-    value: number,
-    sectionWidthPx: number,
-  ): number {
-    const w = Math.max(1, sectionWidthPx);
-    const stepPx = BUILDER_GRID_TILE_SIZE_X_PX;
-    const px = value * w;
-    const snappedPx = Math.round(px / stepPx) * stepPx;
-    return snappedPx / w;
-  }
-
-  function snapNormalizedToGridY(value: number, sectionHeightPx: number): number {
-    const h = Math.max(1, sectionHeightPx);
-    const stepPx = BUILDER_GRID_TILE_SIZE_Y_PX;
-    const px = value * h;
-    const snappedPx = Math.round(px / stepPx) * stepPx;
-    return snappedPx / h;
+  function snapPixelToGridY(pixelY: number): number {
+    return Math.round(pixelY / BUILDER_GRID_TILE_SIZE_Y_PX);
   }
 
   function renderWireOverlay(): void {
@@ -1110,21 +1115,20 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       if (hubMode === "none") return;
       ev.preventDefault();
       if (hubMode === "move") {
-        const segRect = seg.getBoundingClientRect();
-        const anchorX = (ev.clientX - segRect.left) / Math.max(1, segRect.width);
-        const anchorY = (ev.clientY - segRect.top) / Math.max(1, segRect.height);
+        const entitiesHost =
+          seg.querySelector<HTMLElement>(".builder-segment-entities") ?? seg;
+        const segRect = entitiesHost.getBoundingClientRect();
+        const anchorX = (ev.clientX - segRect.left) / BUILDER_GRID_TILE_SIZE_X_PX;
+        const anchorY = (ev.clientY - segRect.top) / BUILDER_GRID_TILE_SIZE_Y_PX;
         const rx = rootEnt.x;
         const ry = rootEnt.y;
         const dx = anchorX - rx;
         const dy = anchorY - ry;
         const onMove = (mv: MouseEvent): void => {
-          const rawX = (mv.clientX - segRect.left) / Math.max(1, segRect.width) - dx;
-          const rawY = (mv.clientY - segRect.top) / Math.max(1, segRect.height) - dy;
-          const x = snapNormalizedToPixels(
-            snapNormalizedToGridX(rawX, segRect.width),
-            segRect.width,
-          );
-          const y = snapNormalizedToPixels(snapNormalizedToGridY(rawY, segRect.height), segRect.height);
+          const rawX = (mv.clientX - segRect.left) / BUILDER_GRID_TILE_SIZE_X_PX - dx;
+          const rawY = (mv.clientY - segRect.top) / BUILDER_GRID_TILE_SIZE_Y_PX - dy;
+          const x = Math.round(rawX);
+          const y = Math.round(rawY);
           state = updateEntityPosition(state, rootEnt.id, x, y);
           setEntityDomPosition(rootEnt.id, x, y);
           scheduleWireOverlayRender();
@@ -1185,19 +1189,18 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       return;
     }
     ev.preventDefault();
-    const segRect = seg.getBoundingClientRect();
-    const anchorX = (ev.clientX - segRect.left) / Math.max(1, segRect.width);
-    const anchorY = (ev.clientY - segRect.top) / Math.max(1, segRect.height);
+    const entitiesHost =
+      seg.querySelector<HTMLElement>(".builder-segment-entities") ?? seg;
+    const segRect = entitiesHost.getBoundingClientRect();
+    const anchorX = (ev.clientX - segRect.left) / BUILDER_GRID_TILE_SIZE_X_PX;
+    const anchorY = (ev.clientY - segRect.top) / BUILDER_GRID_TILE_SIZE_Y_PX;
     const dx = anchorX - rootEnt.x;
     const dy = anchorY - rootEnt.y;
     const onMove = (mv: MouseEvent): void => {
-      const rawX = (mv.clientX - segRect.left) / Math.max(1, segRect.width) - dx;
-      const rawY = (mv.clientY - segRect.top) / Math.max(1, segRect.height) - dy;
-      const x = snapNormalizedToPixels(
-        snapNormalizedToGridX(rawX, segRect.width),
-        segRect.width,
-      );
-      const y = snapNormalizedToPixels(snapNormalizedToGridY(rawY, segRect.height), segRect.height);
+      const rawX = (mv.clientX - segRect.left) / BUILDER_GRID_TILE_SIZE_X_PX - dx;
+      const rawY = (mv.clientY - segRect.top) / BUILDER_GRID_TILE_SIZE_Y_PX - dy;
+      const x = Math.round(rawX);
+      const y = Math.round(rawY);
       state = updateEntityPosition(state, rootEnt.id, x, y);
       setEntityDomPosition(rootEnt.id, x, y);
       scheduleWireOverlayRender();
@@ -1545,7 +1548,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
                                 data-instance-id="${entity.instanceId}"
                                 data-root-id="${entity.rootId}"
                                 data-static-endpoint="${isOuterStatic ? "1" : "0"}"
-                                style="left:${entity.x * 100}%;top:${entity.y * 100}%"
+                                style="left:calc(${entity.x} * var(--builder-grid-step-x));top:calc(${entity.y} * var(--builder-grid-step-y))"
                               >
                                 ${
                                   entity.templateType === "filter" || entity.templateType === "relay"
@@ -1629,20 +1632,14 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       const entitiesHost =
         cell.querySelector<HTMLElement>(".builder-segment-entities") ?? cell;
       const entitiesRect = entitiesHost.getBoundingClientRect();
-      const px = snapNormalizedToGridX(
-        (ev.clientX - entitiesRect.left) / Math.max(1, entitiesRect.width),
-        entitiesRect.width,
-      );
-      const py = snapNormalizedToGridY(
-        (ev.clientY - entitiesRect.top) / Math.max(1, entitiesRect.height),
-        entitiesRect.height,
-      );
+      const px = snapPixelToGridX(ev.clientX - entitiesRect.left);
+      const py = snapPixelToGridY(ev.clientY - entitiesRect.top);
       const segment = (() => {
         if (cell.dataset.voidOuter !== "1") {
           const n = Number(cell.dataset.segment);
           return Number.isNaN(n) ? null : n;
         }
-        const relX = (ev.clientX - entitiesRect.left) / Math.max(1, entitiesRect.width);
+        const relX = (ev.clientX - entitiesRect.left) / Math.max(1, entitiesHost.clientWidth);
         const slot = Math.max(0, Math.min(3, Math.floor(relX * 4)));
         return 12 + slot;
       })();
@@ -1826,6 +1823,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   togglePropLabelsBtn.addEventListener("click", () => {
     hideEntityPropertyLabels = !hideEntityPropertyLabels;
     applyPropertyLabelVisibility();
+    persistHidePropertyLabels();
   });
 
   exportBtn.addEventListener("click", async () => {
@@ -1951,28 +1949,18 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   window.addEventListener("resize", applyCanvasScale);
 
   scaleXEl.addEventListener("input", () => {
-    const before = layerViewportSizes();
     const parsed = Number(scaleXEl.value);
     canvasScale.x = clampCanvasScaleX(Number.isFinite(parsed) ? parsed : 1);
     applyCanvasScale();
-    const after = layerViewportSizes();
-    rescaleEntityNormalizedPositionsAfterViewportResize(before, after);
-    renderCanvas();
-    renderInspector();
   });
   scaleXEl.addEventListener("change", () => {
     persistCanvasScale();
     persist();
   });
   scaleYEl.addEventListener("input", () => {
-    const before = layerViewportSizes();
     const parsed = Number(scaleYEl.value);
     canvasScale.y = clampCanvasScaleY(Number.isFinite(parsed) ? parsed : 1);
     applyCanvasScale();
-    const after = layerViewportSizes();
-    rescaleEntityNormalizedPositionsAfterViewportResize(before, after);
-    renderCanvas();
-    renderInspector();
   });
   scaleYEl.addEventListener("change", () => {
     persistCanvasScale();
@@ -1983,6 +1971,8 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   renderInspector();
   renderCanvas();
   applyCanvasScale();
+  migrateLegacyNormalizedEntityPositionsToGrid();
+  renderCanvas();
   applyPropertyLabelVisibility();
   requestAnimationFrame(() => {
     applyCanvasScale();
