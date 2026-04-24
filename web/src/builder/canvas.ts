@@ -6,6 +6,10 @@ import {
   addLinkRootOneWirePerPort,
   createEmptyBuilderState,
   defaultSettings,
+  isStaticOuterLeafEndpoint,
+  isOuterLeafVoidSegment,
+  OUTER_CANVAS_VOID_MERGE_KEY,
+  rebuildStateWithOuterLeafEndpoints,
   removeEntityGroup,
   removeLinkGroup,
   updateEntityPosition,
@@ -16,6 +20,7 @@ import {
   expandLinks,
   layerColumns,
   layerTitle,
+  outerLayerBuilderColumnSlots,
   orderedLayersTopDown,
   segmentLabel,
 } from "./clone-engine";
@@ -273,11 +278,10 @@ interface LinkSourceSelection {
 }
 
 function templateList(): BuilderTemplateType[] {
-  return ["endpoint", "relay", "hub", "filter"];
+  return ["relay", "hub", "filter"];
 }
 
 function templateLabel(type: BuilderTemplateType): string {
-  if (type === "endpoint") return "Endpoint";
   if (type === "relay") return "Relay";
   if (type === "hub") return "Hub";
   return "Filter";
@@ -313,16 +317,19 @@ function buildFilterDescription(settings: Record<string, string>): string {
 
 export function mountBuilderView(options: BuilderMountOptions): void {
   const { root, onPreviewReady } = options;
-  let state = loadBuilderState();
-  if (!state || state.version !== 1) {
-    state = createEmptyBuilderState();
+  let raw = loadBuilderState();
+  if (!raw || raw.version !== 1) {
+    raw = createEmptyBuilderState();
   }
+  let state = rebuildStateWithOuterLeafEndpoints(raw);
 
   let draggingTemplate: BuilderTemplateType | null = null;
   let dragLayer: BuilderLayer | null = null;
   let dragSegment: number | null = null;
   let selection: Selection = null;
   let linkDrag: { from: LinkSourceSelection; endClient: { x: number; y: number } } | null = null;
+  let dragRenderRaf: number | null = null;
+  let wireDragRaf: number | null = null;
 
   root.innerHTML = `
     <div class="builder-layout">
@@ -412,9 +419,39 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       settings: defaultSettings(draggingTemplate),
     };
     return new Set(
-      expandBuilderState({ version: 1, entities: [previewRoot], links: [], nextId: 0 }).entities.map(
-        (entity) => `${entity.layer}:${entity.segmentIndex}`,
-      ),
+      expandBuilderState(
+        { version: 1, entities: [previewRoot], links: [], nextId: 0 },
+        { builderView: true },
+      ).entities.map((entity) => {
+        if (entity.layer === "outer64" && isOuterLeafVoidSegment(entity.segmentIndex)) {
+          return OUTER_CANVAS_VOID_MERGE_KEY;
+        }
+        return `${entity.layer}:${entity.segmentIndex}`;
+      }),
+    );
+  }
+
+  function resolveBuilderPortForWireOverlay(instanceId: string, port: number): HTMLButtonElement | null {
+    const byInstance = canvasEl.querySelector<HTMLButtonElement>(
+      `.builder-port[data-instance-id="${instanceId}"][data-port="${port}"]`,
+    );
+    if (byInstance) return byInstance;
+    const m = instanceId.match(/^(.+)@(\d+)$/);
+    if (!m) return null;
+    const rootId = m[1] ?? "";
+    const seg = Number(m[2]);
+    if (!Number.isInteger(seg) || seg < 0 || seg > 63) return null;
+    const root = state.entities.find((e) => e.id === rootId);
+    if (!root || !isStaticOuterLeafEndpoint(root) || root.layer !== "outer64") {
+      return null;
+    }
+    if (isOuterLeafVoidSegment(seg)) {
+      return canvasEl.querySelector<HTMLButtonElement>(
+        `.builder-segment[data-void-outer="1"] .builder-port[data-instance-id="${instanceId}"][data-port="${port}"]`,
+      );
+    }
+    return canvasEl.querySelector<HTMLButtonElement>(
+      `.builder-segment[data-layer="outer64"][data-segment="${seg}"] [data-static-endpoint="1"] .builder-port[data-port="${port}"]`,
     );
   }
 
@@ -428,12 +465,8 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     wireOverlayEl.setAttribute("height", String(Math.ceil(wrapRect.height)));
     wireOverlayEl.innerHTML = "";
     for (const link of viewLinks) {
-      const from = canvasEl.querySelector<HTMLButtonElement>(
-        `.builder-port[data-instance-id="${link.fromInstanceId}"][data-port="${link.fromPort}"]`,
-      );
-      const to = canvasEl.querySelector<HTMLButtonElement>(
-        `.builder-port[data-instance-id="${link.toInstanceId}"][data-port="${link.toPort}"]`,
-      );
+      const from = resolveBuilderPortForWireOverlay(String(link.fromInstanceId), link.fromPort);
+      const to = resolveBuilderPortForWireOverlay(String(link.toInstanceId), link.toPort);
       if (!from || !to) continue;
       const fromRect = from.getBoundingClientRect();
       const toRect = to.getBoundingClientRect();
@@ -473,31 +506,72 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     }
   }
 
+  function scheduleDragRender(): void {
+    if (dragRenderRaf !== null) return;
+    dragRenderRaf = window.requestAnimationFrame(() => {
+      dragRenderRaf = null;
+      renderCanvas();
+    });
+  }
+
+  function scheduleWireDragPaint(): void {
+    if (wireDragRaf !== null) return;
+    wireDragRaf = window.requestAnimationFrame(() => {
+      wireDragRaf = null;
+      renderWireOverlay();
+    });
+  }
+
   function renderCanvas(): void {
-    const expanded = expandBuilderState(state);
+    const expanded = expandBuilderState(state, { builderView: true });
     const previewKeys = previewInstances();
     const entitiesByLayerSegment = new Map<string, typeof expanded.entities>();
     expanded.entities.forEach((entity) => {
-      const key = `${entity.layer}:${entity.segmentIndex}`;
+      const key =
+        entity.layer === "outer64" && isOuterLeafVoidSegment(entity.segmentIndex)
+          ? OUTER_CANVAS_VOID_MERGE_KEY
+          : `${entity.layer}:${entity.segmentIndex}`;
       if (!entitiesByLayerSegment.has(key)) entitiesByLayerSegment.set(key, []);
       entitiesByLayerSegment.get(key)!.push(entity);
+    });
+    const staticRootIds = new Set(
+      state.entities.filter((e) => isStaticOuterLeafEndpoint(e)).map((e) => e.id),
+    );
+    entitiesByLayerSegment.forEach((list) => {
+      list.sort((a, b) => {
+        const aS = a.templateType === "endpoint" && a.layer === "outer64" && staticRootIds.has(a.rootId) ? 1 : 0;
+        const bS = b.templateType === "endpoint" && b.layer === "outer64" && staticRootIds.has(b.rootId) ? 1 : 0;
+        return aS - bS;
+      });
     });
 
     canvasEl.innerHTML = orderedLayersTopDown()
       .map((layer) => {
-        const columns = layerColumns(layer);
+        const columns = layer === "outer64" ? outerLayerBuilderColumnSlots() : layerColumns(layer);
         return `
           <section class="builder-layer">
             <div class="builder-layer-title">${layerTitle(layer)}</div>
             <div class="builder-layer-grid builder-layer-${layer}" data-layer="${layer}">
               ${columns
                 .map((segment) => {
-                  const key = `${layer}:${segment}`;
+                  const isOuterVoid = layer === "outer64" && segment === "void-12-15";
+                  const key = isOuterVoid
+                    ? OUTER_CANVAS_VOID_MERGE_KEY
+                    : `${layer}:${segment as number}`;
                   const entities = entitiesByLayerSegment.get(key) ?? [];
-                  const isDropTarget = dragLayer === layer && dragSegment === segment;
+                  const isDropTarget =
+                    !isOuterVoid && dragLayer === layer && dragSegment === (segment as number);
                   return `
-                    <div class="builder-segment ${isDropTarget ? "drop-target" : ""}" data-layer="${layer}" data-segment="${segment}">
-                      <div class="builder-segment-label">${segmentLabel(layer, segment)}</div>
+                    <div class="builder-segment ${isDropTarget ? "drop-target" : ""} ${
+                      isOuterVoid ? "builder-segment--outer-void-merged" : ""
+                    }" data-layer="${layer}" data-segment="${isOuterVoid ? "12-15" : String(segment)}"${
+                      isOuterVoid ? ` data-void-outer="1"` : ""
+                    }>
+                      <div class="builder-segment-label">${
+                        isOuterVoid
+                          ? "0.0.3.* (no endpoints)"
+                          : segmentLabel(layer, segment as number)
+                      }</div>
                       <div class="builder-segment-entities">
                         ${entities
                           .map((entity) => {
@@ -525,6 +599,33 @@ export function mountBuilderView(options: BuilderMountOptions): void {
                                 if (value === "drop_outbound") return "Drop<br/>Outbound";
                                 return "Send back<br/>Outbound";
                               })();
+                            const isOuterStatic =
+                              entity.templateType === "endpoint" &&
+                              entity.layer === "outer64" &&
+                              staticRootIds.has(entity.rootId);
+                            const addrParts = (entity.settings.address ?? "0.0.0.0").split(".");
+                            const endpointAddressBlock = isOuterStatic
+                              ? `
+                                  <div class="builder-filter-ui" data-root-id="${entity.rootId}">
+                                    <div class="builder-filter-left">
+                                      <div class="builder-row builder-row-endpoint-addr">
+                                        <span class="builder-row-label">Address:</span>
+                                        <div class="builder-mask-row builder-mask-row--readonly">
+                                          ${[0, 1, 2, 3]
+                                            .map(
+                                              (idx) => `
+                                                <div class="builder-mask-cell builder-mask-cell--readonly">
+                                                  <span class="builder-endpoint-addr-nib">${addrParts[idx] ?? "0"}</span>
+                                                </div>
+                                              `,
+                                            )
+                                            .join(`<span class="builder-mask-dot" aria-hidden="true">.</span>`)}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                `
+                              : "";
                             const filterControls =
                               entity.templateType === "filter"
                                 ? `
@@ -613,20 +714,22 @@ export function mountBuilderView(options: BuilderMountOptions): void {
         <button type="button" class="builder-hub-reverse" style="left:${hubOriginX}%;top:${hubOriginY}%;transform:translate(-50%,-50%)" data-hub-toggle-rotation data-root-id="${entity.rootId}" title="Reverse forwarding direction"><span class="builder-hub-reverse-icon" aria-hidden="true">${hubCw ? "↻" : "↺"}</span></button>
       </div>`
                                 : "";
-                            const entityShapeClass =
-                              entity.templateType === "filter"
+                            const entityShapeClass = isOuterStatic
+                              ? " builder-entity--filter builder-entity--outer-endpoint"
+                              : entity.templateType === "filter"
                                 ? " builder-entity--filter"
                                 : entity.templateType === "hub"
                                   ? " builder-entity--hub"
                                   : "";
                             const settingsBlock =
-                              entity.templateType === "filter" || entity.templateType === "hub"
+                              entity.templateType === "filter" || entity.templateType === "hub" || isOuterStatic
                                 ? ""
                                 : `<div class="builder-entity-settings">${settingsText}</div>`;
                             const portBtn = (port: number): string =>
                               `<button class="builder-port" data-instance-id="${entity.instanceId}" data-root-id="${entity.rootId}" data-port="${port}" type="button">${port}</button>`;
-                            const portsRow =
-                              entity.templateType === "filter"
+                            const portsRow = isOuterStatic
+                              ? `<div class="builder-ports builder-ports--filter-bottom builder-ports--endpoint-bottom">${portBtn(0)}</div>`
+                              : entity.templateType === "filter"
                                 ? `<div class="builder-ports builder-ports--filter-bottom">${portBtn(1)}</div>`
                                 : entity.templateType === "hub"
                                   ? ""
@@ -636,6 +739,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
                                 class="builder-entity ${selected} ${shadow} ${entityShapeClass}"
                                 data-instance-id="${entity.instanceId}"
                                 data-root-id="${entity.rootId}"
+                                data-static-endpoint="${isOuterStatic ? "1" : "0"}"
                                 style="left:${entity.x * 100}%;top:${entity.y * 100}%"
                               >
                                 ${
@@ -643,9 +747,14 @@ export function mountBuilderView(options: BuilderMountOptions): void {
                                     ? `<div class="builder-ports builder-ports--filter-top">${portBtn(0)}</div>`
                                     : ""
                                 }
-                                ${entity.templateType === "hub" ? "" : `<div class="builder-entity-title">${entity.templateType}</div>`}
+                                ${
+                                  entity.templateType === "hub" || isOuterStatic
+                                    ? ""
+                                    : `<div class="builder-entity-title">${entity.templateType}</div>`
+                                }
                                 ${settingsBlock}
                                 ${filterControls}
+                                ${endpointAddressBlock}
                                 ${hubBlock}
                                 ${portsRow}
                               </div>
@@ -668,8 +777,17 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       const target = ev.target as HTMLElement | null;
       const cell = target?.closest<HTMLElement>(".builder-segment");
       if (!cell) return;
+      if (cell.dataset.voidOuter === "1") {
+        if (dragLayer !== null || dragSegment !== null) {
+          dragLayer = null;
+          dragSegment = null;
+          renderCanvas();
+        }
+        return;
+      }
       const nextLayer = cell.dataset.layer as BuilderLayer;
       const nextSegment = Number(cell.dataset.segment);
+      if (Number.isNaN(nextSegment)) return;
       if (dragLayer !== nextLayer || dragSegment !== nextSegment) {
         dragLayer = nextLayer;
         dragSegment = nextSegment;
@@ -682,12 +800,14 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       const target = ev.target as HTMLElement | null;
       const cell = target?.closest<HTMLElement>(".builder-segment");
       if (!cell) return;
+      if (cell.dataset.voidOuter === "1") return;
       const droppedTemplate =
         draggingTemplate ??
         ((ev.dataTransfer?.getData("text/plain") as BuilderTemplateType | "") || null);
       if (!droppedTemplate) return;
       const layer = cell.dataset.layer as BuilderLayer;
       const segment = Number(cell.dataset.segment);
+      if (Number.isNaN(segment)) return;
       const segmentRect = cell.getBoundingClientRect();
       const px = (ev.clientX - segmentRect.left) / Math.max(1, segmentRect.width);
       const py = (ev.clientY - segmentRect.top) / Math.max(1, segmentRect.height);
@@ -701,14 +821,20 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     };
 
     // Delegated DnD handlers are more reliable than per-cell listeners while rerendering.
+    const setDropEffectForHover = (ev: DragEvent): void => {
+      if (!ev.dataTransfer) return;
+      const cell = (ev.target as HTMLElement | null)?.closest<HTMLElement>(".builder-segment");
+      ev.dataTransfer.dropEffect = cell?.dataset.voidOuter === "1" ? "none" : "copy";
+    };
+
     canvasEl.ondragenter = (ev) => {
       ev.preventDefault();
-      if (ev.dataTransfer) ev.dataTransfer.dropEffect = "copy";
+      setDropEffectForHover(ev);
       setHoverFromEvent(ev);
     };
     canvasEl.ondragover = (ev) => {
       ev.preventDefault();
-      if (ev.dataTransfer) ev.dataTransfer.dropEffect = "copy";
+      setDropEffectForHover(ev);
       setHoverFromEvent(ev);
     };
     canvasEl.ondragleave = (ev) => {
@@ -744,7 +870,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
         const onMove = (e: PointerEvent): void => {
           e.preventDefault();
           linkDrag = { from, endClient: { x: e.clientX, y: e.clientY } };
-          renderWireOverlay();
+          scheduleWireDragPaint();
         };
         let ended = false;
         const onEnd = (e: PointerEvent): void => {
@@ -754,6 +880,10 @@ export function mountBuilderView(options: BuilderMountOptions): void {
           window.removeEventListener("pointerup", onEnd);
           window.removeEventListener("pointercancel", onEnd);
           document.body.style.removeProperty("cursor");
+          if (wireDragRaf !== null) {
+            window.cancelAnimationFrame(wireDragRaf);
+            wireDragRaf = null;
+          }
           const el = document.elementFromPoint(e.clientX, e.clientY);
           const toPort = el?.closest<HTMLButtonElement>(".builder-port");
           linkDrag = null;
@@ -875,6 +1005,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
         const root = state.entities.find((e) => e.id === rootId);
         const seg = entityEl.closest<HTMLElement>(".builder-segment");
         if (!root || !seg) return;
+        if (isStaticOuterLeafEndpoint(root)) return;
         if (root.templateType === "hub") {
           const hubEl = entityEl.querySelector<HTMLElement>(".builder-hub");
           if (!hubEl) return;
@@ -897,11 +1028,16 @@ export function mountBuilderView(options: BuilderMountOptions): void {
               const x = (mv.clientX - segRect.left) / Math.max(1, segRect.width) - dx;
               const y = (mv.clientY - segRect.top) / Math.max(1, segRect.height) - dy;
               state = updateEntityPosition(state, root.id, x, y);
-              renderCanvas();
+              scheduleDragRender();
             };
             const onUp = (): void => {
               window.removeEventListener("mousemove", onMove);
               window.removeEventListener("mouseup", onUp);
+              if (dragRenderRaf !== null) {
+                window.cancelAnimationFrame(dragRenderRaf);
+                dragRenderRaf = null;
+              }
+              renderCanvas();
               persist();
               renderInspector();
             };
@@ -921,12 +1057,17 @@ export function mountBuilderView(options: BuilderMountOptions): void {
             const cur = state.entities.find((e) => e.id === root.id);
             if (!cur) return;
             state = updateEntitySettings(state, cur.id, { ...cur.settings, faceAngle: String(newDeg) });
-            renderCanvas();
+            scheduleDragRender();
           };
           const onUp = (): void => {
             window.removeEventListener("mousemove", onMove);
             window.removeEventListener("mouseup", onUp);
+            if (dragRenderRaf !== null) {
+              window.cancelAnimationFrame(dragRenderRaf);
+              dragRenderRaf = null;
+            }
             document.body.style.removeProperty("cursor");
+            renderCanvas();
             persist();
             renderInspector();
           };
@@ -945,11 +1086,16 @@ export function mountBuilderView(options: BuilderMountOptions): void {
           const x = (mv.clientX - segRect.left) / Math.max(1, segRect.width) - dx;
           const y = (mv.clientY - segRect.top) / Math.max(1, segRect.height) - dy;
           state = updateEntityPosition(state, root.id, x, y);
-          renderCanvas();
+          scheduleDragRender();
         };
         const onUp = (): void => {
           window.removeEventListener("mousemove", onMove);
           window.removeEventListener("mouseup", onUp);
+          if (dragRenderRaf !== null) {
+            window.cancelAnimationFrame(dragRenderRaf);
+            dragRenderRaf = null;
+          }
+          renderCanvas();
           persist();
           renderInspector();
         };
@@ -1008,6 +1154,17 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       inspectorEl.textContent = "Entity missing.";
       return;
     }
+    if (isStaticOuterLeafEndpoint(entity)) {
+      const addr = entity.settings.address ?? "0.0.0.0";
+      inspectorEl.innerHTML = `
+        <div class="kv"><span>Type</span><strong>Endpoint (fixed)</strong></div>
+        <div class="kv"><span>Layer</span><strong>${entity.layer}</strong></div>
+        <div class="kv"><span>Segment</span><strong>${entity.segmentIndex}</strong></div>
+        <div class="kv"><span>Address</span><strong>${addr}</strong></div>
+        <p class="builder-inspector-note">This endpoint is preplaced and cannot be moved or deleted.</p>
+      `;
+      return;
+    }
     const entries = Object.entries(entity.settings);
     inspectorEl.innerHTML = `
       <div class="kv"><span>Type</span><strong>${entity.templateType}</strong></div>
@@ -1042,6 +1199,10 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   deleteBtn.addEventListener("click", () => {
     if (!selection) return;
     if (selection.kind === "entity") {
+      const ent = state.entities.find((e) => e.id === selection.rootId);
+      if (ent && isStaticOuterLeafEndpoint(ent)) {
+        return;
+      }
       state = removeEntityGroup(state, selection.rootId);
     } else {
       state = removeLinkGroup(state, selection.rootId);
@@ -1078,7 +1239,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       alert("Invalid builder JSON.");
       return;
     }
-    state = parsed;
+    state = rebuildStateWithOuterLeafEndpoints(parsed);
     persist();
     selection = null;
     renderInspector();

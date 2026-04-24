@@ -432,6 +432,15 @@ textarea {
   border-color: #89b4fa;
 }
 
+/* Four outer logical columns (0.0.3.*) merged: same width as one middle-16 column. */
+.builder-segment--outer-void-merged {
+  grid-column: span 4;
+  background: #0a0d12;
+  border-style: dashed;
+  border-color: #2a3344;
+  cursor: not-allowed;
+}
+
 .builder-segment-label {
   font-size: 9px;
   color: #7f8aa0;
@@ -456,6 +465,58 @@ textarea {
   max-width: 520px;
   transform: translate(-6px, -6px);
   cursor: grab;
+}
+
+.builder-entity--outer-endpoint {
+  left: 50% !important;
+  top: 0.35rem !important;
+  min-width: 160px;
+  max-width: 220px;
+  transform: translate(calc(-50% - 6px), 0) !important;
+  z-index: 2;
+}
+
+.builder-ports--endpoint-bottom {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+}
+
+.builder-row-endpoint-addr .builder-mask-row--readonly {
+  align-items: center;
+  min-height: 22px;
+}
+
+.builder-mask-cell--readonly {
+  min-height: 0;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  border: 0;
+  background: transparent;
+}
+
+.builder-mask-row--readonly .builder-mask-cell--readonly {
+  border: 1px solid #3a445a;
+  background: #0f131b;
+  border-radius: 2px;
+  min-width: 20px;
+  min-height: 20px;
+}
+
+.builder-endpoint-addr-nib {
+  font-size: 9px;
+  color: #d9e1f3;
+  line-height: 1;
+}
+
+.builder-inspector-note {
+  font-size: 11px;
+  color: #7f8aa0;
+  margin: 0.5rem 0 0 0;
+  line-height: 1.4;
 }
 
 .builder-entity--filter {

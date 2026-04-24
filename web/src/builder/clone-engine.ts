@@ -3,6 +3,7 @@ import {
   BuilderLayer,
   BuilderLinkRoot,
   BuilderState,
+  isStaticOuterLeafEndpoint,
   LAYER_COUNTS,
   LAYER_ORDER,
   segmentStride,
@@ -95,9 +96,32 @@ function instanceId(rootId: string, segment: number): string {
   return `${rootId}@${segment}`;
 }
 
-function expandEntities(roots: BuilderEntityRoot[]): BuilderEntityInstance[] {
+/**
+ * In builder UI we only need one (non-shadow) view per fixed outer endpoint; a full
+ * expansion would be 64 roots × 64 columns = 4096 entities and is unusable.
+ * Simulation/compile use the full expand (builderView off).
+ */
+function expandEntities(roots: BuilderEntityRoot[], opts?: { builderView?: boolean }): BuilderEntityInstance[] {
+  const view = opts?.builderView === true;
   const out: BuilderEntityInstance[] = [];
   for (const root of roots) {
+    if (view && isStaticOuterLeafEndpoint(root)) {
+      const segment = root.segmentIndex;
+      out.push({
+        instanceId: instanceId(root.id, segment),
+        rootId: root.id,
+        groupId: root.groupId,
+        templateType: root.templateType,
+        layer: root.layer,
+        segmentIndex: segment,
+        x: root.x,
+        y: root.y,
+        isShadow: false,
+        settings: transformSettingsForSegment(root, segment),
+        ports: Array.from({ length: templatePortCount(root.templateType) }, (_, i) => i),
+      });
+      continue;
+    }
     const count = LAYER_COUNTS[root.layer];
     for (let segment = 0; segment < count; segment += 1) {
       out.push({
@@ -202,8 +226,11 @@ export function expandLinks(roots: BuilderLinkRoot[], entityRoots: BuilderEntity
   return out;
 }
 
-export function expandBuilderState(state: BuilderState): ExpandedBuilderState {
-  const entities = expandEntities(state.entities);
+export function expandBuilderState(
+  state: BuilderState,
+  options?: { builderView?: boolean },
+): ExpandedBuilderState {
+  const entities = expandEntities(state.entities, options);
   const links = expandLinks(state.links, state.entities);
   return { entities, links };
 }
@@ -217,6 +244,20 @@ export function layerTitle(layer: BuilderLayer): string {
 export function layerColumns(layer: BuilderLayer): number[] {
   const count = LAYER_COUNTS[layer];
   return Array.from({ length: count }, (_, i) => i);
+}
+
+/**
+ * 61 grid slots: columns 0–11, one merged cell for outer indices 12–15 (0.0.3.*, no endpoints),
+ * then 16–63. Span 4 matches one middle-16 column width.
+ */
+export type OuterBuilderColumnSlot = number | "void-12-15";
+
+export function outerLayerBuilderColumnSlots(): OuterBuilderColumnSlot[] {
+  return [
+    ...Array.from({ length: 12 }, (_, i) => i as OuterBuilderColumnSlot),
+    "void-12-15" as const,
+    ...Array.from({ length: 48 }, (_, i) => (i + 16) as OuterBuilderColumnSlot),
+  ];
 }
 
 export function segmentLabel(layer: BuilderLayer, segment: number): string {
