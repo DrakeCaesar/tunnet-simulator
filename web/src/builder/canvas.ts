@@ -980,8 +980,10 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     perfCounts.stateLinks = state.links.length;
     perfCounts.expandedLinks = viewLinks.length;
     const wrapRect = wrap.getBoundingClientRect();
-    const overlayWidth = Math.max(wrap.clientWidth, wrap.scrollWidth);
-    const overlayHeight = Math.max(wrap.clientHeight, wrap.scrollHeight);
+    const contentWidth = Math.max(canvasEl.scrollWidth, canvasEl.clientWidth);
+    const contentHeight = Math.max(canvasEl.scrollHeight, canvasEl.clientHeight);
+    const overlayWidth = Math.max(wrap.clientWidth, contentWidth);
+    const overlayHeight = Math.max(wrap.clientHeight, contentHeight);
     wireOverlayEl.setAttribute("width", String(Math.ceil(overlayWidth)));
     wireOverlayEl.setAttribute("height", String(Math.ceil(overlayHeight)));
     wireOverlayEl.style.width = `${Math.ceil(overlayWidth)}px`;

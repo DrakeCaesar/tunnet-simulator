@@ -575,10 +575,6 @@ textarea {
 /* Four outer logical columns (0.0.3.*) merged: same width as one middle-16 column. */
 .builder-segment--outer-void-merged {
   grid-column: span 4;
-  background: #0a0d12;
-  border-style: dashed;
-  border-color: #2a3344;
-  cursor: not-allowed;
 }
 
 .builder-segment-label {
