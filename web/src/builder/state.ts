@@ -46,6 +46,18 @@ export interface BuilderState {
   nextId: number;
 }
 
+function normalizeEntitySettings(
+  templateType: BuilderTemplateType,
+  settings: Record<string, string> | undefined,
+): Record<string, string> {
+  const src = settings ?? {};
+  if (templateType === "relay") {
+    // Relays are intentionally stateless.
+    return {};
+  }
+  return { ...src };
+}
+
 export const LAYER_COUNTS: Record<BuilderLayer, number> = {
   outer64: 64,
   middle16: 16,
@@ -123,9 +135,12 @@ export function rebuildStateWithOuterLeafEndpoints(s: BuilderState): BuilderStat
       }
     }
   }
-  const rest: BuilderEntityRoot[] = s.entities.filter(
-    (e) => !(e.templateType === "endpoint" && e.layer === "outer64"),
-  );
+  const rest: BuilderEntityRoot[] = s.entities
+    .filter((e) => !(e.templateType === "endpoint" && e.layer === "outer64"))
+    .map((e) => ({
+      ...e,
+      settings: normalizeEntitySettings(e.templateType, e.settings),
+    }));
   const staticEndps: BuilderEntityRoot[] = [];
   for (let seg = 0; seg < 64; seg += 1) {
     if (isOuterLeafVoidSegment(seg)) continue;
@@ -232,7 +247,7 @@ export function createEntityRoot(
     segmentIndex,
     x: Math.max(0, Math.min(1, x)),
     y: Math.max(0, Math.min(1, y)),
-    settings: defaultSettings(templateType),
+    settings: normalizeEntitySettings(templateType, defaultSettings(templateType)),
   };
 }
 
@@ -525,9 +540,19 @@ export function updateEntitySettings(
   if (e && (e.isStatic || isStaticOuterLeafEndpoint(e))) {
     return state;
   }
+  if (e?.templateType === "relay") {
+    return {
+      ...state,
+      entities: state.entities.map((x) =>
+        x.id === entityId ? { ...x, settings: {} } : x,
+      ),
+    };
+  }
   return {
     ...state,
-    entities: state.entities.map((x) => (x.id === entityId ? { ...x, settings: { ...settings } } : x)),
+    entities: state.entities.map((x) =>
+      x.id === entityId ? { ...x, settings: normalizeEntitySettings(x.templateType, settings) } : x,
+    ),
   };
 }
 

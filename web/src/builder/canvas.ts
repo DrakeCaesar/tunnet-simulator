@@ -504,6 +504,8 @@ export function mountBuilderView(options: BuilderMountOptions): void {
         </div>
         <div class="section-title builder-spacer">Performance</div>
         <pre id="builder-perf" class="builder-perf">Collecting samples...</pre>
+        <div class="section-title builder-spacer">Inspector</div>
+        <div id="builder-inspector">No selection.</div>
       </aside>
       <main class="builder-main card">
         <div class="section-title">Canvas (64 -> 16 -> 4)</div>
@@ -512,10 +514,6 @@ export function mountBuilderView(options: BuilderMountOptions): void {
           <div id="builder-canvas" class="builder-canvas"></div>
         </div>
       </main>
-      <aside class="builder-inspector card">
-        <div class="section-title">Inspector</div>
-        <div id="builder-inspector">No selection.</div>
-      </aside>
     </div>
   `;
 

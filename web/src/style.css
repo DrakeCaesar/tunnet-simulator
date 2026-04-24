@@ -346,20 +346,18 @@ textarea {
 .builder-layout {
   height: 100%;
   display: grid;
-  grid-template-columns: 320px 1fr 280px;
+  grid-template-columns: 320px 1fr;
   gap: 10px;
 }
 
 .builder-sidebar,
-.builder-main,
-.builder-inspector {
+.builder-main {
   overflow: auto;
 }
 
 /* Keep scrollbar paint clipped to rounded corners. */
 .builder-sidebar,
 .builder-main,
-.builder-inspector,
 .timings-wrap,
 .builder-perf {
   clip-path: inset(0 round 8px);
