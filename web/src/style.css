@@ -521,9 +521,26 @@ textarea {
   border-radius: 0;
   padding: 0;
   flex: 0 0 auto;
+}
+
+.builder-layer-section-outer64 {
   height: calc(
-    (var(--builder-layer-base-height-px, 220px) * var(--builder-scale-y, 1))
-      + ((var(--builder-scale-y, 1) - 1) * var(--builder-layer-gap))
+    (var(--builder-layer-base-height-px, 220px) * var(--builder-scale-y-outer64, 1))
+      + ((var(--builder-scale-y-outer64, 1) - 1) * var(--builder-layer-gap))
+  );
+}
+
+.builder-layer-section-middle16 {
+  height: calc(
+    (var(--builder-layer-base-height-px, 220px) * var(--builder-scale-y-middle16, 1))
+      + ((var(--builder-scale-y-middle16, 1) - 1) * var(--builder-layer-gap))
+  );
+}
+
+.builder-layer-section-inner4 {
+  height: calc(
+    (var(--builder-layer-base-height-px, 220px) * var(--builder-scale-y-inner4, 1))
+      + ((var(--builder-scale-y-inner4, 1) - 1) * var(--builder-layer-gap))
   );
 }
 
@@ -920,6 +937,7 @@ textarea {
   display: flex;
   align-items: center;
   justify-content: center;
+  pointer-events: auto;
 }
 
 .builder-hub-reverse-icon {
