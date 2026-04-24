@@ -540,6 +540,287 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     });
   }
 
+  const cycleValue = (value: string, options: string[], direction: "next" | "prev"): string => {
+    const idx = options.indexOf(value);
+    const safeIdx = idx >= 0 ? idx : 0;
+    const delta = direction === "next" ? 1 : -1;
+    return options[(safeIdx + delta + options.length) % options.length];
+  };
+
+  const setFilterSetting = (rootId: string, key: string, direction: "next" | "prev"): void => {
+    const rootEnt = state.entities.find((e) => e.id === rootId);
+    if (!rootEnt) return;
+    const current = rootEnt.settings[key] ?? "";
+    let next = current;
+    if (key === "operatingPort") next = cycleValue(current || "0", ["0", "1"], direction);
+    if (key === "addressField") next = cycleValue(current || "destination", ["destination", "source"], direction);
+    if (key === "operation") next = cycleValue(current || "differ", ["differ", "match"], direction);
+    if (key === "action") next = cycleValue(current || "send_back", ["send_back", "drop"], direction);
+    if (key === "collisionHandling") {
+      next = cycleValue(
+        current || "send_back_outbound",
+        ["send_back_outbound", "drop_inbound", "drop_outbound"],
+        direction,
+      );
+    }
+    state = updateEntitySettings(state, rootEnt.id, { ...rootEnt.settings, [key]: next });
+    persist();
+    renderCanvas();
+    renderInspector();
+  };
+
+  const updateMaskAt = (rootId: string, maskIdx: number, dir: "up" | "down"): void => {
+    const rootEnt = state.entities.find((e) => e.id === rootId);
+    if (!rootEnt) return;
+    const parts = (rootEnt.settings.mask ?? "*.*.*.*").split(".");
+    while (parts.length < 4) parts.push("*");
+    for (let i = 0; i < 4; i += 1) parts[i] = parts[i] ?? "*";
+
+    const raw = parts[maskIdx] ?? "*";
+    let poolIdx = MASK_VALUE_CYCLE.indexOf(raw as (typeof MASK_VALUE_CYCLE)[number]);
+    if (poolIdx < 0) poolIdx = 0;
+    const n = MASK_VALUE_CYCLE.length;
+    poolIdx = dir === "up" ? (poolIdx + 1) % n : (poolIdx + n - 1) % n;
+
+    const nextParts: string[] = ["*", "*", "*", "*"];
+    nextParts[maskIdx] = MASK_VALUE_CYCLE[poolIdx];
+    state = updateEntitySettings(state, rootEnt.id, { ...rootEnt.settings, mask: nextParts.join(".") });
+    persist();
+    renderCanvas();
+    renderInspector();
+  };
+  let hoveredHubEl: HTMLElement | null = null;
+
+  const clearHubHover = (hub: HTMLElement | null): void => {
+    if (!hub) return;
+    hub.classList.remove("builder-hub--hover-move", "builder-hub--hover-rotate");
+  };
+
+  const updateHubHoverFromPointer = (ev: MouseEvent): void => {
+    const target = ev.target as HTMLElement | null;
+    if (!target) return;
+    const hub = target.closest<HTMLElement>(".builder-hub");
+    if (!hub || target.closest("button")) {
+      clearHubHover(hoveredHubEl);
+      hoveredHubEl = null;
+      return;
+    }
+    if (hoveredHubEl && hoveredHubEl !== hub) {
+      clearHubHover(hoveredHubEl);
+    }
+    hoveredHubEl = hub;
+    const r = hub.getBoundingClientRect();
+    const localX = ev.clientX - r.left;
+    const localY = ev.clientY - r.top;
+    const faceRaw = Number.parseFloat(hub.dataset.faceAngle ?? "0");
+    const face = (((Number.isFinite(faceRaw) ? faceRaw : 0) % 360) + 360) % 360;
+    const mode = hubPointerMode(localX, localY, face);
+    hub.classList.toggle("builder-hub--hover-move", mode === "move");
+    hub.classList.toggle("builder-hub--hover-rotate", mode === "rotate");
+  };
+
+  const startEntityDragFromElement = (entityEl: HTMLElement, ev: MouseEvent): void => {
+    const target = ev.target as HTMLElement;
+    if (target.closest("button")) return;
+    const rootId = entityEl.dataset.rootId!;
+    const rootEnt = state.entities.find((e) => e.id === rootId);
+    const seg = entityEl.closest<HTMLElement>(".builder-segment");
+    if (!rootEnt || !seg) return;
+    if (isStaticOuterLeafEndpoint(rootEnt)) return;
+    if (rootEnt.templateType === "hub") {
+      const hubEl = entityEl.querySelector<HTMLElement>(".builder-hub");
+      if (!hubEl) return;
+      const r0 = hubEl.getBoundingClientRect();
+      const localX = ev.clientX - r0.left;
+      const localY = ev.clientY - r0.top;
+      const faceDeg = ((Number.parseFloat(rootEnt.settings.faceAngle ?? "0") % 360) + 360) % 360;
+      const hubMode = hubPointerMode(localX, localY, faceDeg);
+      if (hubMode === "none") return;
+      ev.preventDefault();
+      if (hubMode === "move") {
+        const segRect = seg.getBoundingClientRect();
+        const anchorX = (ev.clientX - segRect.left) / Math.max(1, segRect.width);
+        const anchorY = (ev.clientY - segRect.top) / Math.max(1, segRect.height);
+        const rx = rootEnt.x;
+        const ry = rootEnt.y;
+        const dx = anchorX - rx;
+        const dy = anchorY - ry;
+        const onMove = (mv: MouseEvent): void => {
+          const x = (mv.clientX - segRect.left) / Math.max(1, segRect.width) - dx;
+          const y = (mv.clientY - segRect.top) / Math.max(1, segRect.height) - dy;
+          state = updateEntityPosition(state, rootEnt.id, x, y);
+          scheduleDragRender();
+        };
+        const onUp = (): void => {
+          window.removeEventListener("mousemove", onMove);
+          window.removeEventListener("mouseup", onUp);
+          if (dragRenderRaf !== null) {
+            window.cancelAnimationFrame(dragRenderRaf);
+            dragRenderRaf = null;
+          }
+          renderCanvas();
+          persist();
+          renderInspector();
+        };
+        document.body.style.cursor = "grabbing";
+        window.addEventListener("mousemove", onMove);
+        window.addEventListener("mouseup", onUp);
+        return;
+      }
+      const px = r0.left + (HUB_LAYOUT.G.x / HUB_VIEW.w) * r0.width;
+      const py = r0.top + (HUB_LAYOUT.G.y / HUB_VIEW.h) * r0.height;
+      const a0 = Math.atan2(ev.clientY - py, ev.clientX - px);
+      const base = faceDeg;
+      const onMove = (mv: MouseEvent): void => {
+        const a1 = Math.atan2(mv.clientY - py, mv.clientX - px);
+        let newDeg = base + ((a1 - a0) * 180) / Math.PI;
+        newDeg = ((newDeg % 360) + 360) % 360;
+        const cur = state.entities.find((e) => e.id === rootEnt.id);
+        if (!cur) return;
+        state = updateEntitySettings(state, cur.id, { ...cur.settings, faceAngle: String(newDeg) });
+        scheduleDragRender();
+      };
+      const onUp = (): void => {
+        window.removeEventListener("mousemove", onMove);
+        window.removeEventListener("mouseup", onUp);
+        if (dragRenderRaf !== null) {
+          window.cancelAnimationFrame(dragRenderRaf);
+          dragRenderRaf = null;
+        }
+        document.body.style.removeProperty("cursor");
+        renderCanvas();
+        persist();
+        renderInspector();
+      };
+      document.body.style.cursor = "grabbing";
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("mouseup", onUp);
+      return;
+    }
+    ev.preventDefault();
+    const segRect = seg.getBoundingClientRect();
+    const anchorX = (ev.clientX - segRect.left) / Math.max(1, segRect.width);
+    const anchorY = (ev.clientY - segRect.top) / Math.max(1, segRect.height);
+    const dx = anchorX - rootEnt.x;
+    const dy = anchorY - rootEnt.y;
+    const onMove = (mv: MouseEvent): void => {
+      const x = (mv.clientX - segRect.left) / Math.max(1, segRect.width) - dx;
+      const y = (mv.clientY - segRect.top) / Math.max(1, segRect.height) - dy;
+      state = updateEntityPosition(state, rootEnt.id, x, y);
+      scheduleDragRender();
+    };
+    const onUp = (): void => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      if (dragRenderRaf !== null) {
+        window.cancelAnimationFrame(dragRenderRaf);
+        dragRenderRaf = null;
+      }
+      renderCanvas();
+      persist();
+      renderInspector();
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
+
+  const startLinkDragFromPort = (portEl: HTMLButtonElement, ev: PointerEvent): void => {
+    if (ev.button !== 0 || !ev.isPrimary) return;
+    ev.stopPropagation();
+    ev.preventDefault();
+    const rootId = portEl.dataset.rootId!;
+    const port = Number(portEl.dataset.port);
+    const instanceId = portEl.dataset.instanceId ?? "";
+    const from: LinkSourceSelection = { rootId, port, instanceId };
+    const wrap = wireOverlayEl.parentElement;
+    if (!wrap) return;
+    const onMove = (e: PointerEvent): void => {
+      e.preventDefault();
+      linkDrag = { from, endClient: { x: e.clientX, y: e.clientY } };
+      scheduleWireDragPaint();
+    };
+    let ended = false;
+    const onEnd = (e: PointerEvent): void => {
+      if (ended) return;
+      ended = true;
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onEnd);
+      window.removeEventListener("pointercancel", onEnd);
+      document.body.style.removeProperty("cursor");
+      if (wireDragRaf !== null) {
+        window.cancelAnimationFrame(wireDragRaf);
+        wireDragRaf = null;
+      }
+      const el = document.elementFromPoint(e.clientX, e.clientY);
+      const toPort = el?.closest<HTMLButtonElement>(".builder-port");
+      linkDrag = null;
+      renderWireOverlay();
+      if (!toPort) return;
+      const toRootId = toPort.dataset.rootId;
+      const toP = Number(toPort.dataset.port);
+      const toInstanceRaw = toPort.dataset.instanceId ?? "";
+      if (!toRootId) return;
+      if (toInstanceRaw && toInstanceRaw === from.instanceId && toP === from.port) return;
+      const fromInst = parseBuilderInstanceId(from.instanceId);
+      const toInstParsed = parseBuilderInstanceId(toInstanceRaw);
+      if (!fromInst || !toInstParsed) return;
+      if (fromInst.rootId !== from.rootId || toInstParsed.rootId !== toRootId) return;
+      const fromRoot = state.entities.find((ent) => ent.id === fromInst.rootId);
+      const toRoot = state.entities.find((ent) => ent.id === toInstParsed.rootId);
+      if (!fromRoot || !toRoot) return;
+      const linkOpts =
+        fromRoot.id === toRoot.id
+          ? {
+              sameEntityPin: {
+                fromSegmentIndex: fromInst.segmentIndex,
+                toSegmentIndex: toInstParsed.segmentIndex,
+              },
+            }
+          : fromRoot.layer === toRoot.layer
+            ? {
+                sameLayerSegmentDelta:
+                  toInstParsed.segmentIndex - fromInst.segmentIndex,
+              }
+            : (() => {
+                const slot = crossLayerBlockSlotFromSegments(
+                  fromRoot.layer,
+                  fromInst.segmentIndex,
+                  toRoot.layer,
+                  toInstParsed.segmentIndex,
+                );
+                if (slot === undefined) {
+                  return undefined;
+                }
+                return { crossLayerBlockSlot: slot };
+              })();
+      if (
+        fromRoot.id !== toRoot.id &&
+        fromRoot.layer !== toRoot.layer &&
+        linkOpts === undefined
+      ) {
+        return;
+      }
+      const added = addLinkRootOneWirePerPort(
+        state,
+        fromRoot.id,
+        from.port,
+        toRoot.id,
+        toP,
+        linkOpts,
+      );
+      if (!added.link) return;
+      state = added.state;
+      persist();
+      setSelection({ kind: "link", rootId: added.link.id });
+    };
+    linkDrag = { from, endClient: { x: ev.clientX, y: ev.clientY } };
+    document.body.style.cursor = "crosshair";
+    renderWireOverlay();
+    window.addEventListener("pointermove", onMove, { passive: false });
+    window.addEventListener("pointerup", onEnd);
+    window.addEventListener("pointercancel", onEnd);
+  };
+
   function renderCanvas(): void {
     const expanded = expandBuilderState(state, { builderView: true });
     const previewKeys = previewInstances();
@@ -864,329 +1145,11 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     };
     canvasEl.ondrop = handleDrop;
 
-    canvasEl.querySelectorAll<HTMLElement>(".builder-entity").forEach((entityEl) => {
-      entityEl.addEventListener("click", () => {
-        const rootId = entityEl.dataset.rootId!;
-        setSelection({ kind: "entity", rootId });
-      });
-    });
+    // entity/port selection and link-drag start are delegated once (outside renderCanvas)
 
-    canvasEl.querySelectorAll<HTMLButtonElement>(".builder-port").forEach((portEl) => {
-      portEl.addEventListener("click", (ev) => {
-        ev.stopPropagation();
-      });
-      portEl.addEventListener("pointerdown", (ev) => {
-        if (ev.button !== 0 || !ev.isPrimary) return;
-        ev.stopPropagation();
-        ev.preventDefault();
-        const rootId = portEl.dataset.rootId!;
-        const port = Number(portEl.dataset.port);
-        const instanceId = portEl.dataset.instanceId ?? "";
-        const from: LinkSourceSelection = { rootId, port, instanceId };
-        const wrap = wireOverlayEl.parentElement;
-        if (!wrap) return;
-        const onMove = (e: PointerEvent): void => {
-          e.preventDefault();
-          linkDrag = { from, endClient: { x: e.clientX, y: e.clientY } };
-          scheduleWireDragPaint();
-        };
-        let ended = false;
-        const onEnd = (e: PointerEvent): void => {
-          if (ended) return;
-          ended = true;
-          window.removeEventListener("pointermove", onMove);
-          window.removeEventListener("pointerup", onEnd);
-          window.removeEventListener("pointercancel", onEnd);
-          document.body.style.removeProperty("cursor");
-          if (wireDragRaf !== null) {
-            window.cancelAnimationFrame(wireDragRaf);
-            wireDragRaf = null;
-          }
-          const el = document.elementFromPoint(e.clientX, e.clientY);
-          const toPort = el?.closest<HTMLButtonElement>(".builder-port");
-          linkDrag = null;
-          renderWireOverlay();
-          if (!toPort) return;
-          const toRootId = toPort.dataset.rootId;
-          const toP = Number(toPort.dataset.port);
-          const toInstanceRaw = toPort.dataset.instanceId ?? "";
-          if (!toRootId) return;
-          if (toInstanceRaw && toInstanceRaw === from.instanceId && toP === from.port) return;
-          const fromInst = parseBuilderInstanceId(from.instanceId);
-          const toInstParsed = parseBuilderInstanceId(toInstanceRaw);
-          if (!fromInst || !toInstParsed) return;
-          if (fromInst.rootId !== from.rootId || toInstParsed.rootId !== toRootId) return;
-          const fromRoot = state.entities.find((ent) => ent.id === fromInst.rootId);
-          const toRoot = state.entities.find((ent) => ent.id === toInstParsed.rootId);
-          if (!fromRoot || !toRoot) return;
-          const linkOpts =
-            fromRoot.id === toRoot.id
-              ? {
-                  sameEntityPin: {
-                    fromSegmentIndex: fromInst.segmentIndex,
-                    toSegmentIndex: toInstParsed.segmentIndex,
-                  },
-                }
-              : fromRoot.layer === toRoot.layer
-                ? {
-                    sameLayerSegmentDelta:
-                      toInstParsed.segmentIndex - fromInst.segmentIndex,
-                  }
-                : (() => {
-                    const slot = crossLayerBlockSlotFromSegments(
-                      fromRoot.layer,
-                      fromInst.segmentIndex,
-                      toRoot.layer,
-                      toInstParsed.segmentIndex,
-                    );
-                    if (slot === undefined) {
-                      return undefined;
-                    }
-                    return { crossLayerBlockSlot: slot };
-                  })();
-          if (
-            fromRoot.id !== toRoot.id &&
-            fromRoot.layer !== toRoot.layer &&
-            linkOpts === undefined
-          ) {
-            return;
-          }
-          const added = addLinkRootOneWirePerPort(
-            state,
-            fromRoot.id,
-            from.port,
-            toRoot.id,
-            toP,
-            linkOpts,
-          );
-          if (!added.link) return;
-          state = added.state;
-          persist();
-          setSelection({ kind: "link", rootId: added.link.id });
-        };
-        linkDrag = { from, endClient: { x: ev.clientX, y: ev.clientY } };
-        document.body.style.cursor = "crosshair";
-        renderWireOverlay();
-        window.addEventListener("pointermove", onMove, { passive: false });
-        window.addEventListener("pointerup", onEnd);
-        window.addEventListener("pointercancel", onEnd);
-      });
-    });
+    // filter/hub controls are delegated once (outside renderCanvas)
 
-    const cycleValue = (value: string, options: string[], direction: "next" | "prev"): string => {
-      const idx = options.indexOf(value);
-      const safeIdx = idx >= 0 ? idx : 0;
-      const delta = direction === "next" ? 1 : -1;
-      return options[(safeIdx + delta + options.length) % options.length];
-    };
-    const setFilterSetting = (rootId: string, key: string, direction: "next" | "prev"): void => {
-      const root = state.entities.find((e) => e.id === rootId);
-      if (!root) return;
-      const current = root.settings[key] ?? "";
-      let next = current;
-      if (key === "operatingPort") next = cycleValue(current || "0", ["0", "1"], direction);
-      if (key === "addressField") next = cycleValue(current || "destination", ["destination", "source"], direction);
-      if (key === "operation") next = cycleValue(current || "differ", ["differ", "match"], direction);
-      if (key === "action") next = cycleValue(current || "send_back", ["send_back", "drop"], direction);
-      if (key === "collisionHandling") {
-        next = cycleValue(
-          current || "send_back_outbound",
-          ["send_back_outbound", "drop_inbound", "drop_outbound"],
-          direction,
-        );
-      }
-      state = updateEntitySettings(state, root.id, { ...root.settings, [key]: next });
-      persist();
-      renderCanvas();
-      renderInspector();
-    };
-    const updateMaskAt = (rootId: string, maskIdx: number, dir: "up" | "down"): void => {
-      const root = state.entities.find((e) => e.id === rootId);
-      if (!root) return;
-      const parts = (root.settings.mask ?? "*.*.*.*").split(".");
-      while (parts.length < 4) parts.push("*");
-      for (let i = 0; i < 4; i++) parts[i] = parts[i] ?? "*";
-
-      const raw = parts[maskIdx] ?? "*";
-      let poolIdx = MASK_VALUE_CYCLE.indexOf(raw as (typeof MASK_VALUE_CYCLE)[number]);
-      if (poolIdx < 0) poolIdx = 0;
-
-      const n = MASK_VALUE_CYCLE.length;
-      poolIdx = dir === "up" ? (poolIdx + 1) % n : (poolIdx + n - 1) % n;
-
-      const nextParts: string[] = ["*", "*", "*", "*"];
-      nextParts[maskIdx] = MASK_VALUE_CYCLE[poolIdx];
-      state = updateEntitySettings(state, root.id, { ...root.settings, mask: nextParts.join(".") });
-      persist();
-      renderCanvas();
-      renderInspector();
-    };
-
-    canvasEl.querySelectorAll<HTMLButtonElement>(".builder-cycle-btn[data-setting-cycle]").forEach((btn) => {
-      btn.addEventListener("click", (ev) => {
-        ev.stopPropagation();
-        const rootId = btn.dataset.rootId;
-        const key = btn.dataset.settingCycle;
-        const direction = btn.dataset.dir === "prev" ? "prev" : "next";
-        if (!rootId || !key) return;
-        setFilterSetting(rootId, key, direction);
-      });
-    });
-    canvasEl.querySelectorAll<HTMLButtonElement>(".builder-mask-arrow").forEach((btn) => {
-      btn.addEventListener("click", (ev) => {
-        ev.stopPropagation();
-        const rootId = btn.dataset.rootId;
-        const rawIdx = btn.dataset.maskIdx;
-        const dir = btn.dataset.maskDir === "down" ? "down" : "up";
-        if (!rootId || rawIdx === undefined) return;
-        updateMaskAt(rootId, Number(rawIdx), dir);
-      });
-    });
-
-    canvasEl.querySelectorAll<HTMLButtonElement>("[data-hub-toggle-rotation]").forEach((btn) => {
-      btn.addEventListener("click", (ev) => {
-        ev.stopPropagation();
-        const rootId = btn.dataset.rootId;
-        if (!rootId) return;
-        const root = state.entities.find((e) => e.id === rootId);
-        if (!root || root.templateType !== "hub") return;
-        const next =
-          (root.settings.rotation ?? "clockwise") === "counterclockwise" ? "clockwise" : "counterclockwise";
-        state = updateEntitySettings(state, root.id, { ...root.settings, rotation: next });
-        persist();
-        renderCanvas();
-        renderInspector();
-      });
-    });
-
-    canvasEl.querySelectorAll<HTMLElement>(".builder-entity").forEach((entityEl) => {
-      entityEl.addEventListener("mousedown", (ev) => {
-        const target = ev.target as HTMLElement;
-        if (target.closest("button")) return;
-        const rootId = entityEl.dataset.rootId!;
-        const root = state.entities.find((e) => e.id === rootId);
-        const seg = entityEl.closest<HTMLElement>(".builder-segment");
-        if (!root || !seg) return;
-        if (isStaticOuterLeafEndpoint(root)) return;
-        if (root.templateType === "hub") {
-          const hubEl = entityEl.querySelector<HTMLElement>(".builder-hub");
-          if (!hubEl) return;
-          const r0 = hubEl.getBoundingClientRect();
-          const localX = ev.clientX - r0.left;
-          const localY = ev.clientY - r0.top;
-          const faceDeg = ((Number.parseFloat(root.settings.faceAngle ?? "0") % 360) + 360) % 360;
-          const hubMode = hubPointerMode(localX, localY, faceDeg);
-          if (hubMode === "none") return;
-          ev.preventDefault();
-          if (hubMode === "move") {
-            const segRect = seg.getBoundingClientRect();
-            const anchorX = (ev.clientX - segRect.left) / Math.max(1, segRect.width);
-            const anchorY = (ev.clientY - segRect.top) / Math.max(1, segRect.height);
-            const rx = root.x;
-            const ry = root.y;
-            const dx = anchorX - rx;
-            const dy = anchorY - ry;
-            const onMove = (mv: MouseEvent): void => {
-              const x = (mv.clientX - segRect.left) / Math.max(1, segRect.width) - dx;
-              const y = (mv.clientY - segRect.top) / Math.max(1, segRect.height) - dy;
-              state = updateEntityPosition(state, root.id, x, y);
-              scheduleDragRender();
-            };
-            const onUp = (): void => {
-              window.removeEventListener("mousemove", onMove);
-              window.removeEventListener("mouseup", onUp);
-              if (dragRenderRaf !== null) {
-                window.cancelAnimationFrame(dragRenderRaf);
-                dragRenderRaf = null;
-              }
-              renderCanvas();
-              persist();
-              renderInspector();
-            };
-            document.body.style.cursor = "grabbing";
-            window.addEventListener("mousemove", onMove);
-            window.addEventListener("mouseup", onUp);
-            return;
-          }
-          const px = r0.left + (HUB_LAYOUT.G.x / HUB_VIEW.w) * r0.width;
-          const py = r0.top + (HUB_LAYOUT.G.y / HUB_VIEW.h) * r0.height;
-          const a0 = Math.atan2(ev.clientY - py, ev.clientX - px);
-          const base = faceDeg;
-          const onMove = (mv: MouseEvent): void => {
-            const a1 = Math.atan2(mv.clientY - py, mv.clientX - px);
-            let newDeg = base + ((a1 - a0) * 180) / Math.PI;
-            newDeg = ((newDeg % 360) + 360) % 360;
-            const cur = state.entities.find((e) => e.id === root.id);
-            if (!cur) return;
-            state = updateEntitySettings(state, cur.id, { ...cur.settings, faceAngle: String(newDeg) });
-            scheduleDragRender();
-          };
-          const onUp = (): void => {
-            window.removeEventListener("mousemove", onMove);
-            window.removeEventListener("mouseup", onUp);
-            if (dragRenderRaf !== null) {
-              window.cancelAnimationFrame(dragRenderRaf);
-              dragRenderRaf = null;
-            }
-            document.body.style.removeProperty("cursor");
-            renderCanvas();
-            persist();
-            renderInspector();
-          };
-          document.body.style.cursor = "grabbing";
-          window.addEventListener("mousemove", onMove);
-          window.addEventListener("mouseup", onUp);
-          return;
-        }
-        ev.preventDefault();
-        const segRect = seg.getBoundingClientRect();
-        const anchorX = (ev.clientX - segRect.left) / Math.max(1, segRect.width);
-        const anchorY = (ev.clientY - segRect.top) / Math.max(1, segRect.height);
-        const dx = anchorX - root.x;
-        const dy = anchorY - root.y;
-        const onMove = (mv: MouseEvent): void => {
-          const x = (mv.clientX - segRect.left) / Math.max(1, segRect.width) - dx;
-          const y = (mv.clientY - segRect.top) / Math.max(1, segRect.height) - dy;
-          state = updateEntityPosition(state, root.id, x, y);
-          scheduleDragRender();
-        };
-        const onUp = (): void => {
-          window.removeEventListener("mousemove", onMove);
-          window.removeEventListener("mouseup", onUp);
-          if (dragRenderRaf !== null) {
-            window.cancelAnimationFrame(dragRenderRaf);
-            dragRenderRaf = null;
-          }
-          renderCanvas();
-          persist();
-          renderInspector();
-        };
-        window.addEventListener("mousemove", onMove);
-        window.addEventListener("mouseup", onUp);
-      });
-    });
-
-    canvasEl.querySelectorAll<HTMLElement>(".builder-hub").forEach((hub) => {
-      const setHover = (ev: MouseEvent): void => {
-        if ((ev.target as Element).closest("button")) {
-          hub.classList.remove("builder-hub--hover-move", "builder-hub--hover-rotate");
-          return;
-        }
-        const r = hub.getBoundingClientRect();
-        const localX = ev.clientX - r.left;
-        const localY = ev.clientY - r.top;
-        const faceRaw = Number.parseFloat(hub.dataset.faceAngle ?? "0");
-        const face = (((Number.isFinite(faceRaw) ? faceRaw : 0) % 360) + 360) % 360;
-        const mode = hubPointerMode(localX, localY, face);
-        hub.classList.toggle("builder-hub--hover-move", mode === "move");
-        hub.classList.toggle("builder-hub--hover-rotate", mode === "rotate");
-      };
-      const clear = (): void => {
-        hub.classList.remove("builder-hub--hover-move", "builder-hub--hover-rotate");
-      };
-      hub.addEventListener("mousemove", setHover);
-      hub.addEventListener("mouseleave", clear);
-    });
+    // entity drag + hub hover are delegated once (outside renderCanvas)
 
     requestAnimationFrame(() => {
       renderWireOverlay();
@@ -1341,6 +1304,85 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     const payload = compileBuilderToViewerPayload(state);
     window.sessionStorage.setItem(VIEWER_PREVIEW_KEY, JSON.stringify(payload));
     onPreviewReady?.();
+  });
+
+  canvasEl.addEventListener("click", (ev) => {
+    const target = ev.target as HTMLElement | null;
+    if (!target) return;
+
+    const portEl = target.closest<HTMLButtonElement>(".builder-port");
+    if (portEl) {
+      ev.stopPropagation();
+      return;
+    }
+
+    const cycleBtn = target.closest<HTMLButtonElement>(".builder-cycle-btn[data-setting-cycle]");
+    if (cycleBtn) {
+      ev.stopPropagation();
+      const rootId = cycleBtn.dataset.rootId;
+      const key = cycleBtn.dataset.settingCycle;
+      const direction = cycleBtn.dataset.dir === "prev" ? "prev" : "next";
+      if (!rootId || !key) return;
+      setFilterSetting(rootId, key, direction);
+      return;
+    }
+
+    const maskBtn = target.closest<HTMLButtonElement>(".builder-mask-arrow");
+    if (maskBtn) {
+      ev.stopPropagation();
+      const rootId = maskBtn.dataset.rootId;
+      const rawIdx = maskBtn.dataset.maskIdx;
+      const dir = maskBtn.dataset.maskDir === "down" ? "down" : "up";
+      if (!rootId || rawIdx === undefined) return;
+      updateMaskAt(rootId, Number(rawIdx), dir);
+      return;
+    }
+
+    const hubToggle = target.closest<HTMLButtonElement>("[data-hub-toggle-rotation]");
+    if (hubToggle) {
+      ev.stopPropagation();
+      const rootId = hubToggle.dataset.rootId;
+      if (!rootId) return;
+      const rootEnt = state.entities.find((e) => e.id === rootId);
+      if (!rootEnt || rootEnt.templateType !== "hub") return;
+      const next =
+        (rootEnt.settings.rotation ?? "clockwise") === "counterclockwise" ? "clockwise" : "counterclockwise";
+      state = updateEntitySettings(state, rootEnt.id, { ...rootEnt.settings, rotation: next });
+      persist();
+      renderCanvas();
+      renderInspector();
+      return;
+    }
+
+    const entityEl = target.closest<HTMLElement>(".builder-entity");
+    if (entityEl) {
+      const rootId = entityEl.dataset.rootId!;
+      setSelection({ kind: "entity", rootId });
+    }
+  });
+
+  canvasEl.addEventListener("pointerdown", (ev) => {
+    const target = ev.target as HTMLElement | null;
+    if (!target) return;
+    const portEl = target.closest<HTMLButtonElement>(".builder-port");
+    if (!portEl) return;
+    startLinkDragFromPort(portEl, ev);
+  });
+
+  canvasEl.addEventListener("mousedown", (ev) => {
+    const target = ev.target as HTMLElement | null;
+    if (!target) return;
+    const entityEl = target.closest<HTMLElement>(".builder-entity");
+    if (!entityEl) return;
+    startEntityDragFromElement(entityEl, ev);
+  });
+
+  canvasEl.addEventListener("mousemove", (ev) => {
+    updateHubHoverFromPointer(ev);
+  });
+  canvasEl.addEventListener("mouseleave", () => {
+    clearHubHover(hoveredHubEl);
+    hoveredHubEl = null;
   });
 
   const wrap = wireOverlayEl.parentElement;
