@@ -120,6 +120,25 @@ export function compileBuilderToViewerPayload(state: BuilderState): CompiledView
     a: { deviceId: link.fromInstanceId, port: link.fromPort },
     b: { deviceId: link.toInstanceId, port: link.toPort },
   }));
+  const endpointEntities = expanded.entities.filter((e) => e.templateType === "endpoint");
+  const uniqueAddresses = Array.from(
+    new Set(endpointEntities.map((e) => e.settings.address ?? "0.0.0.0")),
+  ).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  endpointEntities.forEach((entity) => {
+    const addr = entity.settings.address ?? "0.0.0.0";
+    const destinations = uniqueAddresses.filter((d) => d !== addr);
+    if (destinations.length === 0) return;
+    const device = devices[entity.instanceId];
+    if (!device || device.type !== "endpoint") return;
+    (device as Record<string, unknown>).generator = {
+      destinations: [...destinations],
+      replyToSources: [...destinations],
+      minIntervalTicks: 3,
+      maxIntervalTicks: 7,
+      sensitiveChance: 0.1,
+      subjectPrefix: "BDR-",
+    };
+  });
   const sourceEndpointCount = expanded.entities.filter((e) => e.templateType === "endpoint").length;
   return {
     metadata: {

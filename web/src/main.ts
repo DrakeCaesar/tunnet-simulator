@@ -3,6 +3,18 @@ import { DataSet } from "vis-data";
 import "vis-network/styles/vis-network.css";
 import "./style.css";
 import { Packet, Topology, TunnetSimulator } from "./simulation";
+import {
+  formatSendRateLabel,
+  formatSpeedLabel,
+  sendRateMultiplierFromExponent,
+  SEND_RATE_EXP_DEFAULT,
+  SEND_RATE_EXP_MAX,
+  SEND_RATE_EXP_MIN,
+  speedMultiplierFromExponent,
+  SPEED_EXP_DEFAULT,
+  SPEED_EXP_MAX,
+  SPEED_EXP_MIN,
+} from "./sim-controls";
 import { mountBuilderView, VIEWER_PREVIEW_KEY } from "./builder/canvas";
 
 type ViewerNode = {
@@ -489,34 +501,6 @@ function computeInitialPositions(payload: ViewerPayload): Map<string, XY> {
   });
 
   return pos;
-}
-
-/** Send rate = 2^exponent (each slider step doubles/halves emission rate). */
-const SEND_RATE_EXP_MIN = -6;
-const SEND_RATE_EXP_MAX = 6;
-const SEND_RATE_EXP_DEFAULT = 0;
-
-function sendRateMultiplierFromExponent(exp: number): number {
-  return 2 ** exp;
-}
-
-function formatSendRateLabel(exp: number): string {
-  const m = sendRateMultiplierFromExponent(exp);
-  return `${m}× (2^${exp})`;
-}
-
-/** Tick animation speed = 2^exponent (0.25× … 64×). */
-const SPEED_EXP_MIN = -2;
-const SPEED_EXP_MAX = 6;
-const SPEED_EXP_DEFAULT = 1;
-
-function speedMultiplierFromExponent(exp: number): number {
-  return 2 ** exp;
-}
-
-function formatSpeedLabel(exp: number): string {
-  const m = speedMultiplierFromExponent(exp);
-  return `${m}× (2^${exp})`;
 }
 
 function mountLayout(): {

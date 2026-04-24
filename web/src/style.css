@@ -378,7 +378,8 @@ textarea {
 .builder-sidebar,
 .builder-main,
 .timings-wrap,
-.builder-perf {
+.builder-perf,
+.builder-sim-meta {
   clip-path: inset(0 round 8px);
 }
 
@@ -403,6 +404,31 @@ textarea {
   border-radius: 8px;
   padding: 6px 8px;
   font-size: 12px;
+}
+
+.builder-sim-toolbar {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.builder-sim-toolbar button {
+  background: #1d2230;
+  border: 1px solid var(--panel-border);
+  color: var(--text-main);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
+.builder-sim-meta {
+  color: var(--meta-text);
+  font-size: 11px;
+  line-height: 1.25;
+  max-height: 280px;
+  overflow: auto;
+  margin-top: 6px;
 }
 
 .builder-scale-controls {
@@ -515,6 +541,22 @@ textarea {
   min-width: 100%;
   pointer-events: none;
   z-index: 1;
+}
+
+.builder-packet-overlay {
+  position: absolute;
+  inset: 0;
+  height: 100%;
+  min-width: 100%;
+  pointer-events: none;
+  z-index: 2;
+  overflow: visible;
+}
+
+.builder-packet-dot {
+  filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.45));
+  pointer-events: all;
+  cursor: pointer;
 }
 
 .builder-wire-overlay .builder-wire-drag {

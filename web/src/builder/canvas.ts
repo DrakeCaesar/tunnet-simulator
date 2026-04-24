@@ -37,6 +37,20 @@ import {
   saveBuilderState,
 } from "./persistence";
 import { compileBuilderToViewerPayload } from "./compile";
+import type { Packet, PortRef, SimulationStats, Topology } from "../simulation";
+import { TunnetSimulator } from "../simulation";
+import {
+  formatSendRateLabel,
+  formatSpeedLabel,
+  sendRateMultiplierFromExponent,
+  SEND_RATE_EXP_DEFAULT,
+  SEND_RATE_EXP_MAX,
+  SEND_RATE_EXP_MIN,
+  speedMultiplierFromExponent,
+  SPEED_EXP_DEFAULT,
+  SPEED_EXP_MAX,
+  SPEED_EXP_MIN,
+} from "../sim-controls";
 
 const VIEWER_PREVIEW_KEY = "tunnet.builder.previewPayload";
 const BUILDER_CANVAS_SCALE_KEY = "tunnet.builder.canvasScale";
@@ -319,7 +333,8 @@ type CanvasScale = {
 
 type EntitySelection = { kind: "entity"; rootId: string };
 type LinkSelection = { kind: "link"; rootId: string };
-type Selection = EntitySelection | LinkSelection | null;
+type PacketSelection = { kind: "packet"; packetId: number };
+type Selection = EntitySelection | LinkSelection | PacketSelection | null;
 type BoxSelectionState = {
   startX: number;
   startY: number;
@@ -623,6 +638,24 @@ export function mountBuilderView(options: BuilderMountOptions): void {
           <button id="builder-import" type="button">Import Text</button>
           <button id="builder-preview" type="button">Preview In Viewer</button>
         </div>
+        <div class="section-title builder-spacer">Simulation</div>
+        <div class="builder-sim-toolbar">
+          <button id="builder-sim-play" type="button">Play</button>
+          <button id="builder-sim-pause" type="button">Pause</button>
+          <button id="builder-sim-step" type="button">Step</button>
+          <button id="builder-sim-reset" type="button">Reset</button>
+        </div>
+        <label class="builder-scale-row" for="builder-sim-speed">
+          <span>Tick pace</span>
+          <input id="builder-sim-speed" type="range" min="${SPEED_EXP_MIN}" max="${SPEED_EXP_MAX}" step="1" value="${SPEED_EXP_DEFAULT}" />
+          <span id="builder-sim-speed-value">${formatSpeedLabel(SPEED_EXP_DEFAULT)}</span>
+        </label>
+        <label class="builder-scale-row" for="builder-sim-send-rate">
+          <span>Send rate</span>
+          <input id="builder-sim-send-rate" type="range" min="${SEND_RATE_EXP_MIN}" max="${SEND_RATE_EXP_MAX}" step="1" value="${SEND_RATE_EXP_DEFAULT}" />
+          <span id="builder-sim-send-rate-value">${formatSendRateLabel(SEND_RATE_EXP_DEFAULT)}</span>
+        </label>
+        <div id="builder-sim-meta" class="builder-sim-meta">Initializing…</div>
         <div class="section-title builder-spacer">Performance</div>
         <pre id="builder-perf" class="builder-perf">Collecting samples...</pre>
         <div class="section-title builder-spacer">Canvas Scale</div>
@@ -659,6 +692,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       <main class="builder-main card">
         <div class="builder-canvas-wrap">
           <svg id="builder-wire-overlay" class="builder-wire-overlay"></svg>
+          <svg id="builder-packet-overlay" class="builder-packet-overlay" aria-hidden="true"></svg>
           <div id="builder-canvas" class="builder-canvas"></div>
         </div>
       </main>
@@ -668,6 +702,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   const templatesEl = root.querySelector<HTMLDivElement>("#builder-templates")!;
   const canvasEl = root.querySelector<HTMLDivElement>("#builder-canvas")!;
   const wireOverlayEl = root.querySelector<SVGSVGElement>("#builder-wire-overlay")!;
+  const packetOverlayEl = root.querySelector<SVGSVGElement>("#builder-packet-overlay")!;
   const inspectorEl = root.querySelector<HTMLDivElement>("#builder-inspector")!;
   const perfEl = root.querySelector<HTMLPreElement>("#builder-perf")!;
   const scaleXEl = root.querySelector<HTMLInputElement>("#builder-scale-x")!;
@@ -686,6 +721,15 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   const exportBtn = root.querySelector<HTMLButtonElement>("#builder-export")!;
   const importBtn = root.querySelector<HTMLButtonElement>("#builder-import")!;
   const previewBtn = root.querySelector<HTMLButtonElement>("#builder-preview")!;
+  const simPlayBtn = root.querySelector<HTMLButtonElement>("#builder-sim-play")!;
+  const simPauseBtn = root.querySelector<HTMLButtonElement>("#builder-sim-pause")!;
+  const simStepBtn = root.querySelector<HTMLButtonElement>("#builder-sim-step")!;
+  const simResetBtn = root.querySelector<HTMLButtonElement>("#builder-sim-reset")!;
+  const simSpeedEl = root.querySelector<HTMLInputElement>("#builder-sim-speed")!;
+  const simSpeedValueEl = root.querySelector<HTMLSpanElement>("#builder-sim-speed-value")!;
+  const simSendRateEl = root.querySelector<HTMLInputElement>("#builder-sim-send-rate")!;
+  const simSendRateValueEl = root.querySelector<HTMLSpanElement>("#builder-sim-send-rate-value")!;
+  const simMetaEl = root.querySelector<HTMLDivElement>("#builder-sim-meta")!;
   const canvasWrapEl = wireOverlayEl.parentElement as HTMLDivElement | null;
   const boxEl = document.createElement("div");
   boxEl.className = "builder-box-selection";
@@ -858,6 +902,237 @@ export function mountBuilderView(options: BuilderMountOptions): void {
 
   function persist(): void {
     saveBuilderState(state);
+    initOrRefreshBuilderSimulatorIfTopologyChanged();
+  }
+
+  let builderTopologySig = "";
+  let builderSimulator = new TunnetSimulator({ devices: {}, links: [] } as unknown as Topology, 1337);
+  let simPlaying = false;
+  let simAnimating = false;
+  let simAnimHandle: number | null = null;
+  let simSpeedExponent = Number(simSpeedEl.value);
+  if (!Number.isFinite(simSpeedExponent)) {
+    simSpeedExponent = SPEED_EXP_DEFAULT;
+  }
+  let simSpeed = speedMultiplierFromExponent(simSpeedExponent);
+  let simSendRateExponent = Number(simSendRateEl.value);
+  if (!Number.isFinite(simSendRateExponent)) {
+    simSendRateExponent = SEND_RATE_EXP_DEFAULT;
+  }
+  let simStats: SimulationStats = {
+    tick: 0,
+    emitted: 0,
+    delivered: 0,
+    dropped: 0,
+    bounced: 0,
+    ttlExpired: 0,
+    collisions: 0,
+  };
+  let simPreviousStatsTotals: SimulationStats = { ...simStats };
+  let simDeliveredPerTick: number | null = null;
+  let simDeliveredPerTickAvg100: number | null = null;
+  const simDeliveredHistory: number[] = [];
+  const SIM_DELIVERED_AVG_WINDOW = 100;
+  let simDropPctTick: number | null = null;
+  let simDropPctCumulative: number | null = null;
+  let simEmaAchievedSpeed: number | null = null;
+  let simLastStepComputeMs: number | null = null;
+  let simEmaStepComputeMs: number | null = null;
+  const SIM_ACHIEVED_SPEED_EMA_ALPHA = 0.12;
+  const SIM_STEP_COMPUTE_EMA_ALPHA = 0.2;
+  let simPreviousOccupancy: Array<{ port: PortRef; packet: Packet }> = [];
+  let simCurrentOccupancy: Array<{ port: PortRef; packet: Packet }> = [];
+  let simPacketProgress = 1;
+  const builderEndpointIdByAddress = new Map<string, string>();
+
+  function cloneSimOccupancy(occ: Array<{ port: PortRef; packet: Packet }>): Array<{ port: PortRef; packet: Packet }> {
+    return occ.map((e) => ({ port: { ...e.port }, packet: e.packet }));
+  }
+
+  function rebuildBuilderSimEndpointIndex(topology: Topology): void {
+    builderEndpointIdByAddress.clear();
+    for (const dev of Object.values(topology.devices)) {
+      if (dev.type === "endpoint") {
+        builderEndpointIdByAddress.set(dev.address, dev.id);
+      }
+    }
+  }
+
+  function syncBuilderSimSliderLabels(): void {
+    simSpeedValueEl.textContent = formatSpeedLabel(simSpeedExponent);
+    simSendRateValueEl.textContent = formatSendRateLabel(simSendRateExponent);
+  }
+
+  function updateBuilderSimMeta(): void {
+    const achievedValue =
+      simEmaAchievedSpeed === null
+        ? `— (no tick finished yet)`
+        : `${simEmaAchievedSpeed.toFixed(2)}× (${Math.min(999, Math.round((simEmaAchievedSpeed / Math.max(simSpeed, 1e-9)) * 100))}% of ${simSpeed.toFixed(2)}× target)`;
+    const stepComputeValue =
+      simLastStepComputeMs === null
+        ? `—`
+        : `${simLastStepComputeMs.toFixed(2)}ms (ema ${(simEmaStepComputeMs ?? simLastStepComputeMs).toFixed(2)}ms)`;
+    simMetaEl.innerHTML = `
+      <div class="stats-subtitle">Runtime</div>
+      <div class="stats-row">
+        <div class="stat-pill"><span>State</span><strong>${simPlaying ? "running" : "paused"}</strong></div>
+        <div class="stat-pill"><span>Tick pace</span><strong>${formatSpeedLabel(simSpeedExponent)}</strong></div>
+        <div class="stat-pill"><span>Achieved</span><strong>${achievedValue}</strong></div>
+        <div class="stat-pill"><span>Send rate</span><strong>${formatSendRateLabel(simSendRateExponent)}</strong></div>
+        <div class="stat-pill"><span>Step compute</span><strong>${stepComputeValue}</strong></div>
+      </div>
+      <div class="stats-subtitle stats-subtitle-gap">Simulation</div>
+      <div class="stats-row">
+        <div class="stat-pill"><span>Tick</span><strong>${simStats.tick}</strong></div>
+        <div class="stat-pill"><span>In-flight</span><strong>${builderSimulator.getPortOccupancy().length}</strong></div>
+        <div class="stat-pill"><span>Emitted</span><strong>${simStats.emitted}</strong></div>
+        <div class="stat-pill"><span>Delivered</span><strong>${simStats.delivered}</strong></div>
+        <div class="stat-pill"><span>Dropped</span><strong>${simStats.dropped}</strong></div>
+        <div class="stat-pill"><span>Bounced</span><strong>${simStats.bounced}</strong></div>
+        <div class="stat-pill"><span>TTL expired</span><strong>${simStats.ttlExpired}</strong></div>
+        <div class="stat-pill"><span>Collisions</span><strong>${simStats.collisions}</strong></div>
+        <div class="stat-pill"><span>Delivered/tick</span><strong>${simDeliveredPerTick === null ? "—" : simDeliveredPerTick.toFixed(2)}</strong></div>
+        <div class="stat-pill"><span>Delivered avg100</span><strong>${simDeliveredPerTickAvg100 === null ? "—" : simDeliveredPerTickAvg100.toFixed(2)}</strong></div>
+        <div class="stat-pill"><span>Drop % tick</span><strong>${simDropPctTick === null ? "—" : `${simDropPctTick.toFixed(1)}%`}</strong></div>
+        <div class="stat-pill"><span>Drop % cumulative</span><strong>${simDropPctCumulative === null ? "—" : `${simDropPctCumulative.toFixed(1)}%`}</strong></div>
+      </div>
+    `;
+  }
+
+  function resetBuilderSimulation(): void {
+    if (simAnimHandle !== null) {
+      cancelAnimationFrame(simAnimHandle);
+      simAnimHandle = null;
+    }
+    simPlaying = false;
+    simAnimating = false;
+    const payload = compileBuilderToViewerPayload(state);
+    builderTopologySig = JSON.stringify(payload.topology);
+    builderSimulator = new TunnetSimulator(payload.topology as unknown as Topology, 1337);
+    builderSimulator.setSendRateMultiplier(sendRateMultiplierFromExponent(simSendRateExponent));
+    simStats = {
+      tick: 0,
+      emitted: 0,
+      delivered: 0,
+      dropped: 0,
+      bounced: 0,
+      ttlExpired: 0,
+      collisions: 0,
+    };
+    simPreviousStatsTotals = { ...simStats };
+    simDeliveredPerTick = null;
+    simDeliveredPerTickAvg100 = null;
+    simDeliveredHistory.length = 0;
+    simDropPctTick = null;
+    simDropPctCumulative = null;
+    simEmaAchievedSpeed = null;
+    simLastStepComputeMs = null;
+    simEmaStepComputeMs = null;
+    rebuildBuilderSimEndpointIndex(payload.topology as unknown as Topology);
+    simPreviousOccupancy = [];
+    simCurrentOccupancy = cloneSimOccupancy(builderSimulator.getPortOccupancy());
+    simPacketProgress = 1;
+    if (selection?.kind === "packet") {
+      selection = null;
+      renderInspector();
+    }
+    packetOverlayEl.innerHTML = "";
+    updateBuilderSimMeta();
+    scheduleWireOverlayRender();
+  }
+
+  function initOrRefreshBuilderSimulatorIfTopologyChanged(): void {
+    const sig = JSON.stringify(compileBuilderToViewerPayload(state).topology);
+    if (sig === builderTopologySig) return;
+    resetBuilderSimulation();
+  }
+
+  function runOneBuilderSimTick(): void {
+    if (simAnimating) return;
+    const tickWallStartMs = performance.now();
+    simAnimating = true;
+    simPreviousOccupancy = cloneSimOccupancy(simCurrentOccupancy);
+    const stepStartMs = performance.now();
+    const snapshot = builderSimulator.step();
+    const emittedTick = snapshot.stats.emitted - simPreviousStatsTotals.emitted;
+    const deliveredTickCount = snapshot.stats.delivered - simPreviousStatsTotals.delivered;
+    const droppedTickCount = snapshot.stats.dropped - simPreviousStatsTotals.dropped;
+    simDeliveredPerTick = deliveredTickCount;
+    simDeliveredHistory.push(deliveredTickCount);
+    if (simDeliveredHistory.length > SIM_DELIVERED_AVG_WINDOW) {
+      simDeliveredHistory.shift();
+    }
+    simDeliveredPerTickAvg100 =
+      simDeliveredHistory.length > 0
+        ? simDeliveredHistory.reduce((sum, v) => sum + v, 0) / simDeliveredHistory.length
+        : null;
+    simDropPctTick = emittedTick > 0 ? (droppedTickCount / emittedTick) * 100 : null;
+    simDropPctCumulative =
+      snapshot.stats.emitted > 0 ? (snapshot.stats.dropped / snapshot.stats.emitted) * 100 : null;
+    simPreviousStatsTotals = { ...snapshot.stats };
+    const stepMs = performance.now() - stepStartMs;
+    simLastStepComputeMs = stepMs;
+    simEmaStepComputeMs =
+      simEmaStepComputeMs === null
+        ? stepMs
+        : SIM_STEP_COMPUTE_EMA_ALPHA * stepMs + (1 - SIM_STEP_COMPUTE_EMA_ALPHA) * simEmaStepComputeMs;
+    simStats = snapshot.stats;
+    simCurrentOccupancy = cloneSimOccupancy(builderSimulator.getPortOccupancy());
+    if (selection && selection.kind === "packet") {
+      const packetSel = selection;
+      const stillThere = simCurrentOccupancy.some((e) => e.packet.id === packetSel.packetId);
+      if (!stillThere) {
+        selection = null;
+        renderInspector();
+        renderWireOverlay();
+      }
+    }
+    updateBuilderSimMeta();
+    const durationMs = Math.max(1, 1000 / Math.max(simSpeed, 0.1));
+    const animStart = performance.now();
+    const animate = (now: number): void => {
+      const t = Math.min(1, (now - animStart) / durationMs);
+      simPacketProgress = t;
+      renderBuilderPacketCircles(t);
+      if (t < 1) {
+        simAnimHandle = requestAnimationFrame(animate);
+        return;
+      }
+      const wallMs = performance.now() - tickWallStartMs;
+      if (wallMs > 1) {
+        const instantAchieved = 1000 / wallMs;
+        simEmaAchievedSpeed =
+          simEmaAchievedSpeed === null
+            ? instantAchieved
+            : SIM_ACHIEVED_SPEED_EMA_ALPHA * instantAchieved + (1 - SIM_ACHIEVED_SPEED_EMA_ALPHA) * simEmaAchievedSpeed;
+      }
+      simAnimating = false;
+      simAnimHandle = null;
+      simPacketProgress = 1;
+      renderBuilderPacketCircles(1);
+      updateBuilderSimMeta();
+      if (simPlaying) {
+        runOneBuilderSimTick();
+      }
+    };
+    simPacketProgress = 0;
+    renderBuilderPacketCircles(0);
+    simAnimHandle = requestAnimationFrame(animate);
+  }
+
+  function setBuilderSimPlaying(enabled: boolean): void {
+    simPlaying = enabled;
+    if (!simPlaying && simAnimHandle !== null) {
+      cancelAnimationFrame(simAnimHandle);
+      simAnimHandle = null;
+      simAnimating = false;
+      simPacketProgress = 1;
+      renderBuilderPacketCircles(1);
+    }
+    if (simPlaying && !simAnimating) {
+      runOneBuilderSimTick();
+    }
+    updateBuilderSimMeta();
   }
 
   function applyPropertyLabelVisibility(): void {
@@ -1368,6 +1643,97 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     );
   }
 
+  function simRestingPortOffset(port: number): { x: number; y: number } {
+    const a = (port % 4) * (Math.PI / 2);
+    return { x: Math.cos(a) * 6, y: Math.sin(a) * 6 };
+  }
+
+  function simOccupancyByPacketId(
+    occ: Array<{ port: PortRef; packet: Packet }>,
+  ): Map<number, { port: PortRef; packet: Packet }> {
+    const m = new Map<number, { port: PortRef; packet: Packet }>();
+    for (const e of occ) {
+      m.set(e.packet.id, e);
+    }
+    return m;
+  }
+
+  function builderPortCenterInOverlayCoords(ref: PortRef): { x: number; y: number } | null {
+    const wrap = packetOverlayEl.parentElement;
+    if (!wrap) return null;
+    const el = resolveBuilderPortForWireOverlay(ref.deviceId, ref.port);
+    if (!el) return null;
+    const wrapRect = wrap.getBoundingClientRect();
+    const r = el.getBoundingClientRect();
+    return {
+      x: r.left + r.width / 2 - wrapRect.left + wrap.scrollLeft,
+      y: r.top + r.height / 2 - wrapRect.top + wrap.scrollTop,
+    };
+  }
+
+  function syncBuilderPacketOverlayDimensions(overlayWidth: number, overlayHeight: number): void {
+    const w = Math.ceil(overlayWidth);
+    const h = Math.ceil(overlayHeight);
+    packetOverlayEl.setAttribute("width", String(w));
+    packetOverlayEl.setAttribute("height", String(h));
+    packetOverlayEl.style.width = `${w}px`;
+    packetOverlayEl.style.height = `${h}px`;
+  }
+
+  function renderBuilderPacketCircles(t: number): void {
+    const wrap = packetOverlayEl.parentElement;
+    if (!wrap) return;
+    const contentWidth = Math.max(canvasEl.scrollWidth, canvasEl.clientWidth);
+    const contentHeight = Math.max(canvasEl.scrollHeight, canvasEl.clientHeight);
+    const overlayWidth = Math.max(wrap.clientWidth, contentWidth);
+    const overlayHeight = Math.max(wrap.clientHeight, contentHeight);
+    syncBuilderPacketOverlayDimensions(overlayWidth, overlayHeight);
+
+    const prevMap = simOccupancyByPacketId(simPreviousOccupancy);
+    const parts: string[] = [];
+    const dotR = 5;
+    for (const { port, packet } of simCurrentOccupancy) {
+      const fromEntry = prevMap.get(packet.id);
+      const spawnId = builderEndpointIdByAddress.get(packet.src);
+      const fromDeviceId = fromEntry?.port.deviceId ?? spawnId ?? port.deviceId;
+      const fromPortNum = fromEntry?.port.port ?? 0;
+      const pa =
+        builderPortCenterInOverlayCoords({ deviceId: fromDeviceId, port: fromPortNum }) ??
+        builderPortCenterInOverlayCoords(port);
+      const pb = builderPortCenterInOverlayCoords(port);
+      if (!pa || !pb) continue;
+      let x: number;
+      let y: number;
+      if (fromDeviceId === port.deviceId && fromPortNum === port.port) {
+        const o = simRestingPortOffset(port.port);
+        x = pa.x + o.x;
+        y = pa.y + o.y;
+      } else {
+        const dx = pb.x - pa.x;
+        const dy = pb.y - pa.y;
+        if (dx * dx + dy * dy < 1) {
+          const o = simRestingPortOffset(port.port);
+          x = pa.x + o.x;
+          y = pa.y + o.y;
+        } else {
+          x = pa.x + (pb.x - pa.x) * t;
+          y = pa.y + (pb.y - pa.y) * t;
+        }
+      }
+      const hue = (packet.id * 47) % 360;
+      const fill = `hsl(${hue} 82% 58%)`;
+      const stroke = `hsl(${hue} 82% 38%)`;
+      const selected = selection?.kind === "packet" && selection.packetId === packet.id;
+      const r = selected ? 7 : dotR;
+      const sw = selected ? 2.2 : 1.2;
+      const selClass = selected ? " builder-packet-dot--selected" : "";
+      parts.push(
+        `<circle class="builder-packet-dot${selClass}" cx="${x.toFixed(2)}" cy="${y.toFixed(2)}" r="${r}" fill="${fill}" stroke="${selected ? "#f9e2af" : stroke}" stroke-width="${sw}" data-packet-id="${packet.id}" />`,
+      );
+    }
+    packetOverlayEl.innerHTML = parts.length ? `<g>${parts.join("")}</g>` : "";
+  }
+
   function setEntityDomPosition(rootId: string, x: number, y: number): void {
     const { left, top } = previewPositionCss(rootId, x, y);
     canvasEl
@@ -1559,6 +1925,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       }
     }
     wireOverlayEl.innerHTML = lineMarkup;
+    renderBuilderPacketCircles(simPacketProgress);
     recordPerf("wire.total", performance.now() - t0);
     renderPerfPanel();
   }
@@ -2346,9 +2713,12 @@ export function mountBuilderView(options: BuilderMountOptions): void {
         if (next !== state) {
           state = next;
           persist();
-          if (selection?.kind === "link" && !state.links.some((l) => l.id === selection.rootId)) {
-            selection = null;
-            renderInspector();
+          {
+            const sel = selection;
+            if (sel && sel.kind === "link" && !state.links.some((l) => l.id === sel.rootId)) {
+              selection = null;
+              renderInspector();
+            }
           }
           renderCanvas();
         }
@@ -2838,7 +3208,8 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       return;
     }
     if (selection.kind === "link") {
-      const link = state.links.find((l) => l.id === selection.rootId);
+      const lSel = selection;
+      const link = state.links.find((l) => l.id === lSel.rootId);
       if (!link) {
         inspectorEl.textContent = "Link missing.";
         return;
@@ -2879,7 +3250,37 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       `;
       return;
     }
-    const entity = state.entities.find((e) => e.id === selection.rootId);
+    if (selection.kind === "packet") {
+      const pSel = selection;
+      const inFlight = simCurrentOccupancy.find((e) => e.packet.id === pSel.packetId);
+      if (!inFlight) {
+        selection = null;
+        renderInspector();
+        renderWireOverlay();
+        return;
+      }
+      const p = inFlight.packet;
+      const { deviceId, port } = inFlight.port;
+      inspectorEl.innerHTML = `
+        <div class="kv"><span>Type</span><strong>Packet</strong></div>
+        <div class="kv"><span>Id</span><strong>${p.id}</strong></div>
+        <div class="kv"><span>At device</span><strong>${deviceId}</strong></div>
+        <div class="kv"><span>At port</span><strong>${port}</strong></div>
+        <div class="kv"><span>Source</span><strong>${p.src}</strong></div>
+        <div class="kv"><span>Destination</span><strong>${p.dest}</strong></div>
+        <div class="kv"><span>TTL</span><strong>${p.ttl === undefined ? "inf" : String(p.ttl)}</strong></div>
+        <div class="kv"><span>Sensitive</span><strong>${p.sensitive ? "yes" : "no"}</strong></div>
+        <div class="kv"><span>Subject</span><strong>${p.subject ?? "—"}</strong></div>
+        <div class="kv"><span>Sim tick</span><strong>${simStats.tick}</strong></div>
+      `;
+      return;
+    }
+    if (selection.kind !== "entity") {
+      inspectorEl.textContent = "Unknown selection.";
+      return;
+    }
+    const eSel = selection;
+    const entity = state.entities.find((e) => e.id === eSel.rootId);
     if (!entity) {
       inspectorEl.textContent = "Entity missing.";
       return;
@@ -2932,6 +3333,14 @@ export function mountBuilderView(options: BuilderMountOptions): void {
 
   deleteBtn.addEventListener("click", () => {
     if (!selection) return;
+    if (selection.kind === "packet") {
+      selection = null;
+      linkDrag = null;
+      renderInspector();
+      applySelectionToCanvas();
+      renderWireOverlay();
+      return;
+    }
     if (selection.kind === "entity" || selectedEntityRootIds.size) {
       const ids = selectedEntityRootIds.size
         ? Array.from(selectedEntityRootIds)
@@ -2997,6 +3406,19 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     const payload = compileBuilderToViewerPayload(state);
     window.sessionStorage.setItem(VIEWER_PREVIEW_KEY, JSON.stringify(payload));
     onPreviewReady?.();
+  });
+
+  packetOverlayEl.addEventListener("click", (ev) => {
+    const t = ev.target;
+    if (!(t instanceof Element)) return;
+    const el = t.closest("circle.builder-packet-dot");
+    if (!el) return;
+    const idRaw = el.getAttribute("data-packet-id");
+    if (idRaw === null) return;
+    const packetId = Number(idRaw);
+    if (!Number.isFinite(packetId)) return;
+    ev.stopPropagation();
+    setSelection({ kind: "packet", packetId });
   });
 
   canvasEl.addEventListener("click", (ev) => {
@@ -3299,6 +3721,56 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   scaleYInnerEl.addEventListener("change", onChangeY);
   scaleYCoreEl.addEventListener("change", onChangeY);
 
+  simPlayBtn.addEventListener("click", () => setBuilderSimPlaying(true));
+  simPauseBtn.addEventListener("click", () => setBuilderSimPlaying(false));
+  simStepBtn.addEventListener("click", () => {
+    if (!simPlaying) {
+      runOneBuilderSimTick();
+    }
+  });
+  simResetBtn.addEventListener("click", () => resetBuilderSimulation());
+
+  const applyBuilderSimSpeedFromSlider = (): void => {
+    simSpeedExponent = Number(simSpeedEl.value);
+    if (!Number.isFinite(simSpeedExponent)) {
+      simSpeedExponent = SPEED_EXP_DEFAULT;
+    }
+    simSpeed = speedMultiplierFromExponent(simSpeedExponent);
+    simEmaAchievedSpeed = null;
+    if (simPlaying && simAnimHandle !== null) {
+      cancelAnimationFrame(simAnimHandle);
+      simAnimHandle = null;
+      simAnimating = false;
+      runOneBuilderSimTick();
+    }
+    syncBuilderSimSliderLabels();
+    updateBuilderSimMeta();
+  };
+  simSpeedEl.addEventListener("input", applyBuilderSimSpeedFromSlider);
+  simSpeedEl.addEventListener("change", applyBuilderSimSpeedFromSlider);
+
+  const applyBuilderSimSendRateFromSlider = (): void => {
+    simSendRateExponent = Number(simSendRateEl.value);
+    if (!Number.isFinite(simSendRateExponent)) {
+      simSendRateExponent = SEND_RATE_EXP_DEFAULT;
+    }
+    builderSimulator.setSendRateMultiplier(sendRateMultiplierFromExponent(simSendRateExponent));
+    syncBuilderSimSliderLabels();
+    updateBuilderSimMeta();
+  };
+  simSendRateEl.addEventListener("input", applyBuilderSimSendRateFromSlider);
+  simSendRateEl.addEventListener("change", applyBuilderSimSendRateFromSlider);
+
+  window.addEventListener("keydown", (ev) => {
+    if (ev.code !== "Space") return;
+    const bv = root.closest(".builder-view");
+    if (!bv || bv.classList.contains("hidden")) return;
+    const tag = (ev.target as HTMLElement | null)?.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || tag === "BUTTON") return;
+    ev.preventDefault();
+    setBuilderSimPlaying(!simPlaying);
+  });
+
   renderTemplates();
   renderInspector();
   renderCanvas();
@@ -3309,6 +3781,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   requestAnimationFrame(() => {
     applyCanvasScale();
   });
+  resetBuilderSimulation();
 }
 
 export { VIEWER_PREVIEW_KEY };
