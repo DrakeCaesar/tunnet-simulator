@@ -978,6 +978,15 @@ textarea {
   border-style: dashed;
 }
 
+.builder-entity.copy-ghost {
+  opacity: 0.45;
+}
+
+.builder-entity.copy-ghost-preview {
+  pointer-events: none;
+  z-index: 8;
+}
+
 .builder-entity.selected {
   border-color: #f9e2af;
 }

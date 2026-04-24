@@ -4,6 +4,7 @@ import {
   BuilderTemplateType,
   createEntityRoot,
   addLinkRootOneWirePerPort,
+  createLinkRoot,
   createEmptyBuilderState,
   crossLayerBlockSlotFromSegments,
   defaultSettings,
@@ -862,6 +863,88 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     renderWireOverlay();
   }
 
+  function previewPositionCss(rootId: string, x: number, y: number): { left: string; top: string } {
+    const rootEnt = state.entities.find((e) => e.id === rootId);
+    const isHub = rootEnt?.templateType === "hub";
+    const left = isHub
+      ? `calc((${x} + 0.5) * var(--builder-grid-step-x) - ${HUB_LAYOUT.G.x.toFixed(3)}px)`
+      : `calc(${x} * var(--builder-grid-step-x))`;
+    const top = isHub
+      ? `calc((${y} + 0.5) * var(--builder-grid-step-y) - ${HUB_LAYOUT.G.y.toFixed(3)}px)`
+      : `calc(${y} * var(--builder-grid-step-y))`;
+    return { left, top };
+  }
+
+  function applyCopyGhostPositions(posById: Map<string, { x: number; y: number }>): void {
+    canvasEl.querySelectorAll<HTMLElement>(".builder-entity.copy-ghost-preview").forEach((el) => {
+      el.remove();
+    });
+    posById.forEach((pos, id) => {
+      const { left, top } = previewPositionCss(id, pos.x, pos.y);
+      canvasEl
+        .querySelectorAll<HTMLElement>(`.builder-entity[data-root-id="${id}"]`)
+        .forEach((srcEl) => {
+          const ghostEl = srcEl.cloneNode(true) as HTMLElement;
+          ghostEl.classList.remove("selected");
+          ghostEl.classList.add("copy-ghost", "copy-ghost-preview");
+          ghostEl.removeAttribute("data-root-id");
+          ghostEl.style.left = left;
+          ghostEl.style.top = top;
+          srcEl.parentElement?.appendChild(ghostEl);
+        });
+    });
+  }
+
+  function commitCopiedGroup(
+    sourceRootIds: string[],
+    targetPosBySourceId: Map<string, { x: number; y: number }>,
+  ): void {
+    const sourceSet = new Set(sourceRootIds);
+    let nextState = state;
+    const idMap = new Map<string, string>();
+    sourceRootIds.forEach((srcId) => {
+      const src = state.entities.find((e) => e.id === srcId);
+      const targetPos = targetPosBySourceId.get(srcId);
+      if (!src || !targetPos || isStaticOuterLeafEndpoint(src)) return;
+      const created = createEntityRoot(
+        nextState,
+        src.templateType,
+        src.layer,
+        src.segmentIndex,
+        targetPos.x,
+        targetPos.y,
+      );
+      nextState = { ...nextState, entities: [...nextState.entities, created] };
+      nextState = updateEntitySettings(nextState, created.id, { ...src.settings });
+      idMap.set(srcId, created.id);
+    });
+    state.links.forEach((link) => {
+      if (!sourceSet.has(link.fromEntityId) || !sourceSet.has(link.toEntityId)) return;
+      const fromId = idMap.get(link.fromEntityId);
+      const toId = idMap.get(link.toEntityId);
+      if (!fromId || !toId) return;
+      const createdLink = createLinkRoot(
+        nextState,
+        fromId,
+        link.fromPort,
+        toId,
+        link.toPort,
+        {
+          fromSegmentIndex: link.fromSegmentIndex,
+          toSegmentIndex: link.toSegmentIndex,
+          sameLayerSegmentDelta: link.sameLayerSegmentDelta,
+          crossLayerBlockSlot: link.crossLayerBlockSlot,
+        },
+      );
+      nextState = { ...nextState, links: [...nextState.links, createdLink] };
+    });
+    state = nextState;
+    setEntitySelectionSet(new Set(Array.from(idMap.values())));
+    persist();
+    renderCanvas();
+    renderInspector();
+  }
+
   function currentEntitySelectionSet(): Set<string> {
     if (selectedEntityRootIds.size) return new Set(selectedEntityRootIds);
     if (selection?.kind === "entity") return new Set([selection.rootId]);
@@ -1008,14 +1091,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   }
 
   function setEntityDomPosition(rootId: string, x: number, y: number): void {
-    const rootEnt = state.entities.find((e) => e.id === rootId);
-    const isHub = rootEnt?.templateType === "hub";
-    const left = isHub
-      ? `calc((${x} + 0.5) * var(--builder-grid-step-x) - ${HUB_LAYOUT.G.x.toFixed(3)}px)`
-      : `calc(${x} * var(--builder-grid-step-x))`;
-    const top = isHub
-      ? `calc((${y} + 0.5) * var(--builder-grid-step-y) - ${HUB_LAYOUT.G.y.toFixed(3)}px)`
-      : `calc(${y} * var(--builder-grid-step-y))`;
+    const { left, top } = previewPositionCss(rootId, x, y);
     canvasEl
       .querySelectorAll<HTMLElement>(`.builder-entity[data-root-id="${rootId}"]`)
       .forEach((entityEl) => {
@@ -1503,6 +1579,9 @@ export function mountBuilderView(options: BuilderMountOptions): void {
         const dy = anchorY - ry;
         let lastX = rx;
         let lastY = ry;
+        const copyOnDrop = ev.ctrlKey;
+        let copyMoved = false;
+        const copyPreviewById = new Map<string, { x: number; y: number }>();
         const onMove = (mv: MouseEvent): void => {
           const rawX = (mv.clientX - segRect.left) / BUILDER_GRID_TILE_SIZE_X_PX - 0.5 - dx;
           const rawY = (mv.clientY - segRect.top) / BUILDER_GRID_TILE_SIZE_Y_PX - 0.5 - dy;
@@ -1528,9 +1607,17 @@ export function mountBuilderView(options: BuilderMountOptions): void {
             if (!p0 || !b) return;
             const nx = Math.max(0, Math.min(b.maxX, p0.x + dxGrid));
             const ny = Math.max(0, Math.min(b.maxY, p0.y + dyGrid));
-            state = updateEntityPosition(state, id, nx, ny);
-            setEntityDomPosition(id, nx, ny);
+            if (copyOnDrop) {
+              copyPreviewById.set(id, { x: nx, y: ny });
+              if (nx !== p0.x || ny !== p0.y) copyMoved = true;
+            } else {
+              state = updateEntityPosition(state, id, nx, ny);
+              setEntityDomPosition(id, nx, ny);
+            }
           });
+          if (copyOnDrop) {
+            applyCopyGhostPositions(copyPreviewById);
+          }
           scheduleWireOverlayRender();
         };
         const onUp = (): void => {
@@ -1539,6 +1626,14 @@ export function mountBuilderView(options: BuilderMountOptions): void {
           if (dragRenderRaf !== null) {
             window.cancelAnimationFrame(dragRenderRaf);
             dragRenderRaf = null;
+          }
+          if (copyOnDrop) {
+            if (copyMoved) {
+              commitCopiedGroup(movingRootIds, copyPreviewById);
+              return;
+            }
+            renderCanvas();
+            return;
           }
           renderCanvas();
           persist();
@@ -1615,6 +1710,9 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     const dy = anchorY - rootEnt.y;
     let lastX = rootEnt.x;
     let lastY = rootEnt.y;
+    const copyOnDrop = ev.ctrlKey;
+    let copyMoved = false;
+    const copyPreviewById = new Map<string, { x: number; y: number }>();
     const onMove = (mv: MouseEvent): void => {
       const rawX = (mv.clientX - segRect.left) / BUILDER_GRID_TILE_SIZE_X_PX - dx;
       const rawY = (mv.clientY - segRect.top) / BUILDER_GRID_TILE_SIZE_Y_PX - dy;
@@ -1640,9 +1738,17 @@ export function mountBuilderView(options: BuilderMountOptions): void {
         if (!p0 || !b) return;
         const nx = Math.max(0, Math.min(b.maxX, p0.x + dxGrid));
         const ny = Math.max(0, Math.min(b.maxY, p0.y + dyGrid));
-        state = updateEntityPosition(state, id, nx, ny);
-        setEntityDomPosition(id, nx, ny);
+        if (copyOnDrop) {
+          copyPreviewById.set(id, { x: nx, y: ny });
+          if (nx !== p0.x || ny !== p0.y) copyMoved = true;
+        } else {
+          state = updateEntityPosition(state, id, nx, ny);
+          setEntityDomPosition(id, nx, ny);
+        }
       });
+      if (copyOnDrop) {
+        applyCopyGhostPositions(copyPreviewById);
+      }
       scheduleWireOverlayRender();
     };
     const onUp = (): void => {
@@ -1651,6 +1757,14 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       if (dragRenderRaf !== null) {
         window.cancelAnimationFrame(dragRenderRaf);
         dragRenderRaf = null;
+      }
+      if (copyOnDrop) {
+        if (copyMoved) {
+          commitCopiedGroup(movingRootIds, copyPreviewById);
+          return;
+        }
+        renderCanvas();
+        return;
       }
       renderCanvas();
       persist();
@@ -2449,7 +2563,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     const entityEl = target.closest<HTMLElement>(".builder-entity");
     if (!entityEl) return;
     const rootId = entityEl.dataset.rootId;
-    if (rootId && (ev.shiftKey || ev.ctrlKey)) {
+    if (rootId && ev.shiftKey) {
       const next = currentEntitySelectionSet();
       if (next.has(rootId)) next.delete(rootId);
       else next.add(rootId);
