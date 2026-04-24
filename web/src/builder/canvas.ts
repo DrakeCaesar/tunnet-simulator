@@ -322,6 +322,7 @@ type BoxSelectionState = {
   startY: number;
   currentX: number;
   currentY: number;
+  mode: "replace" | "add" | "remove";
 } | null;
 
 interface LinkSourceSelection {
@@ -530,6 +531,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   let portElByInstancePort = new Map<string, HTMLButtonElement>();
   let selectedEntityRootIds = new Set<string>();
   let boxSelection: BoxSelectionState = null;
+  let suppressNextEntityClickToggle = false;
   const clampCanvasScaleX = (v: number): number => Math.max(0.25, Math.min(4, v));
   const clampCanvasScaleY = (v: number): number => Math.max(1, Math.min(3, v));
   const loadCanvasScale = (): CanvasScale => {
@@ -844,6 +846,29 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     renderInspector();
     applySelectionToCanvas();
     renderWireOverlay();
+  }
+
+  function currentEntitySelectionSet(): Set<string> {
+    if (selectedEntityRootIds.size) return new Set(selectedEntityRootIds);
+    if (selection?.kind === "entity") return new Set([selection.rootId]);
+    return new Set<string>();
+  }
+
+  function applyEntitySelectionWithMode(
+    ids: Set<string>,
+    mode: "replace" | "add" | "remove",
+  ): void {
+    if (mode === "replace") {
+      setEntitySelectionSet(ids);
+      return;
+    }
+    const base = currentEntitySelectionSet();
+    if (mode === "add") {
+      ids.forEach((id) => base.add(id));
+    } else {
+      ids.forEach((id) => base.delete(id));
+    }
+    setEntitySelectionSet(base);
   }
 
   function selectedEntityIdsForAction(primaryRootId: string): string[] {
@@ -2030,6 +2055,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     recordPerf("canvas.domCommit", tCache1 - tHtml0);
     recordPerf("canvas.total", performance.now() - t0);
     renderPerfPanel();
+    applySelectionToCanvas();
 
     const setHoverFromEvent = (ev: DragEvent): void => {
       const target = ev.target as HTMLElement | null;
@@ -2361,6 +2387,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       });
       persist();
       renderCanvas();
+      applySelectionToCanvas();
       renderInspector();
       return;
     }
@@ -2368,7 +2395,18 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     const entityEl = target.closest<HTMLElement>(".builder-entity");
     if (entityEl) {
       const rootId = entityEl.dataset.rootId!;
+      if (suppressNextEntityClickToggle) {
+        suppressNextEntityClickToggle = false;
+        return;
+      }
       const rootEnt = state.entities.find((e) => e.id === rootId);
+      if (ev.shiftKey) {
+        const next = currentEntitySelectionSet();
+        if (next.has(rootId)) next.delete(rootId);
+        else next.add(rootId);
+        setEntitySelectionSet(next);
+        return;
+      }
       if (rootEnt?.templateType === "hub") {
         return;
       }
@@ -2397,13 +2435,21 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     const entityEl = target.closest<HTMLElement>(".builder-entity");
     if (!entityEl) return;
     const rootId = entityEl.dataset.rootId;
+    if (rootId && (ev.shiftKey || ev.ctrlKey)) {
+      const next = currentEntitySelectionSet();
+      if (next.has(rootId)) next.delete(rootId);
+      else next.add(rootId);
+      setEntitySelectionSet(next);
+      suppressNextEntityClickToggle = true;
+      return;
+    }
     const rootEnt = rootId ? state.entities.find((e) => e.id === rootId) : null;
     const preserveMulti = !!rootId && selectedEntityRootIds.has(rootId);
     if (rootEnt?.templateType === "hub") {
       startEntityDragFromElement(entityEl, ev);
       return;
     }
-    if (rootId && !preserveMulti) {
+    if (rootId && !preserveMulti && !ev.shiftKey && !ev.ctrlKey) {
       setSelection({ kind: "entity", rootId });
     }
     startEntityDragFromElement(entityEl, ev);
@@ -2433,7 +2479,8 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     const wrapRect = canvasWrapEl.getBoundingClientRect();
     const startX = ev.clientX - wrapRect.left + canvasWrapEl.scrollLeft;
     const startY = ev.clientY - wrapRect.top + canvasWrapEl.scrollTop;
-    boxSelection = { startX, startY, currentX: startX, currentY: startY };
+    const mode: "replace" | "add" | "remove" = ev.ctrlKey ? "remove" : ev.shiftKey ? "add" : "replace";
+    boxSelection = { startX, startY, currentX: startX, currentY: startY, mode };
     boxEl.style.display = "block";
     const clearBoxPreview = (): void => {
       canvasEl.querySelectorAll<HTMLElement>(".builder-entity.box-preview").forEach((el) => {
@@ -2516,7 +2563,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       const r = Math.max(boxSelection.startX, boxSelection.currentX);
       const b = Math.max(boxSelection.startY, boxSelection.currentY);
       const ids = collectBoxSelectionIds(l, t, r, b);
-      setEntitySelectionSet(ids);
+      applyEntitySelectionWithMode(ids, boxSelection.mode);
       clearBoxPreview();
       boxSelection = null;
       boxEl.style.display = "none";
