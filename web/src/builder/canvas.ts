@@ -2161,7 +2161,13 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   canvasEl.addEventListener("pointerdown", (ev) => {
     const target = ev.target as HTMLElement | null;
     if (!target) return;
-    const portEl = target.closest<HTMLButtonElement>(".builder-port");
+    const directPort = target.closest<HTMLButtonElement>(".builder-port");
+    const stackedPort =
+      document
+        .elementsFromPoint(ev.clientX, ev.clientY)
+        .map((node) => node.closest<HTMLButtonElement>(".builder-port"))
+        .find((port): port is HTMLButtonElement => port !== null) ?? null;
+    const portEl = directPort ?? stackedPort;
     if (!portEl) return;
     startLinkDragFromPort(portEl, ev);
   });

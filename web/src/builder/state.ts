@@ -420,6 +420,9 @@ export function addLinkRootOneWirePerPort(
     if (fromEntityId !== toEntityId) {
       return { state, link: null };
     }
+    if (fromPort === toPort) {
+      return { state, link: null };
+    }
     if (pin.fromSegmentIndex === pin.toSegmentIndex) {
       return { state, link: null };
     }
