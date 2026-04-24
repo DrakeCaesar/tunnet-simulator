@@ -52,8 +52,11 @@ function normalizeEntitySettings(
 ): Record<string, string> {
   const src = settings ?? {};
   if (templateType === "relay") {
-    // Relays are intentionally stateless.
-    return {};
+    const angleRaw = Number.parseFloat(src.angle ?? "0");
+    const angle = Number.isFinite(angleRaw) ? angleRaw : 0;
+    const snapped = Math.round(angle / 90) * 90;
+    const normalized = ((snapped % 360) + 360) % 360;
+    return { angle: String(normalized) };
   }
   return { ...src };
 }
@@ -498,6 +501,9 @@ export function templatePortCount(type: BuilderTemplateType): number {
 }
 
 export function defaultSettings(type: BuilderTemplateType): Record<string, string> {
+  if (type === "relay") {
+    return { angle: "0" };
+  }
   if (type === "filter") {
     return {
       operatingPort: "0",
@@ -539,14 +545,6 @@ export function updateEntitySettings(
   const e = state.entities.find((x) => x.id === entityId);
   if (e && (e.isStatic || isStaticOuterLeafEndpoint(e))) {
     return state;
-  }
-  if (e?.templateType === "relay") {
-    return {
-      ...state,
-      entities: state.entities.map((x) =>
-        x.id === entityId ? { ...x, settings: {} } : x,
-      ),
-    };
   }
   return {
     ...state,

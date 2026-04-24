@@ -158,6 +158,27 @@ function hubPointerMode(
   return "none";
 }
 
+function relayPointerMode(
+  localX: number,
+  localY: number,
+  outerWidth: number,
+  outerHeight: number,
+  coreLeft: number,
+  coreTop: number,
+  coreWidth: number,
+  coreHeight: number,
+): "move" | "rotate" | "none" {
+  const ow = Math.max(1, outerWidth);
+  const oh = Math.max(1, outerHeight);
+  if (localX < 0 || localY < 0 || localX > ow || localY > oh) return "none";
+  const insideCore =
+    localX >= coreLeft &&
+    localX <= coreLeft + coreWidth &&
+    localY >= coreTop &&
+    localY <= coreTop + coreHeight;
+  return insideCore ? "move" : "rotate";
+}
+
 function hvDist(a: HubVec, b: HubVec): number {
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
@@ -413,10 +434,11 @@ function buildTemplateDragImage(templateType: BuilderTemplateType): HTMLDivEleme
     return wrap;
   }
   wrap.innerHTML = `
-    <div class="builder-entity">
-      <div class="builder-ports builder-ports--filter-top">${portBtn(0)}</div>
-      <div class="builder-entity-title">relay</div>
-      <div class="builder-ports builder-ports--filter-bottom">${portBtn(1)}</div>
+    <div class="builder-entity builder-entity--relay">
+      <div class="builder-relay-core">
+        <div class="builder-relay-port-dock builder-relay-port-a">${portBtn(0)}</div>
+        <div class="builder-relay-port-dock builder-relay-port-b">${portBtn(1)}</div>
+      </div>
     </div>
   `;
   return wrap;
@@ -914,12 +936,35 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       });
   }
 
+  function setRelayAngleDom(rootId: string, angleDeg: number): void {
+    const normalized = ((angleDeg % 360) + 360) % 360;
+    canvasEl
+      .querySelectorAll<HTMLElement>(`.builder-entity.builder-entity--relay[data-root-id="${rootId}"]`)
+      .forEach((entityEl) => {
+        entityEl.dataset.relayAngle = String(normalized);
+      });
+  }
+
   function snapPixelToGridX(pixelX: number): number {
     return Math.round(pixelX / BUILDER_GRID_TILE_SIZE_X_PX);
   }
 
   function snapPixelToGridY(pixelY: number): number {
     return Math.round(pixelY / BUILDER_GRID_TILE_SIZE_Y_PX);
+  }
+
+  function clampGridToSectionBounds(
+    x: number,
+    y: number,
+    sectionWidthPx: number,
+    sectionHeightPx: number,
+  ): { x: number; y: number } {
+    const maxX = Math.max(0, Math.floor(Math.max(1, sectionWidthPx) / BUILDER_GRID_TILE_SIZE_X_PX) - 1);
+    const maxY = Math.max(0, Math.floor(Math.max(1, sectionHeightPx) / BUILDER_GRID_TILE_SIZE_Y_PX) - 1);
+    return {
+      x: Math.max(0, Math.min(maxX, x)),
+      y: Math.max(0, Math.min(maxY, y)),
+    };
   }
 
   function renderWireOverlay(): void {
@@ -934,9 +979,11 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     perfCounts.expandedLinks = viewLinks.length;
     const wrapRect = wrap.getBoundingClientRect();
     const overlayWidth = Math.max(wrap.clientWidth, wrap.scrollWidth);
+    const overlayHeight = Math.max(wrap.clientHeight, wrap.scrollHeight);
     wireOverlayEl.setAttribute("width", String(Math.ceil(overlayWidth)));
-    wireOverlayEl.setAttribute("height", String(Math.ceil(wrapRect.height)));
+    wireOverlayEl.setAttribute("height", String(Math.ceil(overlayHeight)));
     wireOverlayEl.style.width = `${Math.ceil(overlayWidth)}px`;
+    wireOverlayEl.style.height = `${Math.ceil(overlayHeight)}px`;
     let lineMarkup = "";
     let resolveCost = 0;
     const tLine0 = performance.now();
@@ -1079,6 +1126,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     renderInspector();
   };
   let hoveredHubEl: HTMLElement | null = null;
+  let hoveredRelayEl: HTMLElement | null = null;
 
   const clearHubHover = (hub: HTMLElement | null): void => {
     if (!hub) return;
@@ -1108,6 +1156,51 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     hub.classList.toggle("builder-hub--hover-rotate", mode === "rotate");
   };
 
+  const clearRelayHover = (relay: HTMLElement | null): void => {
+    if (!relay) return;
+    relay.classList.remove("builder-relay--hover-rotate");
+  };
+
+  const updateRelayHoverFromPointer = (ev: MouseEvent): void => {
+    const target = ev.target as HTMLElement | null;
+    if (!target || target.closest("button")) {
+      clearRelayHover(hoveredRelayEl);
+      hoveredRelayEl = null;
+      return;
+    }
+    const relay = target.closest<HTMLElement>(".builder-entity--relay");
+    if (!relay) {
+      clearRelayHover(hoveredRelayEl);
+      hoveredRelayEl = null;
+      return;
+    }
+    if (hoveredRelayEl && hoveredRelayEl !== relay) {
+      clearRelayHover(hoveredRelayEl);
+    }
+    hoveredRelayEl = relay;
+    const outerRect = relay.getBoundingClientRect();
+    const coreEl = relay.querySelector<HTMLElement>(".builder-relay-core");
+    if (!coreEl) {
+      clearRelayHover(hoveredRelayEl);
+      hoveredRelayEl = null;
+      return;
+    }
+    const coreRect = coreEl.getBoundingClientRect();
+    const localX = ev.clientX - outerRect.left;
+    const localY = ev.clientY - outerRect.top;
+    const mode = relayPointerMode(
+      localX,
+      localY,
+      outerRect.width,
+      outerRect.height,
+      coreRect.left - outerRect.left,
+      coreRect.top - outerRect.top,
+      coreRect.width,
+      coreRect.height,
+    );
+    relay.classList.toggle("builder-relay--hover-rotate", mode === "rotate");
+  };
+
   const startEntityDragFromElement = (entityEl: HTMLElement, ev: MouseEvent): void => {
     const target = ev.target as HTMLElement;
     if (target.closest("button")) return;
@@ -1116,6 +1209,64 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     const seg = entityEl.closest<HTMLElement>(".builder-segment");
     if (!rootEnt || !seg) return;
     if (isStaticOuterLeafEndpoint(rootEnt)) return;
+    if (rootEnt.templateType === "relay") {
+      const relayRect = entityEl.getBoundingClientRect();
+      const coreEl = entityEl.querySelector<HTMLElement>(".builder-relay-core");
+      if (!coreEl) return;
+      const coreRect = coreEl.getBoundingClientRect();
+      const localX = ev.clientX - relayRect.left;
+      const localY = ev.clientY - relayRect.top;
+      const mode = relayPointerMode(
+        localX,
+        localY,
+        relayRect.width,
+        relayRect.height,
+        coreRect.left - relayRect.left,
+        coreRect.top - relayRect.top,
+        coreRect.width,
+        coreRect.height,
+      );
+      if (mode === "none") return;
+      if (mode === "rotate") {
+        ev.preventDefault();
+        const cx = relayRect.left + relayRect.width / 2;
+        const cy = relayRect.top + relayRect.height / 2;
+        const a0 = Math.atan2(ev.clientY - cy, ev.clientX - cx);
+        const baseRaw = Number.parseFloat(rootEnt.settings.angle ?? "0");
+        const base = ((Number.isFinite(baseRaw) ? baseRaw : 0) % 360 + 360) % 360;
+        const onMove = (mv: MouseEvent): void => {
+          const a1 = Math.atan2(mv.clientY - cy, mv.clientX - cx);
+          let newDeg = base + ((a1 - a0) * 180) / Math.PI;
+          newDeg = ((newDeg % 360) + 360) % 360;
+          newDeg = Math.round(newDeg / 90) * 90;
+          newDeg = ((newDeg % 360) + 360) % 360;
+          const cur = state.entities.find((e) => e.id === rootEnt.id);
+          if (!cur) return;
+          const curRaw = Number.parseFloat(cur.settings.angle ?? "0");
+          const curDeg = ((Number.isFinite(curRaw) ? curRaw : 0) % 360 + 360) % 360;
+          if (Math.abs(curDeg - newDeg) < 0.001) return;
+          state = updateEntitySettings(state, cur.id, { ...cur.settings, angle: String(newDeg) });
+          setRelayAngleDom(cur.id, newDeg);
+          scheduleWireOverlayRender();
+        };
+        const onUp = (): void => {
+          window.removeEventListener("mousemove", onMove);
+          window.removeEventListener("mouseup", onUp);
+          if (dragRenderRaf !== null) {
+            window.cancelAnimationFrame(dragRenderRaf);
+            dragRenderRaf = null;
+          }
+          document.body.style.removeProperty("cursor");
+          renderCanvas();
+          persist();
+          renderInspector();
+        };
+        document.body.style.cursor = "grabbing";
+        window.addEventListener("mousemove", onMove);
+        window.addEventListener("mouseup", onUp);
+        return;
+      }
+    }
     if (rootEnt.templateType === "hub") {
       const hubEl = entityEl.querySelector<HTMLElement>(".builder-hub");
       if (!hubEl) return;
@@ -1130,6 +1281,8 @@ export function mountBuilderView(options: BuilderMountOptions): void {
         const entitiesHost =
           seg.querySelector<HTMLElement>(".builder-segment-entities") ?? seg;
         const segRect = entitiesHost.getBoundingClientRect();
+        const segWidthPx = Math.max(1, entitiesHost.clientWidth);
+        const segHeightPx = Math.max(1, entitiesHost.clientHeight);
         const anchorX = (ev.clientX - segRect.left) / BUILDER_GRID_TILE_SIZE_X_PX - 0.5;
         const anchorY = (ev.clientY - segRect.top) / BUILDER_GRID_TILE_SIZE_Y_PX - 0.5;
         const rx = rootEnt.x;
@@ -1141,8 +1294,14 @@ export function mountBuilderView(options: BuilderMountOptions): void {
         const onMove = (mv: MouseEvent): void => {
           const rawX = (mv.clientX - segRect.left) / BUILDER_GRID_TILE_SIZE_X_PX - 0.5 - dx;
           const rawY = (mv.clientY - segRect.top) / BUILDER_GRID_TILE_SIZE_Y_PX - 0.5 - dy;
-          const x = Math.round(rawX);
-          const y = Math.round(rawY);
+          const clamped = clampGridToSectionBounds(
+            Math.round(rawX),
+            Math.round(rawY),
+            segWidthPx,
+            segHeightPx,
+          );
+          const x = clamped.x;
+          const y = clamped.y;
           if (x === lastX && y === lastY) {
             return;
           }
@@ -1211,6 +1370,8 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     const entitiesHost =
       seg.querySelector<HTMLElement>(".builder-segment-entities") ?? seg;
     const segRect = entitiesHost.getBoundingClientRect();
+    const segWidthPx = Math.max(1, entitiesHost.clientWidth);
+    const segHeightPx = Math.max(1, entitiesHost.clientHeight);
     const anchorX = (ev.clientX - segRect.left) / BUILDER_GRID_TILE_SIZE_X_PX;
     const anchorY = (ev.clientY - segRect.top) / BUILDER_GRID_TILE_SIZE_Y_PX;
     const dx = anchorX - rootEnt.x;
@@ -1220,8 +1381,14 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     const onMove = (mv: MouseEvent): void => {
       const rawX = (mv.clientX - segRect.left) / BUILDER_GRID_TILE_SIZE_X_PX - dx;
       const rawY = (mv.clientY - segRect.top) / BUILDER_GRID_TILE_SIZE_Y_PX - dy;
-      const x = Math.round(rawX);
-      const y = Math.round(rawY);
+      const clamped = clampGridToSectionBounds(
+        Math.round(rawX),
+        Math.round(rawY),
+        segWidthPx,
+        segHeightPx,
+      );
+      const x = clamped.x;
+      const y = clamped.y;
       if (x === lastX && y === lastY) {
         return;
       }
@@ -1528,6 +1695,8 @@ export function mountBuilderView(options: BuilderMountOptions): void {
                             const hubCw = (entity.settings.rotation ?? "clockwise") !== "counterclockwise";
                             const hubFaceDeg =
                               ((Number.parseFloat(entity.settings.faceAngle ?? "0") % 360) + 360) % 360;
+                            const relayAngleDeg =
+                              ((Number.parseFloat(entity.settings.angle ?? "0") % 360) + 360) % 360;
                             const hubOriginX = (HUB_LAYOUT.G.x / HUB_VIEW.w) * 100;
                             const hubOriginY = (HUB_LAYOUT.G.y / HUB_VIEW.h) * 100;
                             const hubBlock =
@@ -1546,6 +1715,8 @@ export function mountBuilderView(options: BuilderMountOptions): void {
                               ? " builder-entity--filter builder-entity--outer-endpoint"
                               : entity.templateType === "filter"
                                 ? " builder-entity--filter"
+                                : entity.templateType === "relay"
+                                  ? " builder-entity--relay"
                                 : entity.templateType === "hub"
                                   ? " builder-entity--hub"
                                   : "";
@@ -1564,7 +1735,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
                               : entity.templateType === "filter"
                                 ? `<div class="builder-ports builder-ports--filter-bottom">${portBtn(1)}</div>`
                                 : entity.templateType === "relay"
-                                  ? `<div class="builder-ports builder-ports--filter-bottom">${portBtn(1)}</div>`
+                                  ? ""
                                 : entity.templateType === "hub"
                                   ? ""
                                   : `<div class="builder-ports">${entity.ports.map((p) => portBtn(p)).join("")}</div>`;
@@ -1574,6 +1745,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
                                 data-instance-id="${entity.instanceId}"
                                 data-root-id="${entity.rootId}"
                                 data-static-endpoint="${isOuterStatic ? "1" : "0"}"
+                                data-relay-angle="${entity.templateType === "relay" ? String(relayAngleDeg) : ""}"
                                 style="left:${
                                   entity.templateType === "hub"
                                     ? `calc((${entity.x} + 0.5) * var(--builder-grid-step-x) - ${HUB_LAYOUT.G.x.toFixed(3)}px)`
@@ -1585,19 +1757,29 @@ export function mountBuilderView(options: BuilderMountOptions): void {
                                 }"
                               >
                                 ${
-                                  entity.templateType === "filter" || entity.templateType === "relay"
+                                  entity.templateType === "filter"
                                     ? `<div class="builder-ports builder-ports--filter-top">${portBtn(0)}</div>`
                                     : ""
                                 }
                                 ${
                                   entity.templateType === "hub" || isOuterStatic
                                     ? ""
+                                    : entity.templateType === "relay"
+                                      ? ""
                                     : `<div class="builder-entity-title">${entity.templateType}</div>`
                                 }
                                 ${settingsBlock}
                                 ${filterControls}
                                 ${endpointAddressBlock}
                                 ${hubBlock}
+                                ${
+                                  entity.templateType === "relay"
+                                    ? `<div class="builder-relay-core">
+                                        <div class="builder-relay-port-dock builder-relay-port-a">${portBtn(0)}</div>
+                                        <div class="builder-relay-port-dock builder-relay-port-b">${portBtn(1)}</div>
+                                      </div>`
+                                    : ""
+                                }
                                 ${portsRow}
                               </div>
                             `;
@@ -1666,10 +1848,18 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       const entitiesHost =
         cell.querySelector<HTMLElement>(".builder-segment-entities") ?? cell;
       const entitiesRect = entitiesHost.getBoundingClientRect();
+      const entitiesWidthPx = Math.max(1, entitiesHost.clientWidth);
+      const entitiesHeightPx = Math.max(1, entitiesHost.clientHeight);
       const pxRaw = (ev.clientX - entitiesRect.left) / BUILDER_GRID_TILE_SIZE_X_PX;
       const pyRaw = (ev.clientY - entitiesRect.top) / BUILDER_GRID_TILE_SIZE_Y_PX;
-      const px = Math.floor(pxRaw);
-      const py = Math.floor(pyRaw);
+      const clamped = clampGridToSectionBounds(
+        Math.floor(pxRaw),
+        Math.floor(pyRaw),
+        entitiesWidthPx,
+        entitiesHeightPx,
+      );
+      const px = clamped.x;
+      const py = clamped.y;
       const segment = (() => {
         if (cell.dataset.voidOuter !== "1") {
           const n = Number(cell.dataset.segment);
@@ -1967,10 +2157,13 @@ export function mountBuilderView(options: BuilderMountOptions): void {
 
   canvasEl.addEventListener("mousemove", (ev) => {
     updateHubHoverFromPointer(ev);
+    updateRelayHoverFromPointer(ev);
   });
   canvasEl.addEventListener("mouseleave", () => {
     clearHubHover(hoveredHubEl);
     hoveredHubEl = null;
+    clearRelayHover(hoveredRelayEl);
+    hoveredRelayEl = null;
   });
 
   const wrap = wireOverlayEl.parentElement;
