@@ -3,7 +3,7 @@ import {
   BuilderLayer,
   BuilderTemplateType,
   createEntityRoot,
-  createLinkRoot,
+  addLinkRootOneWirePerPort,
   createEmptyBuilderState,
   defaultSettings,
   removeEntityGroup,
@@ -13,7 +13,7 @@ import {
 } from "./state";
 import {
   expandBuilderState,
-  expandLinksForBuilderCanvas,
+  expandLinks,
   layerColumns,
   layerTitle,
   orderedLayersTopDown,
@@ -322,8 +322,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   let dragLayer: BuilderLayer | null = null;
   let dragSegment: number | null = null;
   let selection: Selection = null;
-  let linkMode = false;
-  let pendingLinkSource: LinkSourceSelection | null = null;
+  let linkDrag: { from: LinkSourceSelection; endClient: { x: number; y: number } } | null = null;
 
   root.innerHTML = `
     <div class="builder-layout">
@@ -332,8 +331,8 @@ export function mountBuilderView(options: BuilderMountOptions): void {
         <div id="builder-templates"></div>
         <div class="section-title builder-spacer">Actions</div>
         <div class="builder-actions">
-          <button id="builder-link-mode" type="button">Link Mode: Off</button>
-          <button id="builder-delete" type="button">Delete Selected</button>
+          <button id="builder-delete" type="button">Delete selected</button>
+          <button id="builder-delete-all" type="button">Delete all</button>
           <button id="builder-export" type="button">Export Text</button>
           <button id="builder-import" type="button">Import Text</button>
           <button id="builder-preview" type="button">Preview In Viewer</button>
@@ -357,8 +356,8 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   const canvasEl = root.querySelector<HTMLDivElement>("#builder-canvas")!;
   const wireOverlayEl = root.querySelector<SVGSVGElement>("#builder-wire-overlay")!;
   const inspectorEl = root.querySelector<HTMLDivElement>("#builder-inspector")!;
-  const linkModeBtn = root.querySelector<HTMLButtonElement>("#builder-link-mode")!;
   const deleteBtn = root.querySelector<HTMLButtonElement>("#builder-delete")!;
+  const deleteAllBtn = root.querySelector<HTMLButtonElement>("#builder-delete-all")!;
   const exportBtn = root.querySelector<HTMLButtonElement>("#builder-export")!;
   const importBtn = root.querySelector<HTMLButtonElement>("#builder-import")!;
   const previewBtn = root.querySelector<HTMLButtonElement>("#builder-preview")!;
@@ -369,7 +368,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
 
   function setSelection(next: Selection): void {
     selection = next;
-    pendingLinkSource = null;
+    linkDrag = null;
     renderInspector();
     renderCanvas();
   }
@@ -422,7 +421,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   function renderWireOverlay(): void {
     const wrap = wireOverlayEl.parentElement;
     if (!wrap) return;
-    const viewLinks = expandLinksForBuilderCanvas(state.links, state.entities);
+    const viewLinks = expandLinks(state.links, state.entities);
     const wrapRect = wrap.getBoundingClientRect();
     const overlayWidth = Math.max(wrap.clientWidth, wrap.scrollWidth);
     wireOverlayEl.setAttribute("width", String(Math.ceil(overlayWidth)));
@@ -451,6 +450,26 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       line.setAttribute("stroke-opacity", link.isShadow ? "0.35" : "0.9");
       line.setAttribute("stroke-width", link.isShadow ? "1" : "1.5");
       wireOverlayEl.appendChild(line);
+    }
+    if (linkDrag) {
+      const fromPort = canvasEl.querySelector<HTMLButtonElement>(
+        `.builder-port[data-root-id="${linkDrag.from.rootId}"][data-port="${linkDrag.from.port}"]`,
+      );
+      if (fromPort) {
+        const fromRect = fromPort.getBoundingClientRect();
+        const x1 = fromRect.left + fromRect.width / 2 - wrapRect.left + wrap.scrollLeft;
+        const y1 = fromRect.top + fromRect.height / 2 - wrapRect.top;
+        const x2 = linkDrag.endClient.x - wrapRect.left + wrap.scrollLeft;
+        const y2 = linkDrag.endClient.y - wrapRect.top;
+        const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+        line.setAttribute("x1", String(x1));
+        line.setAttribute("y1", String(y1));
+        line.setAttribute("x2", String(x2));
+        line.setAttribute("y2", String(y2));
+        line.setAttribute("class", "builder-wire-drag");
+        line.setAttribute("pointer-events", "none");
+        wireOverlayEl.appendChild(line);
+      }
     }
   }
 
@@ -485,10 +504,6 @@ export function mountBuilderView(options: BuilderMountOptions): void {
                             const selected =
                               selection?.kind === "entity" && selection.rootId === entity.rootId ? "selected" : "";
                             const shadow = entity.isShadow ? "shadow" : "";
-                            const linkSource =
-                              pendingLinkSource && pendingLinkSource.rootId === entity.rootId
-                                ? "link-source"
-                                : "";
                             const settingsText = Object.entries(entity.settings)
                               .slice(0, 3)
                               .map(([k, v]) => `${k}=${v}`)
@@ -618,7 +633,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
                                   : `<div class="builder-ports">${entity.ports.map((p) => portBtn(p)).join("")}</div>`;
                             return `
                               <div
-                                class="builder-entity ${selected} ${shadow} ${linkSource}${entityShapeClass}"
+                                class="builder-entity ${selected} ${shadow} ${entityShapeClass}"
                                 data-instance-id="${entity.instanceId}"
                                 data-root-id="${entity.rootId}"
                                 style="left:${entity.x * 100}%;top:${entity.y * 100}%"
@@ -716,31 +731,53 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     canvasEl.querySelectorAll<HTMLButtonElement>(".builder-port").forEach((portEl) => {
       portEl.addEventListener("click", (ev) => {
         ev.stopPropagation();
-        if (!linkMode) return;
+      });
+      portEl.addEventListener("pointerdown", (ev) => {
+        if (ev.button !== 0 || !ev.isPrimary) return;
+        ev.stopPropagation();
+        ev.preventDefault();
         const rootId = portEl.dataset.rootId!;
         const port = Number(portEl.dataset.port);
-        if (!pendingLinkSource) {
-          pendingLinkSource = { rootId, port };
-          renderCanvas();
-          return;
-        }
-        if (pendingLinkSource.rootId === rootId && pendingLinkSource.port === port) {
-          pendingLinkSource = null;
-          renderCanvas();
-          return;
-        }
-        const fromRoot = state.entities.find((e) => e.id === pendingLinkSource!.rootId);
-        const toRoot = state.entities.find((e) => e.id === rootId);
-        if (!fromRoot || !toRoot) {
-          pendingLinkSource = null;
-          renderCanvas();
-          return;
-        }
-        const link = createLinkRoot(state, fromRoot.id, pendingLinkSource.port, toRoot.id, port);
-        state = { ...state, links: [...state.links, link] };
-        persist();
-        pendingLinkSource = null;
-        setSelection({ kind: "link", rootId: link.id });
+        const from: LinkSourceSelection = { rootId, port };
+        const wrap = wireOverlayEl.parentElement;
+        if (!wrap) return;
+        const onMove = (e: PointerEvent): void => {
+          e.preventDefault();
+          linkDrag = { from, endClient: { x: e.clientX, y: e.clientY } };
+          renderWireOverlay();
+        };
+        let ended = false;
+        const onEnd = (e: PointerEvent): void => {
+          if (ended) return;
+          ended = true;
+          window.removeEventListener("pointermove", onMove);
+          window.removeEventListener("pointerup", onEnd);
+          window.removeEventListener("pointercancel", onEnd);
+          document.body.style.removeProperty("cursor");
+          const el = document.elementFromPoint(e.clientX, e.clientY);
+          const toPort = el?.closest<HTMLButtonElement>(".builder-port");
+          linkDrag = null;
+          renderWireOverlay();
+          if (!toPort) return;
+          const toRootId = toPort.dataset.rootId;
+          const toP = Number(toPort.dataset.port);
+          if (!toRootId) return;
+          if (toRootId === from.rootId) return;
+          const fromRoot = state.entities.find((ent) => ent.id === from.rootId);
+          const toRoot = state.entities.find((ent) => ent.id === toRootId);
+          if (!fromRoot || !toRoot) return;
+          const added = addLinkRootOneWirePerPort(state, fromRoot.id, from.port, toRoot.id, toP);
+          if (!added.link) return;
+          state = added.state;
+          persist();
+          setSelection({ kind: "link", rootId: added.link.id });
+        };
+        linkDrag = { from, endClient: { x: ev.clientX, y: ev.clientY } };
+        document.body.style.cursor = "crosshair";
+        renderWireOverlay();
+        window.addEventListener("pointermove", onMove, { passive: false });
+        window.addEventListener("pointerup", onEnd);
+        window.addEventListener("pointercancel", onEnd);
       });
     });
 
@@ -1002,13 +1039,6 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     });
   }
 
-  linkModeBtn.addEventListener("click", () => {
-    linkMode = !linkMode;
-    linkModeBtn.textContent = `Link Mode: ${linkMode ? "On" : "Off"}`;
-    pendingLinkSource = null;
-    renderCanvas();
-  });
-
   deleteBtn.addEventListener("click", () => {
     if (!selection) return;
     if (selection.kind === "entity") {
@@ -1018,6 +1048,18 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     }
     persist();
     selection = null;
+    linkDrag = null;
+    renderInspector();
+    renderCanvas();
+  });
+
+  deleteAllBtn.addEventListener("click", () => {
+    if (!state.entities.length && !state.links.length) return;
+    if (!window.confirm("Delete all devices and links?")) return;
+    state = createEmptyBuilderState();
+    selection = null;
+    linkDrag = null;
+    persist();
     renderInspector();
     renderCanvas();
   });

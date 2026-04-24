@@ -94,6 +94,32 @@ export function createLinkRoot(
   };
 }
 
+function linkTouchesPort(l: BuilderLinkRoot, entityId: string, port: number): boolean {
+  return (
+    (l.fromEntityId === entityId && l.fromPort === port) || (l.toEntityId === entityId && l.toPort === port)
+  );
+}
+
+/** Replaces any existing link that uses either endpoint (entity+port) so each port has at most one wire. */
+export function addLinkRootOneWirePerPort(
+  state: BuilderState,
+  fromEntityId: string,
+  fromPort: number,
+  toEntityId: string,
+  toPort: number,
+): { state: BuilderState; link: BuilderLinkRoot | null } {
+  if (fromEntityId === toEntityId) {
+    return { state, link: null };
+  }
+  const without = state.links.filter(
+    (l) =>
+      !linkTouchesPort(l, fromEntityId, fromPort) && !linkTouchesPort(l, toEntityId, toPort),
+  );
+  const next: BuilderState = { ...state, links: without };
+  const link = createLinkRoot(next, fromEntityId, fromPort, toEntityId, toPort);
+  return { state: { ...next, links: [...without, link] }, link };
+}
+
 export function templatePortCount(type: BuilderTemplateType): number {
   if (type === "endpoint") return 1;
   if (type === "relay") return 2;

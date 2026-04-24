@@ -123,17 +123,67 @@ function segmentByBaseColumn(layer: BuilderLayer, baseColumn: number): number {
   return Math.max(0, Math.min(LAYER_COUNTS[layer] - 1, Math.floor(baseColumn / stride)));
 }
 
-function expandLinks(roots: BuilderLinkRoot[], entityRoots: BuilderEntityRoot[]): BuilderLinkInstance[] {
+export function expandLinks(roots: BuilderLinkRoot[], entityRoots: BuilderEntityRoot[]): BuilderLinkInstance[] {
   const out: BuilderLinkInstance[] = [];
   const byId = new Map(entityRoots.map((e) => [e.id, e]));
   for (const root of roots) {
     const from = byId.get(root.fromEntityId);
     const to = byId.get(root.toEntityId);
     if (!from || !to) continue;
+    const fromCount = LAYER_COUNTS[from.layer];
+    const toCount = LAYER_COUNTS[to.layer];
     const seenPairs = new Set<string>();
+
     for (let base = 0; base < 64; base += 1) {
       const fromSeg = segmentByBaseColumn(from.layer, base);
       const toSeg = segmentByBaseColumn(to.layer, base);
+      if (fromCount > toCount) {
+        // Finer → coarser: each segment on the coarser (upper) side corresponds to a block of
+        // fromCount / toCount columns on the finer (lower) side. One link per (toSeg), not one per
+        // base column in that block.
+        const r = fromCount / toCount;
+        if (!Number.isInteger(r) || r < 1) continue;
+        const f2cKey = `f2c-${toSeg}`;
+        if (seenPairs.has(f2cKey)) continue;
+        seenPairs.add(f2cKey);
+        const repFromSeg = toSeg * r;
+        if (repFromSeg > fromCount - 1) continue;
+        out.push({
+          instanceId: `${root.id}@f2c${toSeg}`,
+          rootId: root.id,
+          groupId: root.groupId,
+          fromInstanceId: instanceId(from.id, repFromSeg),
+          fromPort: root.fromPort,
+          toInstanceId: instanceId(to.id, toSeg),
+          toPort: root.toPort,
+          isShadow: repFromSeg !== from.segmentIndex || toSeg !== to.segmentIndex,
+        });
+        continue;
+      }
+      if (toCount > fromCount) {
+        // Coarser → finer: one segment on the coarser (e.g. middle) maps to a block of toCount
+        // / fromCount fine segments (e.g. 4 outers). One link per (fromSeg); use the first column in
+        // the block. To get 4 distinct connections, the user places 4 devices on the coarse row.
+        const r = toCount / fromCount;
+        if (!Number.isInteger(r) || r < 1) continue;
+        const c2fKey = `c2f-${fromSeg}`;
+        if (seenPairs.has(c2fKey)) continue;
+        seenPairs.add(c2fKey);
+        const repToSeg = fromSeg * r;
+        if (repToSeg > toCount - 1) continue;
+        out.push({
+          instanceId: `${root.id}@c2f${fromSeg}`,
+          rootId: root.id,
+          groupId: root.groupId,
+          fromInstanceId: instanceId(from.id, fromSeg),
+          fromPort: root.fromPort,
+          toInstanceId: instanceId(to.id, repToSeg),
+          toPort: root.toPort,
+          isShadow: fromSeg !== from.segmentIndex || repToSeg !== to.segmentIndex,
+        });
+        continue;
+      }
+      // Same layer: one wire per (fromSeg, toSeg) along the 64 column grid.
       const key = `${fromSeg}:${toSeg}`;
       if (seenPairs.has(key)) continue;
       seenPairs.add(key);
@@ -148,32 +198,6 @@ function expandLinks(roots: BuilderLinkRoot[], entityRoots: BuilderEntityRoot[])
         isShadow: fromSeg !== from.segmentIndex || toSeg !== to.segmentIndex,
       });
     }
-  }
-  return out;
-}
-
-/**
- * One wire per user link, connecting the primary (placed) instance of each device.
- * Used for the builder canvas overlay so any two placed entities in any segments connect visually.
- * (The full `expandLinks` still fans out cloned topology for compile/simulation.)
- */
-export function expandLinksForBuilderCanvas(roots: BuilderLinkRoot[], entityRoots: BuilderEntityRoot[]): BuilderLinkInstance[] {
-  const byId = new Map(entityRoots.map((e) => [e.id, e]));
-  const out: BuilderLinkInstance[] = [];
-  for (const root of roots) {
-    const from = byId.get(root.fromEntityId);
-    const to = byId.get(root.toEntityId);
-    if (!from || !to) continue;
-    out.push({
-      instanceId: `${root.id}@view`,
-      rootId: root.id,
-      groupId: root.groupId,
-      fromInstanceId: instanceId(from.id, from.segmentIndex),
-      fromPort: root.fromPort,
-      toInstanceId: instanceId(to.id, to.segmentIndex),
-      toPort: root.toPort,
-      isShadow: false,
-    });
   }
   return out;
 }
