@@ -299,6 +299,10 @@ function templateList(): BuilderTemplateType[] {
   return ["relay", "hub", "filter"];
 }
 
+function isBuilderTemplateType(value: string): value is BuilderTemplateType {
+  return value === "relay" || value === "hub" || value === "filter";
+}
+
 function templateLabel(type: BuilderTemplateType): string {
   if (type === "relay") return "Relay";
   if (type === "hub") return "Hub";
@@ -577,6 +581,40 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     );
   }
 
+  function setEntityDomPosition(rootId: string, x: number, y: number): void {
+    const left = `${x * 100}%`;
+    const top = `${y * 100}%`;
+    canvasEl
+      .querySelectorAll<HTMLElement>(`.builder-entity[data-root-id="${rootId}"]`)
+      .forEach((entityEl) => {
+        entityEl.style.left = left;
+        entityEl.style.top = top;
+      });
+  }
+
+  function setHubFaceAngleDom(rootId: string, faceDeg: number): void {
+    const normalizedFace = ((faceDeg % 360) + 360) % 360;
+    const portStyleFor = (port: string): string => {
+      if (port === "0") return hubPortPinUprightStyle(HUB_LAYOUT.T, normalizedFace);
+      if (port === "1") return hubPortPinUprightStyle(HUB_LAYOUT.R, normalizedFace);
+      return hubPortPinUprightStyle(HUB_LAYOUT.L, normalizedFace);
+    };
+    canvasEl
+      .querySelectorAll<HTMLElement>(`.builder-entity[data-root-id="${rootId}"]`)
+      .forEach((entityEl) => {
+        const hub = entityEl.querySelector<HTMLElement>(".builder-hub");
+        if (!hub) return;
+        hub.dataset.faceAngle = String(normalizedFace);
+        const rot = hub.querySelector<HTMLElement>(".builder-hub-rot");
+        if (rot) {
+          rot.style.transform = `rotate(${normalizedFace}deg)`;
+        }
+        hub.querySelectorAll<HTMLButtonElement>(".builder-hub-port[data-port]").forEach((portEl) => {
+          portEl.style.cssText = portStyleFor(portEl.dataset.port ?? "2");
+        });
+      });
+  }
+
   function renderWireOverlay(): void {
     const t0 = performance.now();
     const wrap = wireOverlayEl.parentElement;
@@ -592,7 +630,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     wireOverlayEl.setAttribute("width", String(Math.ceil(overlayWidth)));
     wireOverlayEl.setAttribute("height", String(Math.ceil(wrapRect.height)));
     wireOverlayEl.style.width = `${Math.ceil(overlayWidth)}px`;
-    wireOverlayEl.innerHTML = "";
+    let lineMarkup = "";
     let resolveCost = 0;
     const tLine0 = performance.now();
     for (const link of viewLinks) {
@@ -607,15 +645,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       const y1 = fromRect.top + fromRect.height / 2 - wrapRect.top;
       const x2 = toRect.left + toRect.width / 2 - wrapRect.left + wrap.scrollLeft;
       const y2 = toRect.top + toRect.height / 2 - wrapRect.top;
-      const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-      line.setAttribute("x1", String(x1));
-      line.setAttribute("y1", String(y1));
-      line.setAttribute("x2", String(x2));
-      line.setAttribute("y2", String(y2));
-      line.setAttribute("stroke", "#f9e2af");
-      line.setAttribute("stroke-opacity", "0.9");
-      line.setAttribute("stroke-width", "1.5");
-      wireOverlayEl.appendChild(line);
+      lineMarkup += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#f9e2af" stroke-opacity="0.9" stroke-width="1.5"></line>`;
     }
     recordPerf("wire.portResolve", resolveCost);
     recordPerf("wire.lineBuild", performance.now() - tLine0);
@@ -633,16 +663,10 @@ export function mountBuilderView(options: BuilderMountOptions): void {
         const y1 = fromRect.top + fromRect.height / 2 - wrapRect.top;
         const x2 = linkDrag.endClient.x - wrapRect.left + wrap.scrollLeft;
         const y2 = linkDrag.endClient.y - wrapRect.top;
-        const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-        line.setAttribute("x1", String(x1));
-        line.setAttribute("y1", String(y1));
-        line.setAttribute("x2", String(x2));
-        line.setAttribute("y2", String(y2));
-        line.setAttribute("class", "builder-wire-drag");
-        line.setAttribute("pointer-events", "none");
-        wireOverlayEl.appendChild(line);
+        lineMarkup += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" class="builder-wire-drag" pointer-events="none"></line>`;
       }
     }
+    wireOverlayEl.innerHTML = lineMarkup;
     recordPerf("wire.total", performance.now() - t0);
     renderPerfPanel();
   }
@@ -780,7 +804,8 @@ export function mountBuilderView(options: BuilderMountOptions): void {
           const x = (mv.clientX - segRect.left) / Math.max(1, segRect.width) - dx;
           const y = (mv.clientY - segRect.top) / Math.max(1, segRect.height) - dy;
           state = updateEntityPosition(state, rootEnt.id, x, y);
-          scheduleDragRender();
+          setEntityDomPosition(rootEnt.id, x, y);
+          scheduleWireOverlayRender();
         };
         const onUp = (): void => {
           window.removeEventListener("mousemove", onMove);
@@ -809,7 +834,8 @@ export function mountBuilderView(options: BuilderMountOptions): void {
         const cur = state.entities.find((e) => e.id === rootEnt.id);
         if (!cur) return;
         state = updateEntitySettings(state, cur.id, { ...cur.settings, faceAngle: String(newDeg) });
-        scheduleDragRender();
+        setHubFaceAngleDom(cur.id, newDeg);
+        scheduleWireOverlayRender();
       };
       const onUp = (): void => {
         window.removeEventListener("mousemove", onMove);
@@ -838,7 +864,8 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       const x = (mv.clientX - segRect.left) / Math.max(1, segRect.width) - dx;
       const y = (mv.clientY - segRect.top) / Math.max(1, segRect.height) - dy;
       state = updateEntityPosition(state, rootEnt.id, x, y);
-      scheduleDragRender();
+      setEntityDomPosition(rootEnt.id, x, y);
+      scheduleWireOverlayRender();
     };
     const onUp = (): void => {
       window.removeEventListener("mousemove", onMove);
@@ -1247,9 +1274,13 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       const cell = target?.closest<HTMLElement>(".builder-segment");
       if (!cell) return;
       if (cell.dataset.voidOuter === "1") return;
-      const droppedTemplate =
+      const rawDroppedTemplate =
         draggingTemplate ??
-        ((ev.dataTransfer?.getData("text/plain") as BuilderTemplateType | "") || null);
+        (ev.dataTransfer?.getData("text/plain") || null);
+      if (!rawDroppedTemplate || !isBuilderTemplateType(rawDroppedTemplate)) {
+        return;
+      }
+      const droppedTemplate: BuilderTemplateType = rawDroppedTemplate;
       if (!droppedTemplate) return;
       const layer = cell.dataset.layer as BuilderLayer;
       const segment = Number(cell.dataset.segment);
@@ -1520,8 +1551,13 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   canvasEl.addEventListener("mousedown", (ev) => {
     const target = ev.target as HTMLElement | null;
     if (!target) return;
+    if (target.closest("button")) return;
     const entityEl = target.closest<HTMLElement>(".builder-entity");
     if (!entityEl) return;
+    const rootId = entityEl.dataset.rootId;
+    if (rootId) {
+      setSelection({ kind: "entity", rootId });
+    }
     startEntityDragFromElement(entityEl, ev);
   });
 
