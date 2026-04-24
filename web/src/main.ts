@@ -701,7 +701,12 @@ function render(payload: ViewerPayload, boundaryOrder: number, initialTab: "view
   } = mountLayout();
 
   let builderMounted = false;
+  let activeTab: "viewer" | "builder" = initialTab;
+  let viewerControlReady = false;
+  let resumePlayingWhenViewerReturns = false;
+  let restorePhysicsWhenViewerReturns = false;
   const setActiveTab = (tab: "viewer" | "builder"): void => {
+    activeTab = tab;
     const viewerActive = tab === "viewer";
     viewerViewEl.classList.toggle("hidden", !viewerActive);
     builderViewEl.classList.toggle("hidden", viewerActive);
@@ -722,6 +727,9 @@ function render(payload: ViewerPayload, boundaryOrder: number, initialTab: "view
     const url = new URL(window.location.href);
     url.searchParams.set("tab", tab);
     window.history.replaceState(null, "", url.toString());
+    if (viewerControlReady) {
+      applyViewerExecutionForActiveTab();
+    }
   };
   tabViewerEl.addEventListener("click", () => setActiveTab("viewer"));
   tabBuilderEl.addEventListener("click", () => setActiveTab("builder"));
@@ -1323,8 +1331,29 @@ function render(payload: ViewerPayload, boundaryOrder: number, initialTab: "view
     updateSimMeta();
   };
 
+  const applyViewerExecutionForActiveTab = (): void => {
+    if (!viewerControlReady) return;
+    const viewerActive = activeTab === "viewer";
+    if (!viewerActive) {
+      resumePlayingWhenViewerReturns = playing;
+      setPlaying(false);
+      restorePhysicsWhenViewerReturns = physicsEnabled;
+      setPhysicsEnabled(false);
+      return;
+    }
+    if (restorePhysicsWhenViewerReturns) {
+      setPhysicsEnabled(true);
+    }
+    restorePhysicsWhenViewerReturns = false;
+    if (resumePlayingWhenViewerReturns) {
+      resumePlayingWhenViewerReturns = false;
+      setPlaying(true);
+    }
+  };
+
   window.addEventListener("keydown", (ev) => {
     if (ev.code !== "Space") return;
+    if (activeTab !== "viewer") return;
     ev.preventDefault();
     setPlaying(!playing);
   });
@@ -1394,6 +1423,8 @@ function render(payload: ViewerPayload, boundaryOrder: number, initialTab: "view
   renderPackets(1);
   renderTimingTable();
   updateSimMeta();
+  viewerControlReady = true;
+  applyViewerExecutionForActiveTab();
 
   network.on("click", (params) => {
     if (!params.nodes.length) {
