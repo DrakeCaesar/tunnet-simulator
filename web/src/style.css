@@ -12,7 +12,7 @@
   --graph-edge-color: #7b8496;
   --graph-edge-text: #9aa3b2;
 
-  --scrollbar-track: #121720;
+  --scrollbar-track: transparent;
   --scrollbar-thumb: #3a445a;
   --scrollbar-thumb-hover: #4a5670;
 }
@@ -36,14 +36,14 @@ body {
 }
 
 *::-webkit-scrollbar-track {
-  background: var(--scrollbar-track);
+  background: transparent;
   border-radius: 999px;
 }
 
 *::-webkit-scrollbar-thumb {
   background: var(--scrollbar-thumb);
   border-radius: 999px;
-  border: 2px solid var(--scrollbar-track);
+  border: 2px solid transparent;
   background-clip: padding-box;
 }
 
@@ -52,7 +52,7 @@ body {
 }
 
 *::-webkit-scrollbar-corner {
-  background: var(--scrollbar-track);
+  background: transparent;
 }
 
 .hidden {
@@ -354,6 +354,15 @@ textarea {
 .builder-main,
 .builder-inspector {
   overflow: auto;
+}
+
+/* Keep scrollbar paint clipped to rounded corners. */
+.builder-sidebar,
+.builder-main,
+.builder-inspector,
+.timings-wrap,
+.builder-perf {
+  clip-path: inset(0 round 8px);
 }
 
 .builder-main {
