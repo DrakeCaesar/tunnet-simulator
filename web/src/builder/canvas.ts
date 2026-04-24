@@ -627,6 +627,11 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       });
   }
 
+  function snapNormalizedToPixels(value: number, sizePx: number): number {
+    const safeSize = Math.max(1, sizePx);
+    return Math.round(value * safeSize) / safeSize;
+  }
+
   function renderWireOverlay(): void {
     const t0 = performance.now();
     const wrap = wireOverlayEl.parentElement;
@@ -645,6 +650,31 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     let lineMarkup = "";
     let resolveCost = 0;
     const tLine0 = performance.now();
+    const lineEndpointsAtPortEdges = (
+      x1: number,
+      y1: number,
+      r1: number,
+      x2: number,
+      y2: number,
+      r2: number,
+    ): { sx: number; sy: number; ex: number; ey: number } => {
+      const dx = x2 - x1;
+      const dy = y2 - y1;
+      const d = Math.hypot(dx, dy);
+      if (d < 1e-6) {
+        return { sx: x1, sy: y1, ex: x2, ey: y2 };
+      }
+      const ux = dx / d;
+      const uy = dy / d;
+      const startInset = Math.min(r1, d * 0.45);
+      const endInset = Math.min(r2, d * 0.45);
+      return {
+        sx: x1 + ux * startInset,
+        sy: y1 + uy * startInset,
+        ex: x2 - ux * endInset,
+        ey: y2 - uy * endInset,
+      };
+    };
     for (const link of viewLinks) {
       const tr0 = performance.now();
       const from = resolveBuilderPortForWireOverlay(String(link.fromInstanceId), link.fromPort);
@@ -657,7 +687,8 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       const y1 = fromRect.top + fromRect.height / 2 - wrapRect.top;
       const x2 = toRect.left + toRect.width / 2 - wrapRect.left + wrap.scrollLeft;
       const y2 = toRect.top + toRect.height / 2 - wrapRect.top;
-      lineMarkup += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#f9e2af" stroke-opacity="0.9" stroke-width="1.5"></line>`;
+      const e = lineEndpointsAtPortEdges(x1, y1, fromRect.width / 2, x2, y2, toRect.width / 2);
+      lineMarkup += `<line x1="${e.sx}" y1="${e.sy}" x2="${e.ex}" y2="${e.ey}" stroke="#f9e2af" stroke-opacity="0.9" stroke-width="1.5"></line>`;
     }
     recordPerf("wire.portResolve", resolveCost);
     recordPerf("wire.lineBuild", performance.now() - tLine0);
@@ -675,7 +706,8 @@ export function mountBuilderView(options: BuilderMountOptions): void {
         const y1 = fromRect.top + fromRect.height / 2 - wrapRect.top;
         const x2 = linkDrag.endClient.x - wrapRect.left + wrap.scrollLeft;
         const y2 = linkDrag.endClient.y - wrapRect.top;
-        lineMarkup += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" class="builder-wire-drag" pointer-events="none"></line>`;
+        const e = lineEndpointsAtPortEdges(x1, y1, fromRect.width / 2, x2, y2, 0);
+        lineMarkup += `<line x1="${e.sx}" y1="${e.sy}" x2="${e.ex}" y2="${e.ey}" class="builder-wire-drag" pointer-events="none"></line>`;
       }
     }
     wireOverlayEl.innerHTML = lineMarkup;
@@ -813,8 +845,10 @@ export function mountBuilderView(options: BuilderMountOptions): void {
         const dx = anchorX - rx;
         const dy = anchorY - ry;
         const onMove = (mv: MouseEvent): void => {
-          const x = (mv.clientX - segRect.left) / Math.max(1, segRect.width) - dx;
-          const y = (mv.clientY - segRect.top) / Math.max(1, segRect.height) - dy;
+          const rawX = (mv.clientX - segRect.left) / Math.max(1, segRect.width) - dx;
+          const rawY = (mv.clientY - segRect.top) / Math.max(1, segRect.height) - dy;
+          const x = snapNormalizedToPixels(rawX, segRect.width);
+          const y = snapNormalizedToPixels(rawY, segRect.height);
           state = updateEntityPosition(state, rootEnt.id, x, y);
           setEntityDomPosition(rootEnt.id, x, y);
           scheduleWireOverlayRender();
@@ -848,6 +882,11 @@ export function mountBuilderView(options: BuilderMountOptions): void {
         newDeg = ((newDeg % 360) + 360) % 360;
         const cur = state.entities.find((e) => e.id === rootEnt.id);
         if (!cur) return;
+        const curDegRaw = Number.parseFloat(cur.settings.faceAngle ?? "0");
+        const curDeg = ((Number.isFinite(curDegRaw) ? curDegRaw : 0) % 360 + 360) % 360;
+        if (Math.abs(curDeg - newDeg) < 0.001) {
+          return;
+        }
         state = updateEntitySettings(state, cur.id, { ...cur.settings, faceAngle: String(newDeg) });
         setHubFaceAngleDom(cur.id, newDeg);
         scheduleWireOverlayRender();
@@ -876,8 +915,10 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     const dx = anchorX - rootEnt.x;
     const dy = anchorY - rootEnt.y;
     const onMove = (mv: MouseEvent): void => {
-      const x = (mv.clientX - segRect.left) / Math.max(1, segRect.width) - dx;
-      const y = (mv.clientY - segRect.top) / Math.max(1, segRect.height) - dy;
+      const rawX = (mv.clientX - segRect.left) / Math.max(1, segRect.width) - dx;
+      const rawY = (mv.clientY - segRect.top) / Math.max(1, segRect.height) - dy;
+      const x = snapNormalizedToPixels(rawX, segRect.width);
+      const y = snapNormalizedToPixels(rawY, segRect.height);
       state = updateEntityPosition(state, rootEnt.id, x, y);
       setEntityDomPosition(rootEnt.id, x, y);
       scheduleWireOverlayRender();

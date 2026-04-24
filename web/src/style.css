@@ -11,6 +11,10 @@
   --graph-node-device-text: #111111;
   --graph-edge-color: #7b8496;
   --graph-edge-text: #9aa3b2;
+
+  --scrollbar-track: #121720;
+  --scrollbar-thumb: #3a445a;
+  --scrollbar-thumb-hover: #4a5670;
 }
 
 body {
@@ -18,6 +22,37 @@ body {
   font-family: "FiraCode Nerd Font", "Fira Code Nerd Font", "Fira Code", ui-monospace, SFMono-Regular, Menlo, monospace;
   background: var(--bg-main);
   color: var(--text-main);
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+  scrollbar-width: thin;
+}
+
+* {
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+  border-radius: 999px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 999px;
+  border: 2px solid var(--scrollbar-track);
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+*::-webkit-scrollbar-corner {
+  background: var(--scrollbar-track);
 }
 
 .hidden {
@@ -95,7 +130,7 @@ body {
 .meta {
   color: var(--meta-text);
   font-size: 13px;
-  line-height: 1.4;
+  line-height: 1;
 }
 
 .kv {
@@ -169,7 +204,7 @@ body {
 .sim-meta {
   color: var(--meta-text);
   font-size: 12px;
-  line-height: 1.35;
+  line-height: 1;
 }
 
 .status-row {
@@ -349,7 +384,7 @@ textarea {
   white-space: pre;
   overflow: auto;
   font-size: 10px;
-  line-height: 1.25;
+  line-height: 1;
   color: #b9c2d6;
   background: #0f131b;
   border: 1px solid #2a3242;
@@ -469,7 +504,7 @@ textarea {
 }
 
 .builder-segment-label {
-  font-size: 9px;
+  font-size: 10px;
   color: #7f8aa0;
   text-align: center;
   margin-bottom: 2px;
@@ -488,6 +523,7 @@ textarea {
   background: #1a2130;
   color: #dbe3f5;
   position: absolute;
+  z-index: 2;
   min-width: 45px;
   max-width: 520px;
   transform: translate(-6px, -6px);
@@ -534,7 +570,7 @@ textarea {
 }
 
 .builder-endpoint-addr-nib {
-  font-size: 9px;
+  font-size: 10px;
   color: #d9e1f3;
   line-height: 1;
 }
@@ -543,7 +579,7 @@ textarea {
   font-size: 11px;
   color: #7f8aa0;
   margin: 0.5rem 0 0 0;
-  line-height: 1.4;
+  line-height: 1;
 }
 
 .builder-entity--filter {
@@ -718,14 +754,14 @@ textarea {
 
 .builder-entity-title {
   text-transform: uppercase;
-  font-size: 9px;
+  font-size: 10px;
   letter-spacing: 0.03em;
   margin-bottom: 2px;
 }
 
 .builder-entity-settings {
-  font-size: 9px;
-  line-height: 1.2;
+  font-size: 10px;
+  line-height: 1;
   color: #b5bfd4;
   margin-bottom: 2px;
 }
@@ -752,7 +788,7 @@ textarea {
 }
 
 .builder-row-label {
-  font-size: 9px;
+  font-size: 10px;
   color: #c7d0e3;
 }
 
@@ -794,6 +830,11 @@ textarea {
   height: 20px;
   line-height: 1;
   padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-variant-numeric: tabular-nums;
+  text-rendering: geometricPrecision;
 }
 
 .builder-cycle-btn[data-dir="prev"] {
@@ -810,16 +851,18 @@ textarea {
   border: 1px solid #3a445a;
   background: #0f131b;
   border-radius: 0;
-  font-size: 9px;
+  font-size: 10px;
   padding: 2px 4px;
   min-height: 20px;
   box-sizing: border-box;
   text-align: center;
   white-space: pre-line;
-  line-height: 1.15;
+  line-height: 1;
   display: flex;
   align-items: center;
   justify-content: center;
+  font-variant-numeric: tabular-nums;
+  text-rendering: geometricPrecision;
 }
 
 .builder-mask-row {
@@ -852,10 +895,14 @@ textarea {
 }
 
 .builder-mask-cell span {
-  font-size: 9px;
+  font-size: 10px;
+  line-height: 1;
   color: #c7d0e3;
   text-align: center;
   padding: 2px 0;
+  display: block;
+  font-variant-numeric: tabular-nums;
+  text-rendering: geometricPrecision;
 }
 
 .builder-mask-arrow {
@@ -889,7 +936,7 @@ textarea {
   background: #0f131b;
   padding: 6px;
   font-size: 10px;
-  line-height: 1.35;
+  line-height: 1;
   white-space: pre-line;
   color: #c7d0e3;
 }
@@ -907,9 +954,14 @@ textarea {
   border: 1px solid #4a556d;
   background: #0f131b;
   color: #d9e1f3;
-  font-size: 9px;
+  font-size: 10px;
   line-height: 1;
   padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-variant-numeric: tabular-nums;
+  text-rendering: geometricPrecision;
 }
 
 .builder-settings {
