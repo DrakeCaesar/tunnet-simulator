@@ -104,6 +104,8 @@ type BuilderPanelSectionId = (typeof BUILDER_PANEL_SECTION_IDS)[number];
 type BuilderPageState = {
   collapsedSections: Partial<Record<BuilderPanelSectionId, boolean>>;
   showPacketIps: boolean;
+  simSpeedExponent: number;
+  simSendRateExponent: number;
 };
 
 /** Equilateral triangle: apex up, base horizontal; `r` matches half of global `.builder-port` (17px). */
@@ -692,18 +694,45 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     }
   };
   const loadBuilderPageState = (): BuilderPageState => {
+    const clampSimSpeedExponent = (value: unknown): number => {
+      const n = Number(value);
+      if (!Number.isFinite(n)) return SPEED_EXP_DEFAULT;
+      return Math.max(SPEED_EXP_MIN, Math.min(SPEED_EXP_MAX, Math.round(n)));
+    };
+    const clampSimSendRateExponent = (value: unknown): number => {
+      const n = Number(value);
+      if (!Number.isFinite(n)) return SEND_RATE_EXP_DEFAULT;
+      return Math.max(SEND_RATE_EXP_MIN, Math.min(SEND_RATE_EXP_MAX, Math.round(n)));
+    };
     try {
       const raw = window.localStorage.getItem(BUILDER_PAGE_STATE_KEY);
-      if (!raw) return { collapsedSections: {}, showPacketIps: true };
+      if (!raw) {
+        return {
+          collapsedSections: {},
+          showPacketIps: true,
+          simSpeedExponent: SPEED_EXP_DEFAULT,
+          simSendRateExponent: SEND_RATE_EXP_DEFAULT,
+        };
+      }
       const parsed = JSON.parse(raw) as Partial<BuilderPageState>;
       const collapsedSections: BuilderPageState["collapsedSections"] = {};
       const parsedSections = parsed.collapsedSections ?? {};
       BUILDER_PANEL_SECTION_IDS.forEach((id) => {
         collapsedSections[id] = parsedSections[id] === true;
       });
-      return { collapsedSections, showPacketIps: parsed.showPacketIps !== false };
+      return {
+        collapsedSections,
+        showPacketIps: parsed.showPacketIps !== false,
+        simSpeedExponent: clampSimSpeedExponent(parsed.simSpeedExponent),
+        simSendRateExponent: clampSimSendRateExponent(parsed.simSendRateExponent),
+      };
     } catch {
-      return { collapsedSections: {}, showPacketIps: true };
+      return {
+        collapsedSections: {},
+        showPacketIps: true,
+        simSpeedExponent: SPEED_EXP_DEFAULT,
+        simSendRateExponent: SEND_RATE_EXP_DEFAULT,
+      };
     }
   };
   const clampBuilderSidebarWidth = (width: number, layoutWidth = window.innerWidth): number => {
@@ -872,6 +901,8 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   const simSpeedValueEl = root.querySelector<HTMLSpanElement>("#builder-sim-speed-value")!;
   const simSendRateEl = root.querySelector<HTMLInputElement>("#builder-sim-send-rate")!;
   const simSendRateValueEl = root.querySelector<HTMLSpanElement>("#builder-sim-send-rate-value")!;
+  simSpeedEl.value = String(builderPageState.simSpeedExponent);
+  simSendRateEl.value = String(builderPageState.simSendRateExponent);
   const simMetaEl = root.querySelector<HTMLDivElement>("#builder-sim-meta")!;
   const canvasWrapEl = wireOverlayEl.parentElement as HTMLDivElement | null;
   const boxEl = document.createElement("div");
@@ -1277,6 +1308,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   let simPreparedPacketRenders: SimPreparedPacketRender[] = [];
   let simPreparedPacketRenderDirty = true;
   let packetCircleGroupEl: SVGGElement | null = null;
+  let packetSelectedGuideEl: SVGLineElement | null = null;
   const packetCirclePool: SVGCircleElement[] = [];
   const packetLabelPool: Array<{
     bg: SVGRectElement;
@@ -2294,6 +2326,8 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     stroke: string;
     x: number;
     y: number;
+    targetX: number;
+    targetY: number;
     selected: boolean;
   };
 
@@ -2415,6 +2449,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   function clearBuilderPacketCirclePool(): void {
     packetOverlayEl.innerHTML = "";
     packetCircleGroupEl = null;
+    packetSelectedGuideEl = null;
     packetCirclePool.length = 0;
     packetLabelPool.length = 0;
     activePacketCircleCount = 0;
@@ -2428,6 +2463,18 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     packetOverlayEl.appendChild(group);
     packetCircleGroupEl = group;
     return group;
+  }
+
+  function ensureSelectedPacketGuide(): SVGLineElement {
+    if (packetSelectedGuideEl?.parentNode === packetOverlayEl) {
+      return packetSelectedGuideEl;
+    }
+    const guide = document.createElementNS("http://www.w3.org/2000/svg", "line");
+    guide.setAttribute("class", "builder-packet-selected-guide");
+    guide.setAttribute("display", "none");
+    packetOverlayEl.appendChild(guide);
+    packetSelectedGuideEl = guide;
+    return guide;
   }
 
   function ensureBuilderPacketCircle(index: number): SVGCircleElement {
@@ -2510,9 +2557,12 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       const fromPortNum = fromEntry?.port.port ?? 0;
       const fromRef: PortRef = { deviceId: fromDeviceId, port: fromPortNum };
       const toRef: PortRef = { ...port };
+      const finalEndpointId = builderEndpointIdByAddress.get(packet.dest);
+      const finalDestRef: PortRef | null = finalEndpointId ? { deviceId: finalEndpointId, port: 0 } : null;
       const pa = builderPortCenterInOverlayCoords(fromRef, centerCache) ?? builderPortCenterInOverlayCoords(toRef, centerCache);
       const pb = builderPortCenterInOverlayCoords(toRef, centerCache);
       if (!pa || !pb) continue;
+      const pFinal = finalDestRef ? builderPortCenterInOverlayCoords(finalDestRef, centerCache) : null;
 
       const o = simRestingPortOffset(port.port);
       const fallback = { x: pa.x + o.x, y: pa.y + o.y };
@@ -2542,6 +2592,8 @@ export function mountBuilderView(options: BuilderMountOptions): void {
         stroke: `hsl(${hue} 82% 38%)`,
         x: fallback.x,
         y: fallback.y,
+        targetX: (pFinal ?? pb).x,
+        targetY: (pFinal ?? pb).y,
         selected: false,
       });
     }
@@ -2570,6 +2622,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     if (simPreparedPacketRenderDirty) {
       polylineMs = prepareBuilderPacketRenders();
     }
+    let selectedRender: SimPreparedPacketRender | null = null;
     for (const render of simPreparedPacketRenders) {
       let x = render.fallback.x;
       let y = render.fallback.y;
@@ -2585,12 +2638,14 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       render.x = x;
       render.y = y;
       render.selected = selection?.kind === "packet" && selection.packetId === render.packetId;
+      if (render.selected) selectedRender = render;
     }
     const tCompute1 = performance.now();
     const tCommit0 = performance.now();
     if (simPreparedPacketRenders.length > 0) {
       ensureBuilderPacketCircleGroup();
     }
+    const selectedGuide = ensureSelectedPacketGuide();
     for (let i = 0; i < simPreparedPacketRenders.length; i += 1) {
       const render = simPreparedPacketRenders[i]!;
       const circle = ensureBuilderPacketCircle(i);
@@ -2660,6 +2715,15 @@ export function mountBuilderView(options: BuilderMountOptions): void {
         label.text.removeAttribute("data-packet-id");
         label.lastPacketId = null;
       }
+    }
+    if (selectedRender) {
+      selectedGuide.removeAttribute("display");
+      selectedGuide.setAttribute("x1", selectedRender.x.toFixed(2));
+      selectedGuide.setAttribute("y1", selectedRender.y.toFixed(2));
+      selectedGuide.setAttribute("x2", selectedRender.targetX.toFixed(2));
+      selectedGuide.setAttribute("y2", selectedRender.targetY.toFixed(2));
+    } else {
+      selectedGuide.setAttribute("display", "none");
     }
     activePacketCircleCount = simPreparedPacketRenders.length;
     const tCommit1 = performance.now();
@@ -4750,6 +4814,8 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     if (!Number.isFinite(simSpeedExponent)) {
       simSpeedExponent = SPEED_EXP_DEFAULT;
     }
+    builderPageState.simSpeedExponent = simSpeedExponent;
+    persistBuilderPageState();
     simSpeed = speedMultiplierFromExponent(simSpeedExponent);
     simEmaAchievedSpeed = null;
     if (simPlaying && (simAnimHandle !== null || simTickTimeoutHandle !== null)) {
@@ -4769,6 +4835,8 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     if (!Number.isFinite(simSendRateExponent)) {
       simSendRateExponent = SEND_RATE_EXP_DEFAULT;
     }
+    builderPageState.simSendRateExponent = simSendRateExponent;
+    persistBuilderPageState();
     if (builderSimulator) {
       builderSimulator.setSendRateMultiplier(sendRateMultiplierFromExponent(simSendRateExponent));
     }

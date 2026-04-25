@@ -628,6 +628,14 @@ textarea {
   cursor: pointer;
 }
 
+.builder-packet-selected-guide {
+  stroke: rgba(249, 226, 175, 0.95);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 4;
+  stroke-linecap: round;
+  pointer-events: none;
+}
+
 .builder-packet-label-bg {
   fill: rgba(15, 19, 27, 0.88);
   stroke: rgba(58, 68, 90, 0.9);
