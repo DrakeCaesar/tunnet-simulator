@@ -4186,6 +4186,14 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     const rootEnt = rootId ? state.entities.find((e) => e.id === rootId) : null;
     const preserveMulti = !!rootId && selectedEntityRootIds.has(rootId);
     if (rootEnt?.templateType === "hub") {
+      const hubEl = entityEl.querySelector<HTMLElement>(".builder-hub");
+      if (!hubEl) return;
+      const hubRect = hubEl.getBoundingClientRect();
+      const localX = ev.clientX - hubRect.left;
+      const localY = ev.clientY - hubRect.top;
+      const faceRaw = Number.parseFloat(hubEl.dataset.faceAngle ?? rootEnt.settings.faceAngle ?? "0");
+      const faceDeg = ((Number.isFinite(faceRaw) ? faceRaw : 0) % 360 + 360) % 360;
+      if (hubPointerMode(localX, localY, faceDeg) === "none") return;
       ev.stopImmediatePropagation();
       startEntityDragFromElement(entityEl, ev);
       return;

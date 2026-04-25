@@ -1097,6 +1097,7 @@ textarea {
 
 .builder-entity.selected {
   border-color: #f9e2af;
+  z-index: 6;
 }
 
 .builder-entity.box-preview {
