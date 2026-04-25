@@ -4863,6 +4863,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   });
 
   renderTemplates();
+  syncBuilderSimSliderLabels();
   renderInspector();
   renderCanvas();
   applyCanvasScale();
