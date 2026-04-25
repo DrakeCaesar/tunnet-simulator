@@ -580,10 +580,6 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     saveBuilderState(state);
   }
 
-  let draggingTemplate: BuilderTemplateType | null = null;
-  let dragLayer: BuilderLayer | null = null;
-  let dragSegment: number | null = null;
-  let dragOuterVoid = false;
   let selection: Selection = null;
   let linkDrag: { from: LinkSourceSelection; endClient: { x: number; y: number } } | null = null;
   let dragRenderRaf: number | null = null;
@@ -1467,9 +1463,8 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     renderWireOverlay();
   }
 
-  function previewPositionCss(rootId: string, x: number, y: number): { left: string; top: string } {
-    const rootEnt = state.entities.find((e) => e.id === rootId);
-    const isHub = rootEnt?.templateType === "hub";
+  function entityPositionCss(templateType: BuilderTemplateType, x: number, y: number): { left: string; top: string } {
+    const isHub = templateType === "hub";
     const left = isHub
       ? `calc((${x} + 0.5) * var(--builder-grid-step-x) - ${HUB_LAYOUT.G.x.toFixed(3)}px)`
       : `calc(${x} * var(--builder-grid-step-x))`;
@@ -1477,6 +1472,11 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       ? `calc((${y} + 0.5) * var(--builder-grid-step-y) - ${HUB_LAYOUT.G.y.toFixed(3)}px)`
       : `calc(${y} * var(--builder-grid-step-y))`;
     return { left, top };
+  }
+
+  function previewPositionCss(rootId: string, x: number, y: number): { left: string; top: string } {
+    const rootEnt = state.entities.find((e) => e.id === rootId);
+    return entityPositionCss(rootEnt?.templateType ?? "relay", x, y);
   }
 
   type DragPlacement = { layer: BuilderLayer; segment: number; x: number; y: number };
@@ -1739,82 +1739,147 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     return [primaryRootId];
   }
 
+  function templatePlacementInSection(
+    templateType: BuilderTemplateType,
+    section: { layer: BuilderLayer; segment: number; rect: DOMRect; widthPx: number; heightPx: number },
+    clientX: number,
+    clientY: number,
+  ): DragPlacement {
+    const rawX = (clientX - section.rect.left) / BUILDER_GRID_TILE_SIZE_X_PX;
+    const rawY = (clientY - section.rect.top) / BUILDER_GRID_TILE_SIZE_Y_PX;
+    const footprint = entityFootprintOffsets({
+      id: "template-preview",
+      groupId: "template-preview",
+      templateType,
+      layer: section.layer,
+      segmentIndex: section.segment,
+      x: 0,
+      y: 0,
+      settings: defaultSettings(templateType),
+    });
+    const maxX = Math.max(0, Math.floor(Math.max(1, section.widthPx) / BUILDER_GRID_TILE_SIZE_X_PX) - 1);
+    const maxY = Math.max(0, Math.floor(Math.max(1, section.heightPx) / BUILDER_GRID_TILE_SIZE_Y_PX) - 1);
+    const minAnchorX = -footprint.left;
+    const minAnchorY = -footprint.top;
+    const maxAnchorX = Math.max(minAnchorX, maxX - footprint.right);
+    const maxAnchorY = Math.max(minAnchorY, maxY - footprint.bottom);
+    return {
+      layer: section.layer,
+      segment: section.segment,
+      x: Math.max(minAnchorX, Math.min(maxAnchorX, Math.floor(rawX))),
+      y: Math.max(minAnchorY, Math.min(maxAnchorY, Math.floor(rawY))),
+    };
+  }
+
+  function startTemplateDragFromSidebar(templateType: BuilderTemplateType, ev: MouseEvent): void {
+    if (ev.button !== 0) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    let createdRootId: string | null = null;
+    let lastPlacementKey = "";
+    const floatingGhostEl = buildTemplateDragImage(templateType);
+    floatingGhostEl.classList.toggle("builder-hide-property-labels", hideEntityPropertyLabels);
+    document.body.appendChild(floatingGhostEl);
+
+    const moveFloatingGhost = (clientX: number, clientY: number): void => {
+      if (createdRootId) return;
+      floatingGhostEl.style.left = `${clientX + 12}px`;
+      floatingGhostEl.style.top = `${clientY + 12}px`;
+    };
+
+    const updateDraggedEntity = (clientX: number, clientY: number): void => {
+      moveFloatingGhost(clientX, clientY);
+      const section = segmentFromClientPoint(clientX, clientY);
+      if (!section) return;
+      const placement = templatePlacementInSection(templateType, section, clientX, clientY);
+      const key = `${placement.layer}:${placement.segment}:${placement.x}:${placement.y}`;
+      if (key === lastPlacementKey) return;
+      if (hasSameTypePlacementConflict(
+        templateType,
+        placement.layer,
+        placement.segment,
+        placement.x,
+        placement.y,
+        createdRootId ? new Set([createdRootId]) : undefined,
+      )) {
+        return;
+      }
+
+      if (!createdRootId) {
+        floatingGhostEl.remove();
+        const rootEntity = createEntityRoot(
+          state,
+          templateType,
+          placement.layer,
+          placement.segment,
+          placement.x,
+          placement.y,
+        );
+        createdRootId = rootEntity.id;
+        state = { ...state, entities: [...state.entities, rootEntity] };
+        selection = { kind: "entity", rootId: rootEntity.id };
+        selectedEntityRootIds.clear();
+        lastPlacementKey = key;
+        renderCanvas();
+        renderInspector();
+        return;
+      }
+
+      const current = state.entities.find((e) => e.id === createdRootId);
+      if (!current) return;
+      lastPlacementKey = key;
+      if (current.layer !== placement.layer || current.segmentIndex !== placement.segment) {
+        state = updateEntityPlacement(
+          state,
+          createdRootId,
+          placement.layer,
+          placement.segment,
+          placement.x,
+          placement.y,
+        );
+        renderCanvas();
+      } else {
+        state = updateEntityPosition(state, createdRootId, placement.x, placement.y);
+        setEntityDomPosition(createdRootId, placement.x, placement.y);
+      }
+    };
+
+    const onMove = (mv: MouseEvent): void => {
+      updateDraggedEntity(mv.clientX, mv.clientY);
+    };
+
+    const onUp = (up: MouseEvent): void => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      document.body.style.removeProperty("cursor");
+      floatingGhostEl.remove();
+      if (!createdRootId) return;
+      persist();
+      renderCanvas();
+      renderInspector();
+      up.preventDefault();
+    };
+
+    document.body.style.cursor = "grabbing";
+    updateDraggedEntity(ev.clientX, ev.clientY);
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }
+
   function renderTemplates(): void {
     templatesEl.innerHTML = templateList()
       .map(
         (type) =>
-          `<div class="builder-template" draggable="true" data-template="${type}">${templateLabel(type)}</div>`,
+          `<div class="builder-template" data-template="${type}">${templateLabel(type)}</div>`,
       )
       .join("");
     templatesEl.querySelectorAll<HTMLElement>(".builder-template").forEach((el) => {
-      el.addEventListener("dragstart", (ev) => {
-        draggingTemplate = el.dataset.template as BuilderTemplateType;
-        if (ev.dataTransfer) {
-          ev.dataTransfer.setData("text/plain", draggingTemplate);
-          ev.dataTransfer.effectAllowed = "copy";
-          if (isBuilderTemplateType(draggingTemplate)) {
-            const dragImage = buildTemplateDragImage(draggingTemplate);
-            dragImage.classList.toggle("builder-hide-property-labels", hideEntityPropertyLabels);
-            document.body.appendChild(dragImage);
-            const dragAnchorX = draggingTemplate === "hub"
-              ? Math.round(HUB_LAYOUT.G.x)
-              : Math.round(BUILDER_GRID_TILE_SIZE_X_PX / 2);
-            const dragAnchorY = draggingTemplate === "hub"
-              ? Math.round(HUB_LAYOUT.G.y)
-              : Math.round(BUILDER_GRID_TILE_SIZE_Y_PX / 2);
-            ev.dataTransfer.setDragImage(dragImage, dragAnchorX, dragAnchorY);
-            window.setTimeout(() => {
-              dragImage.remove();
-            }, 0);
-          }
-        }
-      });
-      el.addEventListener("dragend", () => {
-        draggingTemplate = null;
-        dragLayer = null;
-        dragSegment = null;
-        renderCanvas();
+      el.addEventListener("mousedown", (ev) => {
+        const templateType = el.dataset.template;
+        if (!isBuilderTemplateType(templateType)) return;
+        startTemplateDragFromSidebar(templateType, ev);
       });
     });
-  }
-
-  function previewInstances(): Set<string> {
-    if (!draggingTemplate || dragLayer === null || dragSegment === null) {
-      if (!(draggingTemplate && dragOuterVoid)) {
-        return new Set<string>();
-      }
-    }
-    let previewLayer = dragLayer;
-    let previewSegment = dragSegment;
-    if (dragOuterVoid) {
-      previewLayer = "outer64";
-      // Use one representative segment for preview; render path merges 12-15 into one slot.
-      previewSegment = 12;
-    }
-    if (previewLayer === null || previewSegment === null) {
-      return new Set<string>();
-    }
-    const previewRoot: BuilderEntityRoot = {
-      id: "preview",
-      groupId: "preview",
-      templateType: draggingTemplate,
-      layer: previewLayer,
-      segmentIndex: previewSegment,
-      x: 0.08,
-      y: 0.08,
-      settings: defaultSettings(draggingTemplate),
-    };
-    return new Set(
-      expandBuilderState(
-        { version: 1, entities: [previewRoot], links: [], nextId: 0 },
-        { builderView: true },
-      ).entities.map((entity) => {
-        if (entity.layer === "outer64" && isOuterLeafVoidSegment(entity.segmentIndex)) {
-          return OUTER_CANVAS_VOID_MERGE_KEY;
-        }
-        return `${entity.layer}:${entity.segmentIndex}`;
-      }),
-    );
   }
 
   function portCacheKey(instanceId: string, port: number): string {
@@ -3245,7 +3310,6 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     const tExpand1 = performance.now();
     recordPerf("canvas.expand", tExpand1 - tExpand0);
     perfCounts.expandedEntities = expanded.entities.length;
-    const previewKeys = previewInstances();
     const tBucket0 = performance.now();
     const entitiesByLayerSegment = new Map<string, typeof expanded.entities>();
     expanded.entities.forEach((entity) => {
@@ -3282,11 +3346,8 @@ export function mountBuilderView(options: BuilderMountOptions): void {
                     ? OUTER_CANVAS_VOID_MERGE_KEY
                     : `${layer}:${segment as number}`;
                   const entities = entitiesByLayerSegment.get(key) ?? [];
-                  const isDropTarget = isOuterVoid
-                    ? dragOuterVoid && dragLayer === "outer64"
-                    : dragLayer === layer && dragSegment === (segment as number);
                   return `
-                    <div class="builder-segment ${isDropTarget ? "drop-target" : ""} ${
+                    <div class="builder-segment ${
                       isOuterVoid ? "builder-segment--outer-void-merged" : ""
                     }" data-layer="${layer}" data-segment="${isOuterVoid ? "12-15" : String(segment)}"${
                       isOuterVoid ? ` data-void-outer="1"` : ""
@@ -3513,7 +3574,6 @@ export function mountBuilderView(options: BuilderMountOptions): void {
                             `;
                           })
                           .join("")}
-                        ${previewKeys.has(key) ? `<div class="builder-entity preview">${templateLabel(draggingTemplate!)} preview</div>` : ""}
                       </div>
                     </div>
                   `;
@@ -3534,111 +3594,6 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     recordPerf("canvas.total", performance.now() - t0);
     renderPerfPanel();
     applySelectionToCanvas();
-
-    const setHoverFromEvent = (ev: DragEvent): void => {
-      const target = ev.target as HTMLElement | null;
-      const cell = target?.closest<HTMLElement>(".builder-segment");
-      if (!cell) return;
-      const isOuterVoid = cell.dataset.voidOuter === "1";
-      if (isOuterVoid) {
-        if (!dragOuterVoid || dragLayer !== "outer64" || dragSegment !== null) {
-          dragOuterVoid = true;
-          dragLayer = "outer64";
-          dragSegment = null;
-          renderCanvas();
-        }
-        return;
-      }
-      const nextLayer = cell.dataset.layer as BuilderLayer;
-      const nextSegment = Number(cell.dataset.segment);
-      if (Number.isNaN(nextSegment)) return;
-      if (dragOuterVoid || dragLayer !== nextLayer || dragSegment !== nextSegment) {
-        dragOuterVoid = false;
-        dragLayer = nextLayer;
-        dragSegment = nextSegment;
-        renderCanvas();
-      }
-    };
-
-    const handleDrop = (ev: DragEvent): void => {
-      ev.preventDefault();
-      const target = ev.target as HTMLElement | null;
-      const cell = target?.closest<HTMLElement>(".builder-segment");
-      if (!cell) return;
-      const rawDroppedTemplate =
-        draggingTemplate ??
-        (ev.dataTransfer?.getData("text/plain") || null);
-      if (!rawDroppedTemplate || !isBuilderTemplateType(rawDroppedTemplate)) {
-        return;
-      }
-      const droppedTemplate: BuilderTemplateType = rawDroppedTemplate;
-      if (!droppedTemplate) return;
-      const layer = cell.dataset.layer as BuilderLayer;
-      const entitiesHost =
-        cell.querySelector<HTMLElement>(".builder-segment-entities") ?? cell;
-      const entitiesRect = entitiesHost.getBoundingClientRect();
-      const entitiesWidthPx = Math.max(1, entitiesHost.clientWidth);
-      const entitiesHeightPx = Math.max(1, entitiesHost.clientHeight);
-      const pxRaw = (ev.clientX - entitiesRect.left) / BUILDER_GRID_TILE_SIZE_X_PX;
-      const pyRaw = (ev.clientY - entitiesRect.top) / BUILDER_GRID_TILE_SIZE_Y_PX;
-      const clamped = clampGridToSectionBounds(
-        Math.floor(pxRaw),
-        Math.floor(pyRaw),
-        entitiesWidthPx,
-        entitiesHeightPx,
-      );
-      const px = clamped.x;
-      const py = clamped.y;
-      const segment = (() => {
-        if (cell.dataset.voidOuter !== "1") {
-          const n = Number(cell.dataset.segment);
-          return Number.isNaN(n) ? null : n;
-        }
-        const relX = (ev.clientX - entitiesRect.left) / Math.max(1, entitiesHost.clientWidth);
-        const slot = Math.max(0, Math.min(3, Math.floor(relX * 4)));
-        return 12 + slot;
-      })();
-      if (segment === null) return;
-      if (hasSameTypePlacementConflict(droppedTemplate, layer, segment, px, py)) {
-        return;
-      }
-      const rootEntity = createEntityRoot(state, droppedTemplate, layer, segment, px, py);
-      state = { ...state, entities: [...state.entities, rootEntity] };
-      persist();
-      draggingTemplate = null;
-      dragOuterVoid = false;
-      dragLayer = null;
-      dragSegment = null;
-      renderCanvas();
-    };
-
-    // Delegated DnD handlers are more reliable than per-cell listeners while rerendering.
-    const setDropEffectForHover = (ev: DragEvent): void => {
-      if (!ev.dataTransfer) return;
-      const cell = (ev.target as HTMLElement | null)?.closest<HTMLElement>(".builder-segment");
-      ev.dataTransfer.dropEffect = cell ? "copy" : "none";
-    };
-
-    canvasEl.ondragenter = (ev) => {
-      ev.preventDefault();
-      setDropEffectForHover(ev);
-      setHoverFromEvent(ev);
-    };
-    canvasEl.ondragover = (ev) => {
-      ev.preventDefault();
-      setDropEffectForHover(ev);
-      setHoverFromEvent(ev);
-    };
-    canvasEl.ondragleave = (ev) => {
-      const related = ev.relatedTarget as Node | null;
-      if (!related || !canvasEl.contains(related)) {
-        dragOuterVoid = false;
-        dragLayer = null;
-        dragSegment = null;
-        renderCanvas();
-      }
-    };
-    canvasEl.ondrop = handleDrop;
 
     // entity/port selection and link-drag start are delegated once (outside renderCanvas)
 
