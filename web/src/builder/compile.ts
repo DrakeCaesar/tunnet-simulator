@@ -129,10 +129,11 @@ export function compileBuilderPayload(state: BuilderState): CompiledBuilderPaylo
       b: { deviceId: link.toInstanceId, port: link.toPort },
     }));
   const endpointEntities = expanded.entities.filter((e) => e.templateType === "endpoint");
+  const sourceEndpointEntities = endpointEntities.filter((e) => !e.isShadow);
   const uniqueAddresses = Array.from(
     new Set(endpointEntities.map((e) => e.settings.address ?? "0.0.0.0")),
   ).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-  endpointEntities.forEach((entity) => {
+  sourceEndpointEntities.forEach((entity) => {
     const addr = entity.settings.address ?? "0.0.0.0";
     const destinations = uniqueAddresses.filter((d) => d !== addr);
     if (destinations.length === 0) return;
@@ -147,7 +148,7 @@ export function compileBuilderPayload(state: BuilderState): CompiledBuilderPaylo
       subjectPrefix: "BDR-",
     };
   });
-  const sourceEndpointCount = expanded.entities.filter((e) => e.templateType === "endpoint").length;
+  const sourceEndpointCount = sourceEndpointEntities.length;
   return {
     metadata: {
       generatedAt: new Date().toISOString(),

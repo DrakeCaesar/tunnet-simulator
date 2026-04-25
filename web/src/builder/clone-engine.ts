@@ -8,6 +8,7 @@ import {
   LAYER_COUNTS,
   LAYER_ORDER,
   mirroredEndpointAddress,
+  outerLeafEntityId,
   segmentStride,
   templatePortCount,
 } from "./state";
@@ -104,6 +105,13 @@ function instanceId(rootId: string, segment: number): string {
   return `${rootId}@${segment}`;
 }
 
+function expandedEndpointInstanceId(root: BuilderEntityRoot, segment: number): string {
+  if (isStaticOuterLeafEndpoint(root)) {
+    return instanceId(outerLeafEntityId(segment), segment);
+  }
+  return instanceId(root.id, segment);
+}
+
 /** Middle segment that maps to outer 12–15 (0.0.3.* no-endpoint band). */
 function isMiddleVoidSegment(segmentIndex: number): boolean {
   return segmentIndex === 3;
@@ -148,15 +156,15 @@ export function parseBuilderInstanceId(id: string): { rootId: string; segmentInd
 }
 
 /**
- * In builder UI we only need one (non-shadow) view per fixed outer endpoint; a full
- * expansion would be 64 roots × 64 columns = 4096 entities and is unusable.
- * Simulation/compile use the full expand (builderView off).
+ * Static outer endpoints are represented by their real segment instance only.
+ * This avoids synthetic static-endpoint clones while keeping mirrored link expansion
+ * resolvable to the correct real endpoint per segment.
  */
 function expandEntities(roots: BuilderEntityRoot[], opts?: { builderView?: boolean }): BuilderEntityInstance[] {
-  const view = opts?.builderView === true;
+  void opts;
   const out: BuilderEntityInstance[] = [];
   for (const root of roots) {
-    if (view && isStaticOuterLeafEndpoint(root)) {
+    if (isStaticOuterLeafEndpoint(root)) {
       const segment = root.segmentIndex;
       out.push({
         instanceId: instanceId(root.id, segment),
@@ -229,9 +237,9 @@ export function expandLinks(roots: BuilderLinkRoot[], entityRoots: BuilderEntity
           instanceId: `${root.id}@se-${fromSeg}-${toSeg}`,
           rootId: root.id,
           groupId: root.groupId,
-          fromInstanceId: instanceId(from.id, fromSeg),
+          fromInstanceId: expandedEndpointInstanceId(from, fromSeg),
           fromPort: root.fromPort,
-          toInstanceId: instanceId(to.id, toSeg),
+          toInstanceId: expandedEndpointInstanceId(to, toSeg),
           toPort: root.toPort,
           isShadow: fromSeg !== from.segmentIndex || toSeg !== to.segmentIndex,
         });
@@ -255,9 +263,9 @@ export function expandLinks(roots: BuilderLinkRoot[], entityRoots: BuilderEntity
           instanceId: `${root.id}@sl-${fromSeg}-${toSeg}`,
           rootId: root.id,
           groupId: root.groupId,
-          fromInstanceId: instanceId(from.id, fromSeg),
+          fromInstanceId: expandedEndpointInstanceId(from, fromSeg),
           fromPort: root.fromPort,
-          toInstanceId: instanceId(to.id, toSeg),
+          toInstanceId: expandedEndpointInstanceId(to, toSeg),
           toPort: root.toPort,
           isShadow: fromSeg !== from.segmentIndex || toSeg !== to.segmentIndex,
         });
@@ -288,9 +296,9 @@ export function expandLinks(roots: BuilderLinkRoot[], entityRoots: BuilderEntity
             instanceId: `${root.id}@f2c-s${toSeg}-${fromSeg}`,
             rootId: root.id,
             groupId: root.groupId,
-            fromInstanceId: instanceId(from.id, fromSeg),
+            fromInstanceId: expandedEndpointInstanceId(from, fromSeg),
             fromPort: root.fromPort,
-            toInstanceId: instanceId(to.id, toSeg),
+            toInstanceId: expandedEndpointInstanceId(to, toSeg),
             toPort: root.toPort,
             isShadow: fromSeg !== from.segmentIndex || toSeg !== to.segmentIndex,
           });
@@ -310,9 +318,9 @@ export function expandLinks(roots: BuilderLinkRoot[], entityRoots: BuilderEntity
           instanceId: `${root.id}@f2c-b${base}`,
           rootId: root.id,
           groupId: root.groupId,
-          fromInstanceId: instanceId(from.id, fromSeg),
+          fromInstanceId: expandedEndpointInstanceId(from, fromSeg),
           fromPort: root.fromPort,
-          toInstanceId: instanceId(to.id, toSeg),
+          toInstanceId: expandedEndpointInstanceId(to, toSeg),
           toPort: root.toPort,
           isShadow: fromSeg !== from.segmentIndex || toSeg !== to.segmentIndex,
         });
@@ -341,9 +349,9 @@ export function expandLinks(roots: BuilderLinkRoot[], entityRoots: BuilderEntity
             instanceId: `${root.id}@c2f-s${fromSeg}-${toSeg}`,
             rootId: root.id,
             groupId: root.groupId,
-            fromInstanceId: instanceId(from.id, fromSeg),
+            fromInstanceId: expandedEndpointInstanceId(from, fromSeg),
             fromPort: root.fromPort,
-            toInstanceId: instanceId(to.id, toSeg),
+            toInstanceId: expandedEndpointInstanceId(to, toSeg),
             toPort: root.toPort,
             isShadow: fromSeg !== from.segmentIndex || toSeg !== to.segmentIndex,
           });
@@ -363,9 +371,9 @@ export function expandLinks(roots: BuilderLinkRoot[], entityRoots: BuilderEntity
           instanceId: `${root.id}@c2f-b${base}`,
           rootId: root.id,
           groupId: root.groupId,
-          fromInstanceId: instanceId(from.id, fromSeg),
+          fromInstanceId: expandedEndpointInstanceId(from, fromSeg),
           fromPort: root.fromPort,
-          toInstanceId: instanceId(to.id, toSeg),
+          toInstanceId: expandedEndpointInstanceId(to, toSeg),
           toPort: root.toPort,
           isShadow: fromSeg !== from.segmentIndex || toSeg !== to.segmentIndex,
         });
