@@ -11,6 +11,8 @@ import {
   defaultSettings,
   isStaticOuterLeafEndpoint,
   isOuterLeafVoidSegment,
+  linkTreatedAsInnerOuterVoidBand,
+  linkTreatedAsSlottedInnerMiddle,
   OUTER_CANVAS_VOID_MERGE_KEY,
   rebuildStateWithOuterLeafEndpoints,
   removeEntityGroup,
@@ -1441,6 +1443,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
           toSegmentIndex: link.toSegmentIndex,
           sameLayerSegmentDelta: link.sameLayerSegmentDelta,
           crossLayerBlockSlot: link.crossLayerBlockSlot,
+          voidBandInnerOuterCrossLayer: link.voidBandInnerOuterCrossLayer,
         },
       );
       nextState = { ...nextState, links: [...nextState.links, createdLink] };
@@ -1499,6 +1502,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
           toSegmentIndex: link.toSegmentIndex,
           sameLayerSegmentDelta: link.sameLayerSegmentDelta,
           crossLayerBlockSlot: link.crossLayerBlockSlot,
+          voidBandInnerOuterCrossLayer: link.voidBandInnerOuterCrossLayer,
         },
       );
       nextState = { ...nextState, links: [...nextState.links, createdLink] };
@@ -3326,12 +3330,23 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       const toText = isSameRootPin
         ? `${link.toEntityId}@${link.toSegmentIndex}`
         : link.toEntityId;
+      const byEntityId = new Map(state.entities.map((e) => [e.id, e]));
+      let slottedScopeExtra = "";
+      if (isCrossLayerSlot) {
+        if (linkTreatedAsInnerOuterVoidBand(link, byEntityId)) {
+          slottedScopeExtra = " — to/from outer 0.0.3. void; does not displace other slotted cross-layer";
+        } else if (linkTreatedAsSlottedInnerMiddle(link, byEntityId)) {
+          slottedScopeExtra = " — inner↔middle (per 0.0.n. block lane); does not displace other lanes, or inner↔outer";
+        }
+      }
       const scopeNote = isSameRootPin
         ? `<div class="kv"><span>Scope</span><strong>Same device: mirrors port ${link.fromPort} → port ${link.toPort} with toSeg = fromSeg + ${sameRootDelta}</strong></div>`
         : isSameLayerTwoRoots
           ? `<div class="kv"><span>Scope</span><strong>Same layer: each mirror uses toSeg = fromSeg + ${link.sameLayerSegmentDelta}</strong></div>`
           : isCrossLayerSlot
-            ? `<div class="kv"><span>Scope</span><strong>Cross-layer: one fine column per coarse segment (lane ${link.crossLayerBlockSlot} in each block)</strong></div>`
+            ? `<div class="kv"><span>Scope</span><strong>Cross-layer: one fine column per coarse segment (lane ${
+                link.crossLayerBlockSlot
+              } in each block)${slottedScopeExtra}</strong></div>`
             : `<div class="kv"><span>Scope</span><strong>Cross-layer (legacy): one wire per base column (64)</strong></div>`;
       inspectorEl.innerHTML = `
         <div class="kv"><span>Type</span><strong>Link</strong></div>

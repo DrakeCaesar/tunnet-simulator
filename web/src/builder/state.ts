@@ -37,6 +37,11 @@ export interface BuilderLinkRoot {
    * Set from the port you click so e.g. middle→outer uses one outer mirror per middle column, not all r.
    */
   crossLayerBlockSlot?: number;
+  /**
+   * Slotted inner4↔outer64 to/from outer indices 12–15 (0.0.3.0–0.0.3.3, non-mirroring void in builder).
+   * For one-wire, slotted cross-entity links only evict on an identical template, not on mirrored key overlap.
+   */
+  voidBandInnerOuterCrossLayer?: boolean;
 }
 
 export interface BuilderState {
@@ -97,6 +102,141 @@ export const OUTER_LEAF_ADDRESS_LIST_60: string[] = (() => {
 
 export function isOuterLeafVoidSegment(segmentIndex: number): boolean {
   return segmentIndex >= OUTER_LEAF_VOID_START && segmentIndex <= OUTER_LEAF_VOID_END;
+}
+
+/**
+ * Inner ↔ outer and the connection touches the 0.0.3.0–0.0.3.3 void band (segments 12–15), either direction
+ * (from clicked port segments; use {@link innerOuterSlottedExpansionTouchesVoidBand} for slotted links).
+ */
+export function isInnerOuter0_0_3_VoidCross(
+  fromLayer: BuilderLayer,
+  fromSeg: number,
+  toLayer: BuilderLayer,
+  toSeg: number,
+): boolean {
+  if (fromLayer === "inner4" && toLayer === "outer64") {
+    return isOuterLeafVoidSegment(toSeg);
+  }
+  if (fromLayer === "outer64" && toLayer === "inner4") {
+    return isOuterLeafVoidSegment(fromSeg);
+  }
+  return false;
+}
+
+/**
+ * For slotted inner4↔outer64, `crossLayerBlockSlot` maps each inner index to an outer column.
+ * True if any expanded pair lands in the non-mirroring 0.0.3.* void (12–15) — for UI/flags; one-wire uses exact-template match for all slotted cross-entity links.
+ */
+export function innerOuterSlottedExpansionTouchesVoidBand(
+  from: BuilderEntityRoot,
+  to: BuilderEntityRoot,
+  crossLayerBlockSlot: number,
+): boolean {
+  const inC = LAYER_COUNTS.inner4;
+  const outC = LAYER_COUNTS.outer64;
+  if (from.layer === "inner4" && to.layer === "outer64") {
+    const r = outC / inC;
+    if (!Number.isInteger(r)) return false;
+    for (let s = 0; s < inC; s += 1) {
+      const t = s * r + crossLayerBlockSlot;
+      if (isOuterLeafVoidSegment(t)) return true;
+    }
+    return false;
+  }
+  if (from.layer === "outer64" && to.layer === "inner4") {
+    const r = outC / inC;
+    if (!Number.isInteger(r)) return false;
+    for (let t = 0; t < inC; t += 1) {
+      const s = t * r + crossLayerBlockSlot;
+      if (isOuterLeafVoidSegment(s)) return true;
+    }
+    return false;
+  }
+  return false;
+}
+
+/**
+ * Slotted inner4↔middle16, lane 3: expansion includes middle segment 3 (0.0.3.x), either direction
+ * (same r=4 slot as {@link buildInstancePortSetForLink}).
+ */
+export function innerMiddleSlottedHitsColumn0_0_3(
+  from: BuilderEntityRoot,
+  to: BuilderEntityRoot,
+  crossLayerBlockSlot: number,
+): boolean {
+  if (
+    (from.layer === "inner4" && to.layer === "middle16") ||
+    (from.layer === "middle16" && to.layer === "inner4")
+  ) {
+    return crossLayerBlockSlot === 3;
+  }
+  return false;
+}
+
+export function isSlottedInnerMiddleLayerPair(from: BuilderEntityRoot, to: BuilderEntityRoot): boolean {
+  return (
+    (from.layer === "inner4" && to.layer === "middle16") || (from.layer === "middle16" && to.layer === "inner4")
+  );
+}
+
+function isSlottedInnerOuterLayerPair(from: BuilderEntityRoot, to: BuilderEntityRoot): boolean {
+  return (
+    (from.layer === "inner4" && to.layer === "outer64") || (from.layer === "outer64" && to.layer === "inner4")
+  );
+}
+
+/**
+ * Slotted link between two device roots. Mirrored instance-key sets always coincide on the coarse
+ * side, so "overlap" is not used for one-wire: only an identical template (same from/to/ports/slot) replaces.
+ */
+function isSlottedCrossEntityLink(l: BuilderLinkRoot): boolean {
+  return (
+    l.crossLayerBlockSlot !== undefined &&
+    l.fromEntityId !== l.toEntityId &&
+    l.sameLayerSegmentDelta === undefined
+  );
+}
+
+function slottedCrossEntityExactTemplateDuplicate(a: BuilderLinkRoot, b: BuilderLinkRoot): boolean {
+  return (
+    a.crossLayerBlockSlot === b.crossLayerBlockSlot &&
+    a.fromEntityId === b.fromEntityId &&
+    a.toEntityId === b.toEntityId &&
+    a.fromPort === b.fromPort &&
+    a.toPort === b.toPort
+  );
+}
+
+/** For UI: slotted inner↔outer 0.0.3. void, including links saved before the void flag. */
+export function linkTreatedAsInnerOuterVoidBand(
+  l: BuilderLinkRoot,
+  byId: Map<string, BuilderEntityRoot>,
+): boolean {
+  if (l.voidBandInnerOuterCrossLayer === true) {
+    return true;
+  }
+  if (l.crossLayerBlockSlot === undefined) {
+    return false;
+  }
+  const fromE = byId.get(l.fromEntityId);
+  const toE = byId.get(l.toEntityId);
+  if (!fromE || !toE) {
+    return false;
+  }
+  return isSlottedInnerOuterLayerPair(fromE, toE) && innerOuterSlottedExpansionTouchesVoidBand(fromE, toE, l.crossLayerBlockSlot);
+}
+
+/** For UI: any slotted inner↔middle link. */
+export function linkTreatedAsSlottedInnerMiddle(
+  l: BuilderLinkRoot,
+  byId: Map<string, BuilderEntityRoot>,
+): boolean {
+  if (l.crossLayerBlockSlot === undefined) {
+    return false;
+  }
+  const a = byId.get(l.fromEntityId);
+  const b = byId.get(l.toEntityId);
+  return a !== undefined && b !== undefined && isSlottedInnerMiddleLayerPair(a, b);
 }
 
 /** 0-59 when segment is a non-void column; otherwise null. */
@@ -322,6 +462,7 @@ export function createLinkRoot(
     toSegmentIndex?: number;
     sameLayerSegmentDelta?: number;
     crossLayerBlockSlot?: number;
+    voidBandInnerOuterCrossLayer?: boolean;
   },
 ): BuilderLinkRoot {
   const id = nextBuilderId(state, "l");
@@ -336,6 +477,7 @@ export function createLinkRoot(
     toSegmentIndex: extras?.toSegmentIndex,
     sameLayerSegmentDelta: extras?.sameLayerSegmentDelta,
     crossLayerBlockSlot: extras?.crossLayerBlockSlot,
+    voidBandInnerOuterCrossLayer: extras?.voidBandInnerOuterCrossLayer,
   };
 }
 
@@ -439,6 +581,12 @@ function overlapsAnyInstancePort(
   b: BuilderLinkRoot,
   byId: Map<string, BuilderEntityRoot>,
 ): boolean {
+  if (isSlottedCrossEntityLink(a) && isSlottedCrossEntityLink(b)) {
+    return slottedCrossEntityExactTemplateDuplicate(a, b);
+  }
+  if (isSlottedCrossEntityLink(a) || isSlottedCrossEntityLink(b)) {
+    return false;
+  }
   const aSet = buildInstancePortSetForLink(a, byId);
   const bSet = buildInstancePortSetForLink(b, byId);
   if (!aSet || !bSet) return false;
@@ -456,6 +604,8 @@ export type AddLinkRootOpts = {
   sameLayerSegmentDelta?: number;
   /** Coarse↔fine cross-layer: lane 0..r-1 from the clicked fine segment. */
   crossLayerBlockSlot?: number;
+  /** @see BuilderLinkRoot.voidBandInnerOuterCrossLayer */
+  voidBandInnerOuterCrossLayer?: boolean;
 };
 
 /**
@@ -531,6 +681,14 @@ export function addLinkRootOneWirePerPort(
     return { state, link: null };
   }
   const slot = opts?.crossLayerBlockSlot;
+  const fromE0 = byId.get(fromEntityId);
+  const toE0 = byId.get(toEntityId);
+  const ioVoidInferred =
+    fromE0 &&
+    toE0 &&
+    slot !== undefined &&
+    innerOuterSlottedExpansionTouchesVoidBand(fromE0, toE0, slot);
+  const ioVoid = opts?.voidBandInnerOuterCrossLayer === true || ioVoidInferred;
   const candidate: BuilderLinkRoot = {
     id: "__candidate__",
     groupId: "__candidate__",
@@ -539,6 +697,7 @@ export function addLinkRootOneWirePerPort(
     toEntityId,
     toPort,
     crossLayerBlockSlot: slot,
+    voidBandInnerOuterCrossLayer: ioVoid ? true : undefined,
   };
   const without = state.links.filter((l) => !overlapsAnyInstancePort(l, candidate, byId));
   const next: BuilderState = { ...state, links: without };
@@ -548,7 +707,12 @@ export function addLinkRootOneWirePerPort(
     fromPort,
     toEntityId,
     toPort,
-    slot !== undefined ? { crossLayerBlockSlot: slot } : undefined,
+    slot !== undefined || ioVoid
+      ? {
+          ...(slot !== undefined ? { crossLayerBlockSlot: slot } : {}),
+          ...(ioVoid ? { voidBandInnerOuterCrossLayer: true as const } : {}),
+        }
+      : undefined,
   );
   return { state: { ...next, links: [...without, link] }, link };
 }

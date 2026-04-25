@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { expandBuilderState, expandLinks, mapMaskForSegment, parseBuilderInstanceId } from "./clone-engine";
 import {
   crossLayerBlockSlotFromSegments,
+  innerOuterSlottedExpansionTouchesVoidBand,
+  innerMiddleSlottedHitsColumn0_0_3,
   type BuilderEntityRoot,
   type BuilderLinkRoot,
   type BuilderState,
@@ -25,6 +27,23 @@ assert.equal(parseBuilderInstanceId("nope"), null);
 
 assert.equal(crossLayerBlockSlotFromSegments("middle16", 1, "outer64", 6), 2);
 assert.equal(crossLayerBlockSlotFromSegments("middle16", 1, "outer64", 9), undefined);
+
+const iEnt: BuilderEntityRoot = {
+  id: "i1",
+  groupId: "i1",
+  templateType: "hub",
+  layer: "inner4",
+  segmentIndex: 0,
+  x: 0.1,
+  y: 0.1,
+  settings: {},
+};
+const oEnt: BuilderEntityRoot = { ...iEnt, id: "o1", layer: "outer64" };
+assert.equal(innerOuterSlottedExpansionTouchesVoidBand(iEnt, oEnt, 0), false);
+assert.equal(innerOuterSlottedExpansionTouchesVoidBand(iEnt, oEnt, 12), true, "slot 12 maps inner0→outer12 (0.0.3.0)");
+const mEnt: BuilderEntityRoot = { ...iEnt, id: "m1", layer: "middle16" };
+assert.equal(innerMiddleSlottedHitsColumn0_0_3(iEnt, mEnt, 2), false);
+assert.equal(innerMiddleSlottedHitsColumn0_0_3(iEnt, mEnt, 3), true, "inner↔middle lane 3 = 0.0.3.x column");
 
 const a: BuilderEntityRoot = {
   id: "a",
