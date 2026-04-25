@@ -85,7 +85,7 @@ function hubMarkerId(instanceId: string): string {
  * Change this one number to resize hubs.
  */
 const HUB_TRIANGLE_SIDE = 46;
-const HUB_BASE_TRIANGLE_SIDE = HUB_TRIANGLE_SIDE;
+const HUB_BASE_TRIANGLE_SIDE = 45;
 const HUB_SCALE = HUB_TRIANGLE_SIDE / HUB_BASE_TRIANGLE_SIDE;
 /** SVG / hit box for hub (mirrors original proportions at side=70). */
 const HUB_VIEW = { w: 108 * HUB_SCALE, h: 96 * HUB_SCALE } as const;
