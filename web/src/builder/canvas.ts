@@ -1251,6 +1251,10 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     text: SVGTextElement;
     src: SVGTSpanElement;
     dest: SVGTSpanElement;
+    bgOffsetX: number;
+    bgOffsetY: number;
+    bgWidth: number;
+    bgHeight: number;
   }> = [];
   let activePacketCircleCount = 0;
   applyBuilderSidebarWidth(builderSidebarWidth);
@@ -1384,8 +1388,8 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   function updateBuilderSimMeta(): void {
     const achievedValue =
       simEmaAchievedSpeed === null
-        ? `— (no tick finished yet)`
-        : `${simEmaAchievedSpeed.toFixed(2)}× (${Math.min(999, Math.round((simEmaAchievedSpeed / Math.max(simSpeed, 1e-9)) * 100))}% of ${simSpeed.toFixed(2)}× target)`;
+        ? `—`
+        : `${simEmaAchievedSpeed.toFixed(2)}× ${Math.min(999, Math.round((simEmaAchievedSpeed / Math.max(simSpeed, 1e-9)) * 100))}%`;
     const stepComputeValue =
       simLastStepComputeMs === null
         ? `—`
@@ -2403,6 +2407,10 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     text: SVGTextElement;
     src: SVGTSpanElement;
     dest: SVGTSpanElement;
+    bgOffsetX: number;
+    bgOffsetY: number;
+    bgWidth: number;
+    bgHeight: number;
   } {
     const existing = packetLabelPool[index];
     if (existing) {
@@ -2427,7 +2435,16 @@ export function mountBuilderView(options: BuilderMountOptions): void {
 
     text.append(src, dest);
     ensureBuilderPacketCircleGroup().append(bg, text);
-    const label = { bg, text, src, dest };
+    const label = {
+      bg,
+      text,
+      src,
+      dest,
+      bgOffsetX: -3,
+      bgOffsetY: -9,
+      bgWidth: 24,
+      bgHeight: 18,
+    };
     packetLabelPool[index] = label;
     return label;
   }
@@ -2542,23 +2559,27 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       const label = builderPageState.showPacketIps ? ensureBuilderPacketLabel(i) : packetLabelPool[i];
       if (builderPageState.showPacketIps) {
         const shownLabel = label!;
-        const labelX = (render.x + dotR + 5).toFixed(2);
+        const labelX = render.x + dotR + 5;
         shownLabel.bg.removeAttribute("display");
         shownLabel.text.removeAttribute("display");
-        shownLabel.text.setAttribute("x", labelX);
+        shownLabel.text.setAttribute("x", labelX.toFixed(2));
         shownLabel.text.setAttribute("y", render.y.toFixed(2));
-        shownLabel.src.setAttribute("x", labelX);
-        shownLabel.dest.setAttribute("x", labelX);
+        shownLabel.src.setAttribute("x", labelX.toFixed(2));
+        shownLabel.dest.setAttribute("x", labelX.toFixed(2));
         if (shownLabel.text.getAttribute("data-packet-id") !== String(render.packetId)) {
           shownLabel.src.textContent = render.src;
           shownLabel.dest.textContent = render.dest;
           shownLabel.text.setAttribute("data-packet-id", String(render.packetId));
+          const labelBox = shownLabel.text.getBBox();
+          shownLabel.bgOffsetX = labelBox.x - labelX - 3;
+          shownLabel.bgOffsetY = labelBox.y - render.y - 2;
+          shownLabel.bgWidth = labelBox.width + 6;
+          shownLabel.bgHeight = labelBox.height + 4;
         }
-        const labelBox = shownLabel.text.getBBox();
-        shownLabel.bg.setAttribute("x", (labelBox.x - 3).toFixed(2));
-        shownLabel.bg.setAttribute("y", (labelBox.y - 2).toFixed(2));
-        shownLabel.bg.setAttribute("width", (labelBox.width + 6).toFixed(2));
-        shownLabel.bg.setAttribute("height", (labelBox.height + 4).toFixed(2));
+        shownLabel.bg.setAttribute("x", (labelX + shownLabel.bgOffsetX).toFixed(2));
+        shownLabel.bg.setAttribute("y", (render.y + shownLabel.bgOffsetY).toFixed(2));
+        shownLabel.bg.setAttribute("width", shownLabel.bgWidth.toFixed(2));
+        shownLabel.bg.setAttribute("height", shownLabel.bgHeight.toFixed(2));
       } else if (label) {
         label.bg.setAttribute("display", "none");
         label.text.setAttribute("display", "none");
