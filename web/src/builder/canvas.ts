@@ -956,10 +956,11 @@ export function mountBuilderView(options: BuilderMountOptions): void {
 
   function persist(): void {
     saveBuilderState(state);
-    initOrRefreshBuilderSimulatorIfTopologyChanged();
+    requestBuilderSimulatorRefresh();
   }
 
   let deferredPersistHandle: number | null = null;
+  let pendingBuilderSimulatorRefresh = false;
   function schedulePersist(): void {
     if (deferredPersistHandle !== null) {
       window.clearTimeout(deferredPersistHandle);
@@ -968,6 +969,20 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       deferredPersistHandle = null;
       persist();
     }, 120);
+  }
+
+  function requestBuilderSimulatorRefresh(): void {
+    if (simAnimating) {
+      pendingBuilderSimulatorRefresh = true;
+      return;
+    }
+    initOrRefreshBuilderSimulatorIfTopologyChanged();
+  }
+
+  function flushPendingBuilderSimulatorRefresh(): void {
+    if (!pendingBuilderSimulatorRefresh || simAnimating) return;
+    pendingBuilderSimulatorRefresh = false;
+    initOrRefreshBuilderSimulatorIfTopologyChanged();
   }
 
   let builderTopologySig = "";
@@ -1239,6 +1254,10 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   }
 
   function initOrRefreshBuilderSimulatorIfTopologyChanged(): void {
+    if (simAnimating) {
+      pendingBuilderSimulatorRefresh = true;
+      return;
+    }
     const payload = compileBuilderPayload(state);
     const sig = JSON.stringify(payload.topology);
     if (sig === builderTopologySig) return;
@@ -1327,6 +1346,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       simPacketProgress = 1;
       renderBuilderPacketCircles(1);
       updateBuilderSimMeta();
+      flushPendingBuilderSimulatorRefresh();
       if (simPlaying) {
         runOneBuilderSimTick();
       }
