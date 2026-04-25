@@ -3813,8 +3813,10 @@ export function mountBuilderView(options: BuilderMountOptions): void {
                                     : ""
                                 }
                                 ${
-                                  entity.templateType === "hub" || isOuterStatic
+                                  entity.templateType === "hub"
                                     ? ""
+                                    : isOuterStatic
+                                      ? `<div class="builder-entity-title builder-endpoint-title">endpoint</div>`
                                     : entity.templateType === "relay"
                                       ? ""
                                     : `<div class="builder-entity-title">${entity.templateType}</div>`

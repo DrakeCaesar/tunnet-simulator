@@ -780,6 +780,11 @@ textarea {
   top: 0 !important;
   transform: none !important;
   z-index: 2;
+  padding-bottom: 2px;
+}
+
+.builder-entity--filter.builder-entity--outer-endpoint {
+  gap: 2px;
 }
 
 .builder-ports--endpoint-bottom {
@@ -788,37 +793,43 @@ textarea {
   width: 100%;
 }
 
+.builder-entity--outer-endpoint .builder-endpoint-title {
+  position: static;
+  transform: none;
+  margin: 0;
+  line-height: 1;
+  text-align: center;
+  z-index: auto;
+}
+
 .builder-row-endpoint-addr .builder-mask-row--readonly {
-  align-items: center;
-  min-height: 22px;
+  align-items: stretch;
+  min-height: 0;
+  padding-top: 17px;
 }
 
 .builder-mask-cell--readonly {
-  min-height: 0;
-  padding: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0;
-  border: 0;
-  background: transparent;
+  display: grid;
+  justify-items: stretch;
 }
 
 .builder-mask-row--readonly .builder-mask-cell--readonly {
-  border: 1px solid #3a445a;
-  background: #0f131b;
-  border-radius: 4px;
-  overflow: hidden;
-  min-width: 16px;
-  min-height: 16px;
+  min-height: 0;
 }
 
 .builder-endpoint-addr-nib {
   font-size: 10px;
-  color: #d9e1f3;
+  color: #c7d0e3;
   line-height: 1;
-  position: relative;
-  top: 1px;
+  text-align: center;
+  box-sizing: border-box;
+  padding: 1px 0 0;
+  height: 15px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-variant-numeric: tabular-nums;
+  text-rendering: geometricPrecision;
 }
 
 .builder-inspector-note {
