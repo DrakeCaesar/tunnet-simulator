@@ -1747,6 +1747,21 @@ export function mountBuilderView(options: BuilderMountOptions): void {
             return [pa, pm, pb];
           }
         }
+      } else if (dFrom.type === "filter") {
+        for (const outPort of [0, 1] as const) {
+          const nbr = builderSimAdj.get(portKey({ deviceId: from.deviceId, port: outPort }));
+          if (!nbr || nbr.deviceId !== to.deviceId || nbr.port !== to.port) {
+            continue;
+          }
+          if (outPort === from.port) {
+            return [pa, pb];
+          }
+          const pm = builderPortCenterInOverlayCoords({ deviceId: from.deviceId, port: outPort });
+          if (pm) {
+            return [pa, pm, pb];
+          }
+          return [pa, pb];
+        }
       }
     }
     return [pa, pb];
