@@ -587,6 +587,25 @@ textarea {
   cursor: pointer;
 }
 
+.builder-packet-label {
+  font-size: 10px;
+  line-height: 1;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  paint-order: stroke;
+  stroke: rgba(0, 0, 0, 0.75);
+  stroke-width: 2px;
+  pointer-events: none;
+}
+
+.builder-packet-label-src {
+  fill: #8f98aa;
+}
+
+.builder-packet-label-dest {
+  fill: #f4f7ff;
+}
+
 .builder-wire-overlay .builder-wire-drag {
   stroke: #89b4fa;
   stroke-width: 1.5;

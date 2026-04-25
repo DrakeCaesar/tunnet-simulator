@@ -91,6 +91,7 @@ type BuilderPanelSectionId = (typeof BUILDER_PANEL_SECTION_IDS)[number];
 
 type BuilderPageState = {
   collapsedSections: Partial<Record<BuilderPanelSectionId, boolean>>;
+  showPacketIps: boolean;
 };
 
 /** Equilateral triangle: apex up, base horizontal; `r` matches half of global `.builder-port` (16px). */
@@ -659,16 +660,16 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   const loadBuilderPageState = (): BuilderPageState => {
     try {
       const raw = window.localStorage.getItem(BUILDER_PAGE_STATE_KEY);
-      if (!raw) return { collapsedSections: {} };
+      if (!raw) return { collapsedSections: {}, showPacketIps: true };
       const parsed = JSON.parse(raw) as Partial<BuilderPageState>;
       const collapsedSections: BuilderPageState["collapsedSections"] = {};
       const parsedSections = parsed.collapsedSections ?? {};
       BUILDER_PANEL_SECTION_IDS.forEach((id) => {
         collapsedSections[id] = parsedSections[id] === true;
       });
-      return { collapsedSections };
+      return { collapsedSections, showPacketIps: parsed.showPacketIps !== false };
     } catch {
-      return { collapsedSections: {} };
+      return { collapsedSections: {}, showPacketIps: true };
     }
   };
   let builderPageState = loadBuilderPageState();
@@ -706,10 +707,10 @@ export function mountBuilderView(options: BuilderMountOptions): void {
           ${panelToggle("simulation", "Simulation")}
           <div id="builder-panel-simulation-body" class="builder-panel-section-body">
             <div class="builder-sim-toolbar">
-              <button id="builder-sim-play" type="button">Play</button>
-              <button id="builder-sim-pause" type="button">Pause</button>
+              <button id="builder-sim-play-pause" type="button">Play</button>
               <button id="builder-sim-step" type="button">Step</button>
               <button id="builder-sim-reset" type="button">Reset</button>
+              <button id="builder-sim-toggle-packet-ips" type="button">${builderPageState.showPacketIps ? "Hide IPs" : "Show IPs"}</button>
             </div>
             <label class="builder-scale-row" for="builder-sim-speed">
               <span>Tick pace</span>
@@ -800,10 +801,10 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   const togglePropLabelsBtn = root.querySelector<HTMLButtonElement>("#builder-toggle-prop-labels")!;
   const exportBtn = root.querySelector<HTMLButtonElement>("#builder-export")!;
   const importBtn = root.querySelector<HTMLButtonElement>("#builder-import")!;
-  const simPlayBtn = root.querySelector<HTMLButtonElement>("#builder-sim-play")!;
-  const simPauseBtn = root.querySelector<HTMLButtonElement>("#builder-sim-pause")!;
+  const simPlayPauseBtn = root.querySelector<HTMLButtonElement>("#builder-sim-play-pause")!;
   const simStepBtn = root.querySelector<HTMLButtonElement>("#builder-sim-step")!;
   const simResetBtn = root.querySelector<HTMLButtonElement>("#builder-sim-reset")!;
+  const simTogglePacketIpsBtn = root.querySelector<HTMLButtonElement>("#builder-sim-toggle-packet-ips")!;
   const simSpeedEl = root.querySelector<HTMLInputElement>("#builder-sim-speed")!;
   const simSpeedValueEl = root.querySelector<HTMLSpanElement>("#builder-sim-speed-value")!;
   const simSendRateEl = root.querySelector<HTMLInputElement>("#builder-sim-send-rate")!;
@@ -849,6 +850,22 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     sectionEl?.classList.toggle("collapsed", collapsed);
     toggleEl?.setAttribute("aria-expanded", collapsed ? "false" : "true");
     persistBuilderPageState();
+  }
+
+  function setPacketIpLabelsVisible(visible: boolean): void {
+    builderPageState = {
+      ...builderPageState,
+      showPacketIps: visible,
+    };
+    simTogglePacketIpsBtn.textContent = visible ? "Hide IPs" : "Show IPs";
+    if (!visible) {
+      packetLabelPool.forEach((label) => {
+        label.text.setAttribute("display", "none");
+        label.text.removeAttribute("data-packet-id");
+      });
+    }
+    persistBuilderPageState();
+    renderBuilderPacketCircles(simPacketProgress);
   }
 
   function applyCanvasScale(): void {
@@ -1112,6 +1129,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   let simPreparedPacketRenderDirty = true;
   let packetCircleGroupEl: SVGGElement | null = null;
   const packetCirclePool: SVGCircleElement[] = [];
+  const packetLabelPool: Array<{ text: SVGTextElement; src: SVGTSpanElement; dest: SVGTSpanElement }> = [];
   let activePacketCircleCount = 0;
 
   function cloneSimOccupancy(occ: Array<{ port: PortRef; packet: Packet }>): Array<{ port: PortRef; packet: Packet }> {
@@ -1283,6 +1301,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       simAnimHandle = null;
     }
     simPlaying = false;
+    simPlayPauseBtn.textContent = "Play";
     simAnimating = false;
     const payload = compileBuilderPayload(state);
     const topo = payload.topology as unknown as Topology;
@@ -1431,6 +1450,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
 
   function setBuilderSimPlaying(enabled: boolean): void {
     simPlaying = enabled;
+    simPlayPauseBtn.textContent = simPlaying ? "Pause" : "Play";
     if (!simPlaying && simAnimHandle !== null) {
       cancelAnimationFrame(simAnimHandle);
       simAnimHandle = null;
@@ -2075,6 +2095,8 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   };
   type SimPreparedPacketRender = {
     packetId: number;
+    src: string;
+    dest: string;
     line: SimPreparedPolyline | null;
     fallback: SimXY;
     fill: string;
@@ -2203,6 +2225,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     packetOverlayEl.innerHTML = "";
     packetCircleGroupEl = null;
     packetCirclePool.length = 0;
+    packetLabelPool.length = 0;
     activePacketCircleCount = 0;
   }
 
@@ -2226,6 +2249,30 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     ensureBuilderPacketCircleGroup().appendChild(circle);
     packetCirclePool[index] = circle;
     return circle;
+  }
+
+  function ensureBuilderPacketLabel(index: number): { text: SVGTextElement; src: SVGTSpanElement; dest: SVGTSpanElement } {
+    const existing = packetLabelPool[index];
+    if (existing) {
+      return existing;
+    }
+    const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    text.setAttribute("class", "builder-packet-label");
+    text.setAttribute("dominant-baseline", "middle");
+
+    const src = document.createElementNS("http://www.w3.org/2000/svg", "tspan");
+    src.setAttribute("class", "builder-packet-label-src");
+    src.setAttribute("dy", "-0.58em");
+
+    const dest = document.createElementNS("http://www.w3.org/2000/svg", "tspan");
+    dest.setAttribute("class", "builder-packet-label-dest");
+    dest.setAttribute("dy", "1.16em");
+
+    text.append(src, dest);
+    ensureBuilderPacketCircleGroup().appendChild(text);
+    const label = { text, src, dest };
+    packetLabelPool[index] = label;
+    return label;
   }
 
   function prepareBuilderPacketRenders(): number {
@@ -2265,6 +2312,8 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       const hue = (packet.id * 47) % 360;
       prepared.push({
         packetId: packet.id,
+        src: packet.src,
+        dest: packet.dest,
         line,
         fallback,
         fill: `hsl(${hue} 82% 58%)`,
@@ -2333,12 +2382,36 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       circle.setAttribute("stroke", selected ? "#f9e2af" : render.stroke);
       circle.setAttribute("stroke-width", String(selected ? 2.2 : 1.2));
       circle.setAttribute("data-packet-id", String(render.packetId));
+      const label = builderPageState.showPacketIps ? ensureBuilderPacketLabel(i) : packetLabelPool[i];
+      if (builderPageState.showPacketIps) {
+        const shownLabel = label!;
+        const labelX = (render.x + 10).toFixed(2);
+        shownLabel.text.removeAttribute("display");
+        shownLabel.text.setAttribute("x", labelX);
+        shownLabel.text.setAttribute("y", render.y.toFixed(2));
+        shownLabel.src.setAttribute("x", labelX);
+        shownLabel.dest.setAttribute("x", labelX);
+        if (shownLabel.text.getAttribute("data-packet-id") !== String(render.packetId)) {
+          shownLabel.src.textContent = render.src;
+          shownLabel.dest.textContent = render.dest;
+          shownLabel.text.setAttribute("data-packet-id", String(render.packetId));
+        }
+      } else if (label) {
+        label.text.setAttribute("display", "none");
+        label.text.removeAttribute("data-packet-id");
+      }
     }
     for (let i = simPreparedPacketRenders.length; i < activePacketCircleCount; i += 1) {
       const circle = packetCirclePool[i];
-      if (!circle) continue;
-      circle.setAttribute("display", "none");
-      circle.removeAttribute("data-packet-id");
+      if (circle) {
+        circle.setAttribute("display", "none");
+        circle.removeAttribute("data-packet-id");
+      }
+      const label = packetLabelPool[i];
+      if (label) {
+        label.text.setAttribute("display", "none");
+        label.text.removeAttribute("data-packet-id");
+      }
     }
     activePacketCircleCount = simPreparedPacketRenders.length;
     const tCommit1 = performance.now();
@@ -4287,14 +4360,14 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   scaleYInnerEl.addEventListener("change", onChangeY);
   scaleYCoreEl.addEventListener("change", onChangeY);
 
-  simPlayBtn.addEventListener("click", () => setBuilderSimPlaying(true));
-  simPauseBtn.addEventListener("click", () => setBuilderSimPlaying(false));
+  simPlayPauseBtn.addEventListener("click", () => setBuilderSimPlaying(!simPlaying));
   simStepBtn.addEventListener("click", () => {
     if (!simPlaying) {
       runOneBuilderSimTick();
     }
   });
   simResetBtn.addEventListener("click", () => resetBuilderSimulation());
+  simTogglePacketIpsBtn.addEventListener("click", () => setPacketIpLabelsVisible(!builderPageState.showPacketIps));
 
   const applyBuilderSimSpeedFromSlider = (): void => {
     simSpeedExponent = Number(simSpeedEl.value);
