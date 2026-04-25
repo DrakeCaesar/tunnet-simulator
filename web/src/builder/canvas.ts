@@ -39,8 +39,8 @@ import {
   saveBuilderState,
 } from "./persistence";
 import { compileBuilderPayload } from "./compile";
-import type { Device, Packet, PortRef, SimulationStats, Topology } from "../simulation";
-import { buildPortAdjacency, getHubEgressPort, portKey } from "../simulation";
+import type { Device, Packet, PortRef, SimulationStats, SimulatorRuntimeState, Topology } from "../simulation";
+import { buildPortAdjacency, getHubEgressPort, portKey, TunnetSimulator } from "../simulation";
 import {
   formatSendRateLabel,
   formatSpeedLabel,
@@ -53,7 +53,6 @@ import {
   SPEED_EXP_MAX,
   SPEED_EXP_MIN,
 } from "../sim-controls";
-import SimWorker from "./sim-worker?worker";
 
 const BUILDER_CANVAS_SCALE_KEY = "tunnet.builder.canvasScale";
 const BUILDER_HIDE_PROP_LABELS_KEY = "tunnet.builder.hidePropertyLabels";
@@ -932,9 +931,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       .slice(0, 3);
     const lines = [
       `entities=${perfCounts.expandedEntities}  stateLinks=${perfCounts.stateLinks}  expandedLinks=${perfCounts.expandedLinks}  packets=${perfCounts.packetsInFlight}`,
-      `worker queue=${simQueuedFrames.length}  ready=${simWorkerReady ? 1 : 0}  inflight=${simWorkerRequestInFlight ? 1 : 0}`,
-      `worker last batch frames=${simWorkerLastBatchFrames}  compute=${simWorkerLastBatchComputeMs.toFixed(2)}ms  roundTrip=${simWorkerLastBatchRoundTripMs.toFixed(2)}ms`,
-      `worker ema batch compute=${(simWorkerEmaBatchComputeMs ?? 0).toFixed(2)}ms  ema roundTrip=${(simWorkerEmaBatchRoundTripMs ?? 0).toFixed(2)}ms  est_saved_total=${simWorkerEstimatedSavedMsTotal.toFixed(1)}ms`,
+      `sim mode=main  step compute=${(simLastStepComputeMs ?? 0).toFixed(2)}ms  ema=${(simEmaStepComputeMs ?? 0).toFixed(2)}ms`,
       "",
       "Metric                      last      ema      max   n",
       ...ordered.map((k) => {
@@ -967,30 +964,14 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   }
 
   let builderTopologySig = "";
-  type SimWorkerFrame = {
+  type SimFrame = {
     prevOccupancy: Array<{ port: PortRef; packet: Packet }>;
     currentOccupancy: Array<{ port: PortRef; packet: Packet }>;
     stats: SimulationStats;
     stepComputeMs: number;
   };
-  type SimWorkerMessage =
-    | { type: "initialized"; occupancy: Array<{ port: PortRef; packet: Packet }>; stats: SimulationStats }
-    | { type: "batch"; frames: SimWorkerFrame[] }
-    | { type: "error"; message: string };
-  const SIM_WORKER_LOOKAHEAD = 10;
-  let simWorker: Worker | null = null;
-  let simWorkerReady = false;
-  let simWorkerRequestInFlight = false;
-  let simWorkerPendingPlayResume = false;
-  let simQueuedFrames: SimWorkerFrame[] = [];
-  let simWorkerRequestSentAtMs: number | null = null;
-  let simWorkerRequestCount = 0;
-  let simWorkerLastBatchFrames = 0;
-  let simWorkerLastBatchComputeMs = 0;
-  let simWorkerLastBatchRoundTripMs = 0;
-  let simWorkerEmaBatchComputeMs: number | null = null;
-  let simWorkerEmaBatchRoundTripMs: number | null = null;
-  let simWorkerEstimatedSavedMsTotal = 0;
+  let builderSimulator: TunnetSimulator | null = null;
+  let builderSimulatorOccupancy: Array<{ port: PortRef; packet: Packet }> = [];
   let simPlaying = false;
   let simAnimating = false;
   let simAnimHandle: number | null = null;
@@ -1042,102 +1023,106 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     return occ.map((e) => ({ port: { ...e.port }, packet: e.packet }));
   }
 
-  function ensureSimWorker(): Worker {
-    if (simWorker) {
-      return simWorker;
-    }
-    const worker = new SimWorker();
-    worker.addEventListener("message", (ev: MessageEvent<SimWorkerMessage>) => {
-      const msg = ev.data;
-      if (!msg || typeof msg !== "object") return;
-      if (msg.type === "initialized") {
-        simWorkerReady = true;
-        simWorkerRequestInFlight = false;
-        simWorkerRequestSentAtMs = null;
-        simWorkerRequestCount = 0;
-        simQueuedFrames = [];
-        simPreviousOccupancy = [];
-        simPreviousOccupancyByPacketId = new Map();
-        simCurrentOccupancy = cloneSimOccupancy(msg.occupancy);
-        simStats = { ...msg.stats };
-        simPreviousStatsTotals = { ...msg.stats };
-        simPacketProgress = 1;
-        invalidateBuilderPacketRenderCache();
-        if (selection?.kind === "packet") {
-          const packetSel = selection;
-          const stillThere = simCurrentOccupancy.some((e) => e.packet.id === packetSel.packetId);
-          if (!stillThere) {
-            selection = null;
-            renderInspector();
-          }
-        }
-        updateBuilderSimMeta();
-        renderBuilderPacketCircles(1);
-        ensureWorkerLookahead(SIM_WORKER_LOOKAHEAD);
-        if (simWorkerPendingPlayResume) {
-          simWorkerPendingPlayResume = false;
-          simPlaying = true;
-          runOneBuilderSimTick();
-        }
-        return;
-      }
-      if (msg.type === "batch") {
-        simWorkerRequestInFlight = false;
-        const nowMs = performance.now();
-        const roundTripMs =
-          simWorkerRequestSentAtMs === null ? 0 : Math.max(0, nowMs - simWorkerRequestSentAtMs);
-        const batchComputeMs = msg.frames.reduce((sum, f) => sum + Math.max(0, f.stepComputeMs), 0);
-        simWorkerLastBatchFrames = msg.frames.length;
-        simWorkerLastBatchComputeMs = batchComputeMs;
-        simWorkerLastBatchRoundTripMs = roundTripMs;
-        const alpha = 0.18;
-        simWorkerEmaBatchComputeMs =
-          simWorkerEmaBatchComputeMs === null
-            ? batchComputeMs
-            : alpha * batchComputeMs + (1 - alpha) * simWorkerEmaBatchComputeMs;
-        simWorkerEmaBatchRoundTripMs =
-          simWorkerEmaBatchRoundTripMs === null
-            ? roundTripMs
-            : alpha * roundTripMs + (1 - alpha) * simWorkerEmaBatchRoundTripMs;
-        simWorkerEstimatedSavedMsTotal += batchComputeMs;
-        simWorkerRequestSentAtMs = null;
-        simWorkerRequestCount = 0;
-        if (msg.frames.length > 0) {
-          simQueuedFrames.push(
-            ...msg.frames.map((f) => ({
-              prevOccupancy: cloneSimOccupancy(f.prevOccupancy),
-              currentOccupancy: cloneSimOccupancy(f.currentOccupancy),
-              stats: { ...f.stats },
-              stepComputeMs: f.stepComputeMs,
-            })),
-          );
-        }
-        if (simPlaying && !simAnimating && simQueuedFrames.length > 0) {
-          runOneBuilderSimTick();
-        }
-        ensureWorkerLookahead(SIM_WORKER_LOOKAHEAD);
-        return;
-      }
-      if (msg.type === "error") {
-        simWorkerRequestInFlight = false;
-        simWorkerReady = false;
-        simPlaying = false;
-        simAnimating = false;
-        simMetaEl.innerHTML = `<div class="builder-inspector-note">Simulation worker error: ${msg.message}</div>`;
-      }
-    });
-    simWorker = worker;
-    return worker;
+  function cloneSimOccupancyWithPackets(occ: Array<{ port: PortRef; packet: Packet }>): Array<{ port: PortRef; packet: Packet }> {
+    return occ.map((e) => ({ port: { ...e.port }, packet: { ...e.packet } }));
   }
 
-  function ensureWorkerLookahead(target: number): void {
-    if (!simWorkerReady || !simWorker || simWorkerRequestInFlight) return;
-    const missing = target - simQueuedFrames.length;
-    if (missing <= 0) return;
-    simWorkerRequestInFlight = true;
-    simWorkerRequestCount = Math.max(1, missing);
-    simWorkerRequestSentAtMs = performance.now();
-    simWorker.postMessage({ type: "precompute", count: simWorkerRequestCount });
+  function simPortCountForDevice(device: Device): number {
+    if (device.type === "endpoint") return 1;
+    if (device.type === "relay") return 2;
+    if (device.type === "filter") return 2;
+    return 3;
+  }
+
+  function projectRuntimeStateToTopology(
+    runtime: SimulatorRuntimeState,
+    topology: Topology,
+  ): SimulatorRuntimeState {
+    const occupancy = runtime.occupancy.filter(({ port }) => {
+      const device = topology.devices[port.deviceId];
+      if (!device) return false;
+      return Number.isInteger(port.port) && port.port >= 0 && port.port < simPortCountForDevice(device);
+    });
+    const endpointNextSendTickById: Record<string, number> = {};
+    for (const dev of Object.values(topology.devices)) {
+      if (dev.type !== "endpoint") continue;
+      const existing = runtime.endpointNextSendTickById[dev.id];
+      if (Number.isFinite(existing)) {
+        endpointNextSendTickById[dev.id] = existing;
+      }
+    }
+    return {
+      ...runtime,
+      occupancy,
+      endpointNextSendTickById,
+    };
+  }
+
+  function applyBuilderSimulatorSnapshot(
+    occupancy: Array<{ port: PortRef; packet: Packet }>,
+    stats: SimulationStats,
+  ): void {
+    simPreviousOccupancy = [];
+    simPreviousOccupancyByPacketId = new Map();
+    simCurrentOccupancy = cloneSimOccupancy(occupancy);
+    simStats = { ...stats };
+    simPreviousStatsTotals = { ...stats };
+    simPacketProgress = 1;
+    invalidateBuilderPacketRenderCache();
+    if (selection?.kind === "packet") {
+      const packetSel = selection;
+      const stillThere = simCurrentOccupancy.some((e) => e.packet.id === packetSel.packetId);
+      if (!stillThere) {
+        selection = null;
+        renderInspector();
+      }
+    }
+    updateBuilderSimMeta();
+    renderBuilderPacketCircles(1);
+  }
+
+  function initBuilderSimulator(topology: Topology): void {
+    builderSimulator = new TunnetSimulator(topology, 1337);
+    builderSimulator.setSendRateMultiplier(sendRateMultiplierFromExponent(simSendRateExponent));
+    builderSimulatorOccupancy = cloneSimOccupancyWithPackets(builderSimulator.getPortOccupancy());
+    applyBuilderSimulatorSnapshot(builderSimulatorOccupancy, {
+      tick: 0,
+      emitted: 0,
+      delivered: 0,
+      dropped: 0,
+      bounced: 0,
+      ttlExpired: 0,
+      collisions: 0,
+    });
+  }
+
+  function updateBuilderSimulatorTopology(topology: Topology): void {
+    if (!builderSimulator) {
+      initBuilderSimulator(topology);
+      return;
+    }
+    const runtime = builderSimulator.exportRuntimeState();
+    const projected = projectRuntimeStateToTopology(runtime, topology);
+    const next = new TunnetSimulator(topology, projected.rndState);
+    next.importRuntimeState(projected);
+    builderSimulator = next;
+    builderSimulatorOccupancy = cloneSimOccupancyWithPackets(builderSimulator.getPortOccupancy());
+    applyBuilderSimulatorSnapshot(builderSimulatorOccupancy, { ...projected.stats });
+  }
+
+  function computeNextBuilderSimFrame(): SimFrame | null {
+    if (!builderSimulator) return null;
+    const prev = cloneSimOccupancyWithPackets(builderSimulatorOccupancy);
+    const t0 = performance.now();
+    const snap = builderSimulator.step();
+    const stepComputeMs = performance.now() - t0;
+    builderSimulatorOccupancy = cloneSimOccupancyWithPackets(builderSimulator.getPortOccupancy());
+    return {
+      prevOccupancy: prev,
+      currentOccupancy: cloneSimOccupancyWithPackets(builderSimulatorOccupancy),
+      stats: { ...snap.stats },
+      stepComputeMs,
+    };
   }
 
   function rebuildBuilderSimEndpointIndex(topology: Topology): void {
@@ -1208,19 +1193,6 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     const topo = payload.topology as unknown as Topology;
     builderTopologySig = JSON.stringify(payload.topology);
     rebuildBuilderSimTopologyCache(topo);
-    const worker = ensureSimWorker();
-    simWorkerReady = false;
-    simWorkerRequestInFlight = false;
-    simWorkerPendingPlayResume = shouldResume;
-    simWorkerRequestSentAtMs = null;
-    simWorkerRequestCount = 0;
-    simWorkerLastBatchFrames = 0;
-    simWorkerLastBatchComputeMs = 0;
-    simWorkerLastBatchRoundTripMs = 0;
-    simWorkerEmaBatchComputeMs = null;
-    simWorkerEmaBatchRoundTripMs = null;
-    simWorkerEstimatedSavedMsTotal = 0;
-    simQueuedFrames = [];
     simStats = {
       tick: 0,
       emitted: 0,
@@ -1252,12 +1224,11 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     clearBuilderPacketCirclePool();
     updateBuilderSimMeta();
     scheduleWireOverlayRender();
-    worker.postMessage({
-      type: "init",
-      topology: topo,
-      seed: 1337,
-      sendRateMultiplier: sendRateMultiplierFromExponent(simSendRateExponent),
-    });
+    initBuilderSimulator(topo);
+    if (shouldResume) {
+      simPlaying = true;
+      runOneBuilderSimTick();
+    }
   }
 
   function initOrRefreshBuilderSimulatorIfTopologyChanged(): void {
@@ -1269,7 +1240,6 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     rebuildBuilderSimTopologyCache(topo);
     rebuildBuilderSimEndpointIndex(topo);
 
-    const worker = ensureSimWorker();
     const shouldResume = simPlaying;
     if (simAnimHandle !== null) {
       cancelAnimationFrame(simAnimHandle);
@@ -1277,31 +1247,19 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     }
     simAnimating = false;
     simPlaying = false;
-    simWorkerPendingPlayResume = shouldResume;
-    simWorkerReady = false;
-    simWorkerRequestInFlight = false;
-    simWorkerRequestSentAtMs = null;
-    simWorkerRequestCount = 0;
-    simQueuedFrames = [];
-    worker.postMessage({ type: "update_topology", topology: topo });
+    updateBuilderSimulatorTopology(topo);
+    if (shouldResume) {
+      simPlaying = true;
+      runOneBuilderSimTick();
+    }
   }
 
   function runOneBuilderSimTick(): void {
     if (simAnimating) return;
-    if (!simWorkerReady) {
-      simWorkerPendingPlayResume = simPlaying;
-      ensureWorkerLookahead(1);
-      return;
-    }
-    if (simQueuedFrames.length === 0) {
-      ensureWorkerLookahead(1);
-      simWorkerPendingPlayResume = simPlaying;
-      return;
-    }
     const tickWallStartMs = performance.now();
+    const frame = computeNextBuilderSimFrame();
+    if (!frame) return;
     simAnimating = true;
-    const frame = simQueuedFrames.shift()!;
-    ensureWorkerLookahead(SIM_WORKER_LOOKAHEAD);
     simPreviousOccupancy = frame.prevOccupancy;
     simPreviousOccupancyByPacketId = simOccupancyByPacketId(simPreviousOccupancy);
     const emittedTick = frame.stats.emitted - simPreviousStatsTotals.emitted;
@@ -1381,7 +1339,6 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       renderBuilderPacketCircles(1);
     }
     if (simPlaying && !simAnimating) {
-      ensureWorkerLookahead(SIM_WORKER_LOOKAHEAD);
       runOneBuilderSimTick();
     }
     updateBuilderSimMeta();
@@ -4251,11 +4208,8 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     if (!Number.isFinite(simSendRateExponent)) {
       simSendRateExponent = SEND_RATE_EXP_DEFAULT;
     }
-    if (simWorker) {
-      simWorker.postMessage({
-        type: "set_send_rate",
-        sendRateMultiplier: sendRateMultiplierFromExponent(simSendRateExponent),
-      });
+    if (builderSimulator) {
+      builderSimulator.setSendRateMultiplier(sendRateMultiplierFromExponent(simSendRateExponent));
     }
     syncBuilderSimSliderLabels();
     updateBuilderSimMeta();
