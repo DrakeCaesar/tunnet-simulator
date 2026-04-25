@@ -1285,10 +1285,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     simMetaEl.innerHTML = `
       <div class="stats-subtitle">Runtime</div>
       <div class="stats-row">
-        <div class="stat-pill"><span>State</span><strong>${simPlaying ? "running" : "paused"}</strong></div>
-        <div class="stat-pill"><span>Tick pace</span><strong>${formatSpeedLabel(simSpeedExponent)}</strong></div>
         <div class="stat-pill"><span>Achieved</span><strong>${achievedValue}</strong></div>
-        <div class="stat-pill"><span>Send rate</span><strong>${formatSendRateLabel(simSendRateExponent)}</strong></div>
         <div class="stat-pill"><span>Step compute</span><strong>${stepComputeValue}</strong></div>
       </div>
       <div class="stats-subtitle stats-subtitle-gap">Simulation</div>
@@ -2383,7 +2380,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     syncBuilderPacketOverlayDimensions(overlayWidth, overlayHeight);
     const tResize1 = performance.now();
 
-    const dotR = 5;
+    const dotR = 8;
     let polylineMs = 0;
     let interpolateMs = 0;
     const tCompute0 = performance.now();
@@ -2419,7 +2416,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       circle.setAttribute("class", selected ? "builder-packet-dot builder-packet-dot--selected" : "builder-packet-dot");
       circle.setAttribute("cx", render.x.toFixed(2));
       circle.setAttribute("cy", render.y.toFixed(2));
-      circle.setAttribute("r", String(selected ? 7 : dotR));
+      circle.setAttribute("r", String(dotR));
       circle.setAttribute("fill", render.fill);
       circle.setAttribute("stroke", selected ? "#f9e2af" : render.stroke);
       circle.setAttribute("stroke-width", String(selected ? 2.2 : 1.2));
@@ -2427,7 +2424,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       const label = builderPageState.showPacketIps ? ensureBuilderPacketLabel(i) : packetLabelPool[i];
       if (builderPageState.showPacketIps) {
         const shownLabel = label!;
-        const labelX = (render.x + 10).toFixed(2);
+        const labelX = (render.x + dotR + 5).toFixed(2);
         shownLabel.text.removeAttribute("display");
         shownLabel.text.setAttribute("x", labelX);
         shownLabel.text.setAttribute("y", render.y.toFixed(2));
