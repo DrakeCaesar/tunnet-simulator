@@ -1032,6 +1032,11 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   let builderSimDevices: Record<string, Device> = {};
   let builderSimAdj: Map<string, PortRef> = new Map();
   const packetRouteTemplateByKey = new Map<string, PortRef[] | null>();
+  let simPreparedPacketRenders: SimPreparedPacketRender[] = [];
+  let simPreparedPacketRenderDirty = true;
+  let packetCircleGroupEl: SVGGElement | null = null;
+  const packetCirclePool: SVGCircleElement[] = [];
+  let activePacketCircleCount = 0;
 
   function cloneSimOccupancy(occ: Array<{ port: PortRef; packet: Packet }>): Array<{ port: PortRef; packet: Packet }> {
     return occ.map((e) => ({ port: { ...e.port }, packet: e.packet }));
@@ -1057,6 +1062,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
         simStats = { ...msg.stats };
         simPreviousStatsTotals = { ...msg.stats };
         simPacketProgress = 1;
+        invalidateBuilderPacketRenderCache();
         if (selection?.kind === "packet") {
           const packetSel = selection;
           const stillThere = simCurrentOccupancy.some((e) => e.packet.id === packetSel.packetId);
@@ -1238,11 +1244,12 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     simPreviousOccupancyByPacketId = new Map();
     simCurrentOccupancy = [];
     simPacketProgress = 1;
+    invalidateBuilderPacketRenderCache();
     if (selection?.kind === "packet") {
       selection = null;
       renderInspector();
     }
-    packetOverlayEl.innerHTML = "";
+    clearBuilderPacketCirclePool();
     updateBuilderSimMeta();
     scheduleWireOverlayRender();
     worker.postMessage({
@@ -1321,6 +1328,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
         : SIM_STEP_COMPUTE_EMA_ALPHA * stepMs + (1 - SIM_STEP_COMPUTE_EMA_ALPHA) * simEmaStepComputeMs;
     simStats = frame.stats;
     simCurrentOccupancy = frame.currentOccupancy;
+    invalidateBuilderPacketRenderCache();
     if (selection && selection.kind === "packet") {
       const packetSel = selection;
       const stillThere = simCurrentOccupancy.some((e) => e.packet.id === packetSel.packetId);
@@ -1938,6 +1946,16 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     segLens: number[];
     totalLen: number;
   };
+  type SimPreparedPacketRender = {
+    packetId: number;
+    line: SimPreparedPolyline | null;
+    fallback: SimXY;
+    fill: string;
+    stroke: string;
+    x: number;
+    y: number;
+    selected: boolean;
+  };
 
   function preparePolyline(points: SimXY[]): SimPreparedPolyline | null {
     if (points.length === 0) return null;
@@ -2050,6 +2068,91 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     packetOverlayEl.style.height = `${h}px`;
   }
 
+  function invalidateBuilderPacketRenderCache(): void {
+    simPreparedPacketRenderDirty = true;
+  }
+
+  function clearBuilderPacketCirclePool(): void {
+    packetOverlayEl.innerHTML = "";
+    packetCircleGroupEl = null;
+    packetCirclePool.length = 0;
+    activePacketCircleCount = 0;
+  }
+
+  function ensureBuilderPacketCircleGroup(): SVGGElement {
+    if (packetCircleGroupEl?.parentNode === packetOverlayEl) {
+      return packetCircleGroupEl;
+    }
+    const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    packetOverlayEl.appendChild(group);
+    packetCircleGroupEl = group;
+    return group;
+  }
+
+  function ensureBuilderPacketCircle(index: number): SVGCircleElement {
+    const existing = packetCirclePool[index];
+    if (existing) {
+      return existing;
+    }
+    const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    circle.setAttribute("class", "builder-packet-dot");
+    ensureBuilderPacketCircleGroup().appendChild(circle);
+    packetCirclePool[index] = circle;
+    return circle;
+  }
+
+  function prepareBuilderPacketRenders(): number {
+    const centerCache = new Map<string, SimXY | null>();
+    const preparedRouteByKey = new Map<string, SimPreparedPolyline | null>();
+    const prepared: SimPreparedPacketRender[] = [];
+    let polylineMs = 0;
+
+    for (const { port, packet } of simCurrentOccupancy) {
+      const fromEntry = simPreviousOccupancyByPacketId.get(packet.id);
+      const spawnId = builderEndpointIdByAddress.get(packet.src);
+      const fromDeviceId = fromEntry?.port.deviceId ?? spawnId ?? port.deviceId;
+      const fromPortNum = fromEntry?.port.port ?? 0;
+      const fromRef: PortRef = { deviceId: fromDeviceId, port: fromPortNum };
+      const toRef: PortRef = { ...port };
+      const pa = builderPortCenterInOverlayCoords(fromRef, centerCache) ?? builderPortCenterInOverlayCoords(toRef, centerCache);
+      const pb = builderPortCenterInOverlayCoords(toRef, centerCache);
+      if (!pa || !pb) continue;
+
+      const o = simRestingPortOffset(port.port);
+      const fallback = { x: pa.x + o.x, y: pa.y + o.y };
+      let line: SimPreparedPolyline | null = null;
+      if (fromDeviceId !== port.deviceId || fromPortNum !== port.port) {
+        const routeKey = packetRouteKey(fromRef, toRef);
+        const tPoly0 = performance.now();
+        line = preparedRouteByKey.get(routeKey);
+        if (line === undefined) {
+          line = buildPacketAnimationPolylinePrepared(fromRef, toRef, centerCache);
+          preparedRouteByKey.set(routeKey, line);
+        }
+        polylineMs += performance.now() - tPoly0;
+        if (!line || line.points.length < 2 || line.totalLen < 1) {
+          line = null;
+        }
+      }
+
+      const hue = (packet.id * 47) % 360;
+      prepared.push({
+        packetId: packet.id,
+        line,
+        fallback,
+        fill: `hsl(${hue} 82% 58%)`,
+        stroke: `hsl(${hue} 82% 38%)`,
+        x: fallback.x,
+        y: fallback.y,
+        selected: false,
+      });
+    }
+
+    simPreparedPacketRenders = prepared;
+    simPreparedPacketRenderDirty = false;
+    return polylineMs;
+  }
+
   function renderBuilderPacketCircles(t: number): void {
     const t0 = performance.now();
     const wrap = packetOverlayEl.parentElement;
@@ -2062,76 +2165,55 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     syncBuilderPacketOverlayDimensions(overlayWidth, overlayHeight);
     const tResize1 = performance.now();
 
-    const prevMap = simPreviousOccupancyByPacketId;
-    const centerCache = new Map<string, SimXY | null>();
-    const preparedRouteByKey = new Map<string, SimPreparedPolyline | null>();
-    const parts: string[] = [];
     const dotR = 5;
     let polylineMs = 0;
     let interpolateMs = 0;
     const tCompute0 = performance.now();
-    for (const { port, packet } of simCurrentOccupancy) {
-      const fromEntry = prevMap.get(packet.id);
-      const spawnId = builderEndpointIdByAddress.get(packet.src);
-      const fromDeviceId = fromEntry?.port.deviceId ?? spawnId ?? port.deviceId;
-      const fromPortNum = fromEntry?.port.port ?? 0;
-      const fromRef: PortRef = { deviceId: fromDeviceId, port: fromPortNum };
-      const toRef: PortRef = { ...port };
-      const pa = builderPortCenterInOverlayCoords(fromRef, centerCache) ?? builderPortCenterInOverlayCoords(toRef, centerCache);
-      const pb = builderPortCenterInOverlayCoords(toRef, centerCache);
-      if (!pa || !pb) continue;
-      let x: number;
-      let y: number;
-      if (fromDeviceId === port.deviceId && fromPortNum === port.port) {
-        const o = simRestingPortOffset(port.port);
-        x = pa.x + o.x;
-        y = pa.y + o.y;
-      } else {
-        const routeKey = packetRouteKey(fromRef, toRef);
-        const tPoly0 = performance.now();
-        let line = preparedRouteByKey.get(routeKey);
-        if (line === undefined) {
-          line = buildPacketAnimationPolylinePrepared(fromRef, toRef, centerCache);
-          preparedRouteByKey.set(routeKey, line);
-        }
-        polylineMs += performance.now() - tPoly0;
-        if (!line || line.points.length < 2) {
-          const o = simRestingPortOffset(port.port);
-          x = pa.x + o.x;
-          y = pa.y + o.y;
-        } else {
-          if (line.totalLen < 1) {
-            const o = simRestingPortOffset(port.port);
-            x = pa.x + o.x;
-            y = pa.y + o.y;
-          } else {
-            const tInterp0 = performance.now();
-            const p = simPointOnPreparedPolylineAt(line, t);
-            interpolateMs += performance.now() - tInterp0;
-            if (p) {
-              x = p.x;
-              y = p.y;
-            } else {
-              x = pa.x + (pb.x - pa.x) * t;
-              y = pa.y + (pb.y - pa.y) * t;
-            }
-          }
+    if (simPreparedPacketRenderDirty) {
+      polylineMs = prepareBuilderPacketRenders();
+    }
+    for (const render of simPreparedPacketRenders) {
+      let x = render.fallback.x;
+      let y = render.fallback.y;
+      if (render.line) {
+        const tInterp0 = performance.now();
+        const p = simPointOnPreparedPolylineAt(render.line, t);
+        interpolateMs += performance.now() - tInterp0;
+        if (p) {
+          x = p.x;
+          y = p.y;
         }
       }
-      const hue = (packet.id * 47) % 360;
-      const fill = `hsl(${hue} 82% 58%)`;
-      const stroke = `hsl(${hue} 82% 38%)`;
-      const selected = selection?.kind === "packet" && selection.packetId === packet.id;
-      const r = selected ? 7 : dotR;
-      const sw = selected ? 2.2 : 1.2;
-      const selClass = selected ? " builder-packet-dot--selected" : "";
-      parts.push(
-        `<circle class="builder-packet-dot${selClass}" cx="${x.toFixed(2)}" cy="${y.toFixed(2)}" r="${r}" fill="${fill}" stroke="${selected ? "#f9e2af" : stroke}" stroke-width="${sw}" data-packet-id="${packet.id}" />`,
-      );
+      render.x = x;
+      render.y = y;
+      render.selected = selection?.kind === "packet" && selection.packetId === render.packetId;
     }
     const tCompute1 = performance.now();
     const tCommit0 = performance.now();
-    packetOverlayEl.innerHTML = parts.length ? `<g>${parts.join("")}</g>` : "";
+    if (simPreparedPacketRenders.length > 0) {
+      ensureBuilderPacketCircleGroup();
+    }
+    for (let i = 0; i < simPreparedPacketRenders.length; i += 1) {
+      const render = simPreparedPacketRenders[i]!;
+      const circle = ensureBuilderPacketCircle(i);
+      const selected = render.selected;
+      circle.removeAttribute("display");
+      circle.setAttribute("class", selected ? "builder-packet-dot builder-packet-dot--selected" : "builder-packet-dot");
+      circle.setAttribute("cx", render.x.toFixed(2));
+      circle.setAttribute("cy", render.y.toFixed(2));
+      circle.setAttribute("r", String(selected ? 7 : dotR));
+      circle.setAttribute("fill", render.fill);
+      circle.setAttribute("stroke", selected ? "#f9e2af" : render.stroke);
+      circle.setAttribute("stroke-width", String(selected ? 2.2 : 1.2));
+      circle.setAttribute("data-packet-id", String(render.packetId));
+    }
+    for (let i = simPreparedPacketRenders.length; i < activePacketCircleCount; i += 1) {
+      const circle = packetCirclePool[i];
+      if (!circle) continue;
+      circle.setAttribute("display", "none");
+      circle.removeAttribute("data-packet-id");
+    }
+    activePacketCircleCount = simPreparedPacketRenders.length;
     const tCommit1 = performance.now();
     perfCounts.packetsInFlight = simCurrentOccupancy.length;
     recordPerf("packet.overlayResize", tResize1 - tResize0);
@@ -2334,6 +2416,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       }
     }
     wireOverlayEl.innerHTML = lineMarkup;
+    invalidateBuilderPacketRenderCache();
     renderBuilderPacketCircles(simPacketProgress);
     recordPerf("wire.total", performance.now() - t0);
     renderPerfPanel();
