@@ -84,8 +84,8 @@ function hubMarkerId(instanceId: string): string {
  * Single hub size knob: all hub render/interaction geometry scales from this side length.
  * Change this one number to resize hubs.
  */
-const HUB_TRIANGLE_SIDE = 40;
-const HUB_BASE_TRIANGLE_SIDE = 40;
+const HUB_TRIANGLE_SIDE = 46;
+const HUB_BASE_TRIANGLE_SIDE = HUB_TRIANGLE_SIDE;
 const HUB_SCALE = HUB_TRIANGLE_SIDE / HUB_BASE_TRIANGLE_SIDE;
 /** SVG / hit box for hub (mirrors original proportions at side=70). */
 const HUB_VIEW = { w: 108 * HUB_SCALE, h: 96 * HUB_SCALE } as const;
@@ -491,7 +491,7 @@ function buildTemplateDragImage(templateType: BuilderTemplateType): HTMLDivEleme
                     (idx) => `
                       <div class="builder-mask-cell">
                         <button class="builder-mask-arrow" type="button" disabled>+</button>
-                        <span>${maskParts[idx] ?? "*"}</span>
+                        <span class="${(maskParts[idx] ?? "*") === "*" ? "builder-mask-value-wildcard" : ""}">${maskParts[idx] ?? "*"}</span>
                         <button class="builder-mask-arrow" type="button" disabled>-</button>
                       </div>
                     `,
@@ -1733,8 +1733,8 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     bottom: number;
   } {
     if (entity.templateType === "hub") {
-      // Hub anchor is its center cell.
-      return { left: -1, right: 1, top: -1, bottom: 1 };
+      // Hub anchor is the center cross of its 4x4 footprint.
+      return { left: -2, right: 1, top: -2, bottom: 1 };
     }
     if (entity.templateType === "relay") {
       // Relay anchor is top-left of a 2x2 footprint.
@@ -1781,10 +1781,10 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   function entityPositionCss(templateType: BuilderTemplateType, x: number, y: number): { left: string; top: string } {
     const isHub = templateType === "hub";
     const left = isHub
-      ? `calc((${x} + 0.5) * var(--builder-grid-step-x) - ${HUB_LAYOUT.G.x.toFixed(3)}px)`
+      ? `calc(${x} * var(--builder-grid-step-x) - ${HUB_LAYOUT.G.x.toFixed(3)}px)`
       : `calc(${x} * var(--builder-grid-step-x))`;
     const top = isHub
-      ? `calc((${y} + 0.5) * var(--builder-grid-step-y) - ${HUB_LAYOUT.G.y.toFixed(3)}px)`
+      ? `calc(${y} * var(--builder-grid-step-y) - ${HUB_LAYOUT.G.y.toFixed(3)}px)`
       : `calc(${y} * var(--builder-grid-step-y))`;
     return { left, top };
   }
@@ -3382,8 +3382,8 @@ export function mountBuilderView(options: BuilderMountOptions): void {
         const initialHost =
           initialSection?.host ?? segmentEntitiesHost(rootDragEnt.layer, rootDragEnt.segmentIndex) ?? seg;
         const initialRect = initialSection?.rect ?? initialHost.getBoundingClientRect();
-        const anchorX = (ev.clientX - initialRect.left) / BUILDER_GRID_TILE_SIZE_X_PX - 0.5;
-        const anchorY = (ev.clientY - initialRect.top) / BUILDER_GRID_TILE_SIZE_Y_PX - 0.5;
+        const anchorX = (ev.clientX - initialRect.left) / BUILDER_GRID_TILE_SIZE_X_PX;
+        const anchorY = (ev.clientY - initialRect.top) / BUILDER_GRID_TILE_SIZE_Y_PX;
         const rx = rootDragEnt.x;
         const ry = rootDragEnt.y;
         const dx = anchorX - rx;
@@ -3396,8 +3396,8 @@ export function mountBuilderView(options: BuilderMountOptions): void {
           const hoveredSection = segmentFromClientPoint(mv.clientX, mv.clientY);
           if (!hoveredSection) return;
           const section = hoveredSection;
-          const rawX = (mv.clientX - section.rect.left) / BUILDER_GRID_TILE_SIZE_X_PX - 0.5 - dx;
-          const rawY = (mv.clientY - section.rect.top) / BUILDER_GRID_TILE_SIZE_Y_PX - 0.5 - dy;
+          const rawX = (mv.clientX - section.rect.left) / BUILDER_GRID_TILE_SIZE_X_PX - dx;
+          const rawY = (mv.clientY - section.rect.top) / BUILDER_GRID_TILE_SIZE_Y_PX - dy;
           const clamped = clampGridToSectionBounds(
             Math.round(rawX),
             Math.round(rawY),
@@ -4006,7 +4006,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
                                               (idx) => `
                                                 <div class="builder-mask-cell">
                                                   <button class="builder-mask-arrow" data-mask-dir="up" data-mask-idx="${idx}" data-root-id="${entity.rootId}" type="button">+</button>
-                                                  <span>${maskParts[idx] ?? "*"}</span>
+                                                  <span class="${(maskParts[idx] ?? "*") === "*" ? "builder-mask-value-wildcard" : ""}">${maskParts[idx] ?? "*"}</span>
                                                   <button class="builder-mask-arrow" data-mask-dir="down" data-mask-idx="${idx}" data-root-id="${entity.rootId}" type="button">-</button>
                                                 </div>
                                               `,
@@ -4105,11 +4105,11 @@ export function mountBuilderView(options: BuilderMountOptions): void {
                                 data-relay-angle="${entity.templateType === "relay" ? String(relayAngleDeg) : ""}"
                                 style="left:${
                                   entity.templateType === "hub"
-                                    ? `calc((${entity.x} + 0.5) * var(--builder-grid-step-x) - ${HUB_LAYOUT.G.x.toFixed(3)}px)`
+                                    ? `calc(${entity.x} * var(--builder-grid-step-x) - ${HUB_LAYOUT.G.x.toFixed(3)}px)`
                                     : `calc(${entity.x} * var(--builder-grid-step-x))`
                                 };top:${
                                   entity.templateType === "hub"
-                                    ? `calc((${entity.y} + 0.5) * var(--builder-grid-step-y) - ${HUB_LAYOUT.G.y.toFixed(3)}px)`
+                                    ? `calc(${entity.y} * var(--builder-grid-step-y) - ${HUB_LAYOUT.G.y.toFixed(3)}px)`
                                     : `calc(${entity.y} * var(--builder-grid-step-y))`
                                 };--builder-text-w:${textTiles.wTiles * BUILDER_GRID_TILE_SIZE_X_PX + 1}px;--builder-text-h:${textTiles.hTiles * BUILDER_GRID_TILE_SIZE_Y_PX + 1}px"
                               >

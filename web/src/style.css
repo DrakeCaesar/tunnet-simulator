@@ -1410,6 +1410,10 @@ textarea {
   text-rendering: geometricPrecision;
 }
 
+.builder-mask-cell span.builder-mask-value-wildcard {
+  color: #8f98aa;
+}
+
 .builder-mask-arrow {
   border: 0;
   background: #0f131b;
