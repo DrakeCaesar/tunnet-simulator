@@ -80,6 +80,16 @@ export interface SimulationStats {
   collisions: number;
 }
 
+export interface SimulatorRuntimeState {
+  tick: number;
+  packetIdCounter: number;
+  rndState: number;
+  sendRateMultiplier: number;
+  stats: SimulationStats;
+  occupancy: Array<{ port: PortRef; packet: Packet }>;
+  endpointNextSendTickById: Record<string, number>;
+}
+
 interface StepContext {
   tick: number;
   adjacency: Map<string, PortRef>;
@@ -459,5 +469,58 @@ export class TunnetSimulator {
       port: splitPortKey(key),
       packet,
     }));
+  }
+
+  exportRuntimeState(): SimulatorRuntimeState {
+    const endpointNextSendTickById: Record<string, number> = {};
+    for (const dev of Object.values(this.topology.devices)) {
+      if (dev.type === "endpoint") {
+        endpointNextSendTickById[dev.id] = dev.state.nextSendTick;
+      }
+    }
+    return {
+      tick: this.tick,
+      packetIdCounter: this.packetIdCounter,
+      rndState: this.rndState >>> 0,
+      sendRateMultiplier: this.sendRateMultiplier,
+      stats: { ...this.stats },
+      occupancy: this.getPortOccupancy().map((e) => ({ port: { ...e.port }, packet: { ...e.packet } })),
+      endpointNextSendTickById,
+    };
+  }
+
+  importRuntimeState(state: SimulatorRuntimeState): void {
+    if (Number.isFinite(state.tick)) {
+      this.tick = Math.max(0, Math.floor(state.tick));
+    }
+    if (Number.isFinite(state.packetIdCounter)) {
+      this.packetIdCounter = Math.max(1, Math.floor(state.packetIdCounter));
+    }
+    if (Number.isFinite(state.rndState)) {
+      this.rndState = (Math.floor(state.rndState) >>> 0);
+    }
+    if (Number.isFinite(state.sendRateMultiplier) && state.sendRateMultiplier > 0) {
+      this.sendRateMultiplier = state.sendRateMultiplier;
+    }
+    this.stats.tick = this.tick;
+    this.stats.emitted = Number.isFinite(state.stats.emitted) ? Math.max(0, state.stats.emitted) : 0;
+    this.stats.delivered = Number.isFinite(state.stats.delivered) ? Math.max(0, state.stats.delivered) : 0;
+    this.stats.dropped = Number.isFinite(state.stats.dropped) ? Math.max(0, state.stats.dropped) : 0;
+    this.stats.bounced = Number.isFinite(state.stats.bounced) ? Math.max(0, state.stats.bounced) : 0;
+    this.stats.ttlExpired = Number.isFinite(state.stats.ttlExpired) ? Math.max(0, state.stats.ttlExpired) : 0;
+    this.stats.collisions = Number.isFinite(state.stats.collisions) ? Math.max(0, state.stats.collisions) : 0;
+
+    this.currentPortPackets.clear();
+    for (const e of state.occupancy) {
+      this.currentPortPackets.set(makePortKey(e.port), { ...e.packet });
+    }
+
+    for (const dev of Object.values(this.topology.devices)) {
+      if (dev.type !== "endpoint") continue;
+      const nextSendTick = state.endpointNextSendTickById[dev.id];
+      if (Number.isFinite(nextSendTick)) {
+        dev.state.nextSendTick = Math.max(0, Math.floor(nextSendTick));
+      }
+    }
   }
 }

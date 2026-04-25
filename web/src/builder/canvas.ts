@@ -40,7 +40,7 @@ import {
 } from "./persistence";
 import { compileBuilderPayload } from "./compile";
 import type { Device, Packet, PortRef, SimulationStats, Topology } from "../simulation";
-import { buildPortAdjacency, getHubEgressPort, portKey, TunnetSimulator } from "../simulation";
+import { buildPortAdjacency, getHubEgressPort, portKey } from "../simulation";
 import {
   formatSendRateLabel,
   formatSpeedLabel,
@@ -53,12 +53,14 @@ import {
   SPEED_EXP_MAX,
   SPEED_EXP_MIN,
 } from "../sim-controls";
+import SimWorker from "./sim-worker?worker";
 
 const BUILDER_CANVAS_SCALE_KEY = "tunnet.builder.canvasScale";
 const BUILDER_HIDE_PROP_LABELS_KEY = "tunnet.builder.hidePropertyLabels";
 const BUILDER_LAYER_GAP_PX = 5;
 const BUILDER_GRID_TILE_SIZE_X_PX = 20;
 const BUILDER_GRID_TILE_SIZE_Y_PX = 20;
+const CANVAS_SCALE_X_STEPS = [1 / 16, 1 / 8, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.25, 2.5, 2.75, 3, 3.25, 3.5, 3.75, 4] as const;
 
 /** One mask nibble cycles * → 0 → 1 → 2 → 3 → * (matches game semantics). */
 const MASK_VALUE_CYCLE = ["*", "0", "1", "2", "3"] as const;
@@ -592,7 +594,31 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   let selectedEntityRootIds = new Set<string>();
   let boxSelection: BoxSelectionState = null;
   let suppressNextEntityClickToggle = false;
-  const clampCanvasScaleX = (v: number): number => Math.max(0.25, Math.min(4, v));
+  const nearestCanvasScaleXStep = (v: number): number => {
+    let best = CANVAS_SCALE_X_STEPS[0];
+    let bestDelta = Math.abs(v - best);
+    for (const step of CANVAS_SCALE_X_STEPS) {
+      const delta = Math.abs(v - step);
+      if (delta < bestDelta) {
+        best = step;
+        bestDelta = delta;
+      }
+    }
+    return best;
+  };
+  const clampCanvasScaleX = (v: number): number => nearestCanvasScaleXStep(Math.max(CANVAS_SCALE_X_STEPS[0], Math.min(4, v)));
+  const canvasScaleXIndexFromValue = (v: number): number =>
+    Math.max(0, CANVAS_SCALE_X_STEPS.findIndex((step) => step === clampCanvasScaleX(v)));
+  const canvasScaleXValueFromIndex = (index: number): number => {
+    const i = Math.max(0, Math.min(CANVAS_SCALE_X_STEPS.length - 1, Math.round(index)));
+    return CANVAS_SCALE_X_STEPS[i];
+  };
+  const formatCanvasScaleX = (v: number): string => {
+    if (Math.abs(v - 1 / 32) < 1e-9) return "1/32x";
+    if (Math.abs(v - 1 / 16) < 1e-9) return "1/16x";
+    if (Math.abs(v - 1 / 8) < 1e-9) return "1/8x";
+    return `${v.toFixed(2)}x`;
+  };
   const clampCanvasScaleY = (v: number): number => Math.max(0.25, Math.min(3, v));
   const loadCanvasScale = (): CanvasScale => {
     try {
@@ -667,8 +693,8 @@ export function mountBuilderView(options: BuilderMountOptions): void {
         <div class="builder-scale-controls">
           <label class="builder-scale-row" for="builder-scale-x">
             <span>Horizontal</span>
-            <input id="builder-scale-x" type="range" min="0.25" max="4" step="0.25" value="${canvasScale.x.toFixed(2)}" />
-            <span id="builder-scale-x-value">${canvasScale.x.toFixed(2)}x</span>
+            <input id="builder-scale-x" type="range" min="0" max="${CANVAS_SCALE_X_STEPS.length - 1}" step="1" value="${canvasScaleXIndexFromValue(canvasScale.x)}" />
+            <span id="builder-scale-x-value">${formatCanvasScaleX(canvasScale.x)}</span>
           </label>
           <label class="builder-scale-row" for="builder-scale-y-outer64">
             <span>Vertical Outer</span>
@@ -777,7 +803,8 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     root.style.setProperty("--builder-scale-y-core1", canvasScale.yByLayer.core1.toFixed(3));
     root.style.setProperty("--builder-grid-step-x", `${BUILDER_GRID_TILE_SIZE_X_PX}px`);
     root.style.setProperty("--builder-grid-step-y", `${BUILDER_GRID_TILE_SIZE_Y_PX}px`);
-    scaleXValueEl.textContent = `${canvasScale.x.toFixed(2)}x`;
+    scaleXEl.value = String(canvasScaleXIndexFromValue(canvasScale.x));
+    scaleXValueEl.textContent = formatCanvasScaleX(canvasScale.x);
     scaleYOuterValueEl.textContent = `${canvasScale.yByLayer.outer64.toFixed(2)}x`;
     scaleYMiddleValueEl.textContent = `${canvasScale.yByLayer.middle16.toFixed(2)}x`;
     scaleYInnerValueEl.textContent = `${canvasScale.yByLayer.inner4.toFixed(2)}x`;
@@ -905,6 +932,9 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       .slice(0, 3);
     const lines = [
       `entities=${perfCounts.expandedEntities}  stateLinks=${perfCounts.stateLinks}  expandedLinks=${perfCounts.expandedLinks}  packets=${perfCounts.packetsInFlight}`,
+      `worker queue=${simQueuedFrames.length}  ready=${simWorkerReady ? 1 : 0}  inflight=${simWorkerRequestInFlight ? 1 : 0}`,
+      `worker last batch frames=${simWorkerLastBatchFrames}  compute=${simWorkerLastBatchComputeMs.toFixed(2)}ms  roundTrip=${simWorkerLastBatchRoundTripMs.toFixed(2)}ms`,
+      `worker ema batch compute=${(simWorkerEmaBatchComputeMs ?? 0).toFixed(2)}ms  ema roundTrip=${(simWorkerEmaBatchRoundTripMs ?? 0).toFixed(2)}ms  est_saved_total=${simWorkerEstimatedSavedMsTotal.toFixed(1)}ms`,
       "",
       "Metric                      last      ema      max   n",
       ...ordered.map((k) => {
@@ -937,7 +967,30 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   }
 
   let builderTopologySig = "";
-  let builderSimulator = new TunnetSimulator({ devices: {}, links: [] } as unknown as Topology, 1337);
+  type SimWorkerFrame = {
+    prevOccupancy: Array<{ port: PortRef; packet: Packet }>;
+    currentOccupancy: Array<{ port: PortRef; packet: Packet }>;
+    stats: SimulationStats;
+    stepComputeMs: number;
+  };
+  type SimWorkerMessage =
+    | { type: "initialized"; occupancy: Array<{ port: PortRef; packet: Packet }>; stats: SimulationStats }
+    | { type: "batch"; frames: SimWorkerFrame[] }
+    | { type: "error"; message: string };
+  const SIM_WORKER_LOOKAHEAD = 10;
+  let simWorker: Worker | null = null;
+  let simWorkerReady = false;
+  let simWorkerRequestInFlight = false;
+  let simWorkerPendingPlayResume = false;
+  let simQueuedFrames: SimWorkerFrame[] = [];
+  let simWorkerRequestSentAtMs: number | null = null;
+  let simWorkerRequestCount = 0;
+  let simWorkerLastBatchFrames = 0;
+  let simWorkerLastBatchComputeMs = 0;
+  let simWorkerLastBatchRoundTripMs = 0;
+  let simWorkerEmaBatchComputeMs: number | null = null;
+  let simWorkerEmaBatchRoundTripMs: number | null = null;
+  let simWorkerEstimatedSavedMsTotal = 0;
   let simPlaying = false;
   let simAnimating = false;
   let simAnimHandle: number | null = null;
@@ -984,6 +1037,103 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     return occ.map((e) => ({ port: { ...e.port }, packet: e.packet }));
   }
 
+  function ensureSimWorker(): Worker {
+    if (simWorker) {
+      return simWorker;
+    }
+    const worker = new SimWorker();
+    worker.addEventListener("message", (ev: MessageEvent<SimWorkerMessage>) => {
+      const msg = ev.data;
+      if (!msg || typeof msg !== "object") return;
+      if (msg.type === "initialized") {
+        simWorkerReady = true;
+        simWorkerRequestInFlight = false;
+        simWorkerRequestSentAtMs = null;
+        simWorkerRequestCount = 0;
+        simQueuedFrames = [];
+        simPreviousOccupancy = [];
+        simPreviousOccupancyByPacketId = new Map();
+        simCurrentOccupancy = cloneSimOccupancy(msg.occupancy);
+        simStats = { ...msg.stats };
+        simPreviousStatsTotals = { ...msg.stats };
+        simPacketProgress = 1;
+        if (selection?.kind === "packet") {
+          const packetSel = selection;
+          const stillThere = simCurrentOccupancy.some((e) => e.packet.id === packetSel.packetId);
+          if (!stillThere) {
+            selection = null;
+            renderInspector();
+          }
+        }
+        updateBuilderSimMeta();
+        renderBuilderPacketCircles(1);
+        ensureWorkerLookahead(SIM_WORKER_LOOKAHEAD);
+        if (simWorkerPendingPlayResume) {
+          simWorkerPendingPlayResume = false;
+          simPlaying = true;
+          runOneBuilderSimTick();
+        }
+        return;
+      }
+      if (msg.type === "batch") {
+        simWorkerRequestInFlight = false;
+        const nowMs = performance.now();
+        const roundTripMs =
+          simWorkerRequestSentAtMs === null ? 0 : Math.max(0, nowMs - simWorkerRequestSentAtMs);
+        const batchComputeMs = msg.frames.reduce((sum, f) => sum + Math.max(0, f.stepComputeMs), 0);
+        simWorkerLastBatchFrames = msg.frames.length;
+        simWorkerLastBatchComputeMs = batchComputeMs;
+        simWorkerLastBatchRoundTripMs = roundTripMs;
+        const alpha = 0.18;
+        simWorkerEmaBatchComputeMs =
+          simWorkerEmaBatchComputeMs === null
+            ? batchComputeMs
+            : alpha * batchComputeMs + (1 - alpha) * simWorkerEmaBatchComputeMs;
+        simWorkerEmaBatchRoundTripMs =
+          simWorkerEmaBatchRoundTripMs === null
+            ? roundTripMs
+            : alpha * roundTripMs + (1 - alpha) * simWorkerEmaBatchRoundTripMs;
+        simWorkerEstimatedSavedMsTotal += batchComputeMs;
+        simWorkerRequestSentAtMs = null;
+        simWorkerRequestCount = 0;
+        if (msg.frames.length > 0) {
+          simQueuedFrames.push(
+            ...msg.frames.map((f) => ({
+              prevOccupancy: cloneSimOccupancy(f.prevOccupancy),
+              currentOccupancy: cloneSimOccupancy(f.currentOccupancy),
+              stats: { ...f.stats },
+              stepComputeMs: f.stepComputeMs,
+            })),
+          );
+        }
+        if (simPlaying && !simAnimating && simQueuedFrames.length > 0) {
+          runOneBuilderSimTick();
+        }
+        ensureWorkerLookahead(SIM_WORKER_LOOKAHEAD);
+        return;
+      }
+      if (msg.type === "error") {
+        simWorkerRequestInFlight = false;
+        simWorkerReady = false;
+        simPlaying = false;
+        simAnimating = false;
+        simMetaEl.innerHTML = `<div class="builder-inspector-note">Simulation worker error: ${msg.message}</div>`;
+      }
+    });
+    simWorker = worker;
+    return worker;
+  }
+
+  function ensureWorkerLookahead(target: number): void {
+    if (!simWorkerReady || !simWorker || simWorkerRequestInFlight) return;
+    const missing = target - simQueuedFrames.length;
+    if (missing <= 0) return;
+    simWorkerRequestInFlight = true;
+    simWorkerRequestCount = Math.max(1, missing);
+    simWorkerRequestSentAtMs = performance.now();
+    simWorker.postMessage({ type: "precompute", count: simWorkerRequestCount });
+  }
+
   function rebuildBuilderSimEndpointIndex(topology: Topology): void {
     builderEndpointIdByAddress.clear();
     for (const dev of Object.values(topology.devices)) {
@@ -1025,7 +1175,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       <div class="stats-subtitle stats-subtitle-gap">Simulation</div>
       <div class="stats-row">
         <div class="stat-pill"><span>Tick</span><strong>${simStats.tick}</strong></div>
-        <div class="stat-pill"><span>In-flight</span><strong>${builderSimulator.getPortOccupancy().length}</strong></div>
+        <div class="stat-pill"><span>In-flight</span><strong>${simCurrentOccupancy.length}</strong></div>
         <div class="stat-pill"><span>Emitted</span><strong>${simStats.emitted}</strong></div>
         <div class="stat-pill"><span>Delivered</span><strong>${simStats.delivered}</strong></div>
         <div class="stat-pill"><span>Dropped</span><strong>${simStats.dropped}</strong></div>
@@ -1040,7 +1190,8 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     `;
   }
 
-  function resetBuilderSimulation(): void {
+  function resetBuilderSimulation(resumeIfWasPlaying = false): void {
+    const shouldResume = resumeIfWasPlaying && simPlaying;
     if (simAnimHandle !== null) {
       cancelAnimationFrame(simAnimHandle);
       simAnimHandle = null;
@@ -1051,8 +1202,19 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     const topo = payload.topology as unknown as Topology;
     builderTopologySig = JSON.stringify(payload.topology);
     rebuildBuilderSimTopologyCache(topo);
-    builderSimulator = new TunnetSimulator(topo, 1337);
-    builderSimulator.setSendRateMultiplier(sendRateMultiplierFromExponent(simSendRateExponent));
+    const worker = ensureSimWorker();
+    simWorkerReady = false;
+    simWorkerRequestInFlight = false;
+    simWorkerPendingPlayResume = shouldResume;
+    simWorkerRequestSentAtMs = null;
+    simWorkerRequestCount = 0;
+    simWorkerLastBatchFrames = 0;
+    simWorkerLastBatchComputeMs = 0;
+    simWorkerLastBatchRoundTripMs = 0;
+    simWorkerEmaBatchComputeMs = null;
+    simWorkerEmaBatchRoundTripMs = null;
+    simWorkerEstimatedSavedMsTotal = 0;
+    simQueuedFrames = [];
     simStats = {
       tick: 0,
       emitted: 0,
@@ -1074,7 +1236,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     rebuildBuilderSimEndpointIndex(topo);
     simPreviousOccupancy = [];
     simPreviousOccupancyByPacketId = new Map();
-    simCurrentOccupancy = cloneSimOccupancy(builderSimulator.getPortOccupancy());
+    simCurrentOccupancy = [];
     simPacketProgress = 1;
     if (selection?.kind === "packet") {
       selection = null;
@@ -1083,25 +1245,61 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     packetOverlayEl.innerHTML = "";
     updateBuilderSimMeta();
     scheduleWireOverlayRender();
+    worker.postMessage({
+      type: "init",
+      topology: topo,
+      seed: 1337,
+      sendRateMultiplier: sendRateMultiplierFromExponent(simSendRateExponent),
+    });
   }
 
   function initOrRefreshBuilderSimulatorIfTopologyChanged(): void {
-    const sig = JSON.stringify(compileBuilderPayload(state).topology);
+    const payload = compileBuilderPayload(state);
+    const sig = JSON.stringify(payload.topology);
     if (sig === builderTopologySig) return;
-    resetBuilderSimulation();
+    builderTopologySig = sig;
+    const topo = payload.topology as unknown as Topology;
+    rebuildBuilderSimTopologyCache(topo);
+    rebuildBuilderSimEndpointIndex(topo);
+
+    const worker = ensureSimWorker();
+    const shouldResume = simPlaying;
+    if (simAnimHandle !== null) {
+      cancelAnimationFrame(simAnimHandle);
+      simAnimHandle = null;
+    }
+    simAnimating = false;
+    simPlaying = false;
+    simWorkerPendingPlayResume = shouldResume;
+    simWorkerReady = false;
+    simWorkerRequestInFlight = false;
+    simWorkerRequestSentAtMs = null;
+    simWorkerRequestCount = 0;
+    simQueuedFrames = [];
+    worker.postMessage({ type: "update_topology", topology: topo });
   }
 
   function runOneBuilderSimTick(): void {
     if (simAnimating) return;
+    if (!simWorkerReady) {
+      simWorkerPendingPlayResume = simPlaying;
+      ensureWorkerLookahead(1);
+      return;
+    }
+    if (simQueuedFrames.length === 0) {
+      ensureWorkerLookahead(1);
+      simWorkerPendingPlayResume = simPlaying;
+      return;
+    }
     const tickWallStartMs = performance.now();
     simAnimating = true;
-    simPreviousOccupancy = cloneSimOccupancy(simCurrentOccupancy);
+    const frame = simQueuedFrames.shift()!;
+    ensureWorkerLookahead(SIM_WORKER_LOOKAHEAD);
+    simPreviousOccupancy = frame.prevOccupancy;
     simPreviousOccupancyByPacketId = simOccupancyByPacketId(simPreviousOccupancy);
-    const stepStartMs = performance.now();
-    const snapshot = builderSimulator.step();
-    const emittedTick = snapshot.stats.emitted - simPreviousStatsTotals.emitted;
-    const deliveredTickCount = snapshot.stats.delivered - simPreviousStatsTotals.delivered;
-    const droppedTickCount = snapshot.stats.dropped - simPreviousStatsTotals.dropped;
+    const emittedTick = frame.stats.emitted - simPreviousStatsTotals.emitted;
+    const deliveredTickCount = frame.stats.delivered - simPreviousStatsTotals.delivered;
+    const droppedTickCount = frame.stats.dropped - simPreviousStatsTotals.dropped;
     simDeliveredPerTick = deliveredTickCount;
     simDeliveredHistory.push(deliveredTickCount);
     if (simDeliveredHistory.length > SIM_DELIVERED_AVG_WINDOW) {
@@ -1113,16 +1311,16 @@ export function mountBuilderView(options: BuilderMountOptions): void {
         : null;
     simDropPctTick = emittedTick > 0 ? (droppedTickCount / emittedTick) * 100 : null;
     simDropPctCumulative =
-      snapshot.stats.emitted > 0 ? (snapshot.stats.dropped / snapshot.stats.emitted) * 100 : null;
-    simPreviousStatsTotals = { ...snapshot.stats };
-    const stepMs = performance.now() - stepStartMs;
+      frame.stats.emitted > 0 ? (frame.stats.dropped / frame.stats.emitted) * 100 : null;
+    simPreviousStatsTotals = { ...frame.stats };
+    const stepMs = frame.stepComputeMs;
     simLastStepComputeMs = stepMs;
     simEmaStepComputeMs =
       simEmaStepComputeMs === null
         ? stepMs
         : SIM_STEP_COMPUTE_EMA_ALPHA * stepMs + (1 - SIM_STEP_COMPUTE_EMA_ALPHA) * simEmaStepComputeMs;
-    simStats = snapshot.stats;
-    simCurrentOccupancy = cloneSimOccupancy(builderSimulator.getPortOccupancy());
+    simStats = frame.stats;
+    simCurrentOccupancy = frame.currentOccupancy;
     if (selection && selection.kind === "packet") {
       const packetSel = selection;
       const stillThere = simCurrentOccupancy.some((e) => e.packet.id === packetSel.packetId);
@@ -1175,6 +1373,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       renderBuilderPacketCircles(1);
     }
     if (simPlaying && !simAnimating) {
+      ensureWorkerLookahead(SIM_WORKER_LOOKAHEAD);
       runOneBuilderSimTick();
     }
     updateBuilderSimMeta();
@@ -3900,7 +4099,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
 
   scaleXEl.addEventListener("input", () => {
     const parsed = Number(scaleXEl.value);
-    canvasScale.x = clampCanvasScaleX(Number.isFinite(parsed) ? parsed : 1);
+    canvasScale.x = canvasScaleXValueFromIndex(Number.isFinite(parsed) ? parsed : canvasScaleXIndexFromValue(1));
     applyCanvasScale();
   });
   scaleXEl.addEventListener("change", () => {
@@ -3969,7 +4168,12 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     if (!Number.isFinite(simSendRateExponent)) {
       simSendRateExponent = SEND_RATE_EXP_DEFAULT;
     }
-    builderSimulator.setSendRateMultiplier(sendRateMultiplierFromExponent(simSendRateExponent));
+    if (simWorker) {
+      simWorker.postMessage({
+        type: "set_send_rate",
+        sendRateMultiplier: sendRateMultiplierFromExponent(simSendRateExponent),
+      });
+    }
     syncBuilderSimSliderLabels();
     updateBuilderSimMeta();
   };
