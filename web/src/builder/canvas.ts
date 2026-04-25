@@ -1669,7 +1669,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   function setBuilderSimPlaying(enabled: boolean): void {
     simPlaying = enabled;
     simPlayPauseBtn.textContent = simPlaying ? "Pause" : "Play";
-    if (!simPlaying && (simAnimHandle !== null || simTickTimeoutHandle !== null)) {
+    if (!simPlaying && !simAnimating && (simAnimHandle !== null || simTickTimeoutHandle !== null)) {
       cancelBuilderSimTickTimers();
       simNextTickDeadlineMs = null;
       simAnimating = false;
@@ -4802,9 +4802,13 @@ export function mountBuilderView(options: BuilderMountOptions): void {
 
   simPlayPauseBtn.addEventListener("click", () => setBuilderSimPlaying(!simPlaying));
   simStepBtn.addEventListener("click", () => {
-    if (!simPlaying) {
-      runOneBuilderSimTick();
+    if (simPlaying) {
+      simPlaying = false;
+      simPlayPauseBtn.textContent = "Play";
+      updateBuilderSimMeta();
+      return;
     }
+    runOneBuilderSimTick();
   });
   simResetBtn.addEventListener("click", () => resetBuilderSimulation());
   simTogglePacketIpsBtn.addEventListener("click", () => setPacketIpLabelsVisible(!builderPageState.showPacketIps));

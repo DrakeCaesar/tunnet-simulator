@@ -152,10 +152,6 @@ function decrementTtl(packet: Packet): Packet | null {
   return next;
 }
 
-function randomIntInclusive(min: number, max: number, rnd: () => number): number {
-  return Math.floor(rnd() * (max - min + 1)) + min;
-}
-
 function chooseOne<T>(items: readonly T[], rnd: () => number): T {
   const index = Math.floor(rnd() * items.length);
   return items[index];
@@ -215,6 +211,7 @@ export class TunnetSimulator {
   private readonly topology: Topology;
   private readonly adjacency: Map<string, PortRef>;
   private readonly currentPortPackets = new Map<string, Packet>();
+  private readonly pendingEndpointReplies = new Map<string, Packet>();
   private tick = 0;
   private packetIdCounter = 1;
   private rndState: number;
@@ -275,26 +272,29 @@ export class TunnetSimulator {
   }
 
   private processEndpoint(device: EndpointDevice, ctx: StepContext): void {
+    const pendingReply = this.pendingEndpointReplies.get(device.id);
+    if (pendingReply) {
+      this.pendingEndpointReplies.delete(device.id);
+      this.enqueueOutbound(ctx, device.id, 0, pendingReply);
+      ctx.stats.emitted += 1;
+    }
     const inbound = this.packetAt({ deviceId: device.id, port: 0 });
     let receivedAddressedThisTick = false;
-    let repliedThisTick = false;
+    const repliedThisTick = pendingReply !== undefined;
     if (inbound) {
       if (inbound.dest === device.address) {
         receivedAddressedThisTick = true;
         ctx.stats.delivered += 1;
         const replyTo = new Set(device.generator?.replyToSources ?? []);
         if (replyTo.has(inbound.src)) {
-          const reply: Packet = {
+          this.pendingEndpointReplies.set(device.id, {
             id: ctx.packetIdCounter++,
             src: device.address,
             dest: inbound.src,
             ttl: device.generator?.ttl,
             sensitive: false,
             subject: undefined,
-          };
-          this.enqueueOutbound(ctx, device.id, 0, reply);
-          ctx.stats.emitted += 1;
-          repliedThisTick = true;
+          });
         }
       } else if (inbound.sensitive) {
         ctx.stats.dropped += 1;
@@ -311,9 +311,9 @@ export class TunnetSimulator {
     }
 
     if (!device.generator) return;
-    if (ctx.tick < device.state.nextSendTick) return;
     if (receivedAddressedThisTick) return;
     if (repliedThisTick) return;
+    if (ctx.rnd() > this.sendRateMultiplier) return;
     const destinations = device.generator.destinations.filter((d) => d !== device.address);
     if (destinations.length === 0) return;
 
@@ -327,13 +327,6 @@ export class TunnetSimulator {
     };
     this.enqueueOutbound(ctx, device.id, 0, packet);
     ctx.stats.emitted += 1;
-    const delay = randomIntInclusive(
-      device.generator.minIntervalTicks,
-      device.generator.maxIntervalTicks,
-      ctx.rnd,
-    );
-    const adjustedDelay = Math.max(1, Math.round(delay / this.sendRateMultiplier));
-    device.state.nextSendTick = ctx.tick + adjustedDelay;
   }
 
   private processRelay(device: RelayDevice, ctx: StepContext): void {
@@ -461,7 +454,7 @@ export class TunnetSimulator {
   }
 
   setSendRateMultiplier(multiplier: number): void {
-    if (!Number.isFinite(multiplier) || multiplier <= 0) {
+    if (!Number.isFinite(multiplier) || multiplier <= 0 || multiplier > 1) {
       return;
     }
     this.sendRateMultiplier = multiplier;
@@ -514,6 +507,7 @@ export class TunnetSimulator {
     this.stats.collisions = Number.isFinite(state.stats.collisions) ? Math.max(0, state.stats.collisions) : 0;
 
     this.currentPortPackets.clear();
+    this.pendingEndpointReplies.clear();
     for (const e of state.occupancy) {
       this.currentPortPackets.set(makePortKey(e.port), { ...e.packet });
     }
