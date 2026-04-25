@@ -514,7 +514,13 @@ type BuilderPerfKey =
   | "wire.total"
   | "wire.expandLinks"
   | "wire.portResolve"
-  | "wire.lineBuild";
+  | "wire.lineBuild"
+  | "packet.total"
+  | "packet.overlayResize"
+  | "packet.compute"
+  | "packet.polyline"
+  | "packet.interpolate"
+  | "packet.domCommit";
 
 type BuilderPerfStat = { lastMs: number; emaMs: number; maxMs: number; samples: number };
 
@@ -739,7 +745,8 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   }
   const perfStats = new Map<BuilderPerfKey, BuilderPerfStat>();
   const PERF_EMA_ALPHA = 0.18;
-  let perfCounts = { expandedEntities: 0, stateLinks: 0, expandedLinks: 0 };
+  let perfCounts = { expandedEntities: 0, stateLinks: 0, expandedLinks: 0, packetsInFlight: 0 };
+  let nextPerfPanelAtMs = 0;
   let hideEntityPropertyLabels = loadHidePropertyLabels();
 
   function persistCanvasScale(): void {
@@ -858,9 +865,16 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       "wire.expandLinks",
       "wire.portResolve",
       "wire.lineBuild",
+      "packet.total",
+      "packet.overlayResize",
+      "packet.compute",
+      "packet.polyline",
+      "packet.interpolate",
+      "packet.domCommit",
     ];
     const totalCanvas = Math.max(0.0001, get("canvas.total").lastMs);
     const totalWire = Math.max(0.0001, get("wire.total").lastMs);
+    const totalPacket = Math.max(0.0001, get("packet.total").lastMs);
     const topCanvas = ([
       "canvas.expand",
       "canvas.bucketSort",
@@ -879,8 +893,18 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       .map((k) => ({ k, v: get(k).lastMs }))
       .sort((a, b) => b.v - a.v)
       .slice(0, 3);
+    const topPacket = ([
+      "packet.overlayResize",
+      "packet.compute",
+      "packet.polyline",
+      "packet.interpolate",
+      "packet.domCommit",
+    ] as BuilderPerfKey[])
+      .map((k) => ({ k, v: get(k).lastMs }))
+      .sort((a, b) => b.v - a.v)
+      .slice(0, 3);
     const lines = [
-      `entities=${perfCounts.expandedEntities}  stateLinks=${perfCounts.stateLinks}  expandedLinks=${perfCounts.expandedLinks}`,
+      `entities=${perfCounts.expandedEntities}  stateLinks=${perfCounts.stateLinks}  expandedLinks=${perfCounts.expandedLinks}  packets=${perfCounts.packetsInFlight}`,
       "",
       "Metric                      last      ema      max   n",
       ...ordered.map((k) => {
@@ -894,8 +918,17 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       "",
       `Top wire contributors (last=${totalWire.toFixed(2)}ms):`,
       ...topWire.map((x) => `  ${x.k.padEnd(22, " ")} ${(x.v / totalWire * 100).toFixed(1).padStart(5)}% (${x.v.toFixed(2)}ms)`),
+      "",
+      `Top packet contributors (last=${totalPacket.toFixed(2)}ms):`,
+      ...topPacket.map((x) => `  ${x.k.padEnd(22, " ")} ${(x.v / totalPacket * 100).toFixed(1).padStart(5)}% (${x.v.toFixed(2)}ms)`),
     ];
     perfEl.textContent = lines.join("\n");
+  }
+
+  function maybeRenderPerfPanel(nowMs = performance.now()): void {
+    if (nowMs < nextPerfPanelAtMs) return;
+    nextPerfPanelAtMs = nowMs + 200;
+    renderPerfPanel();
   }
 
   function persist(): void {
@@ -945,6 +978,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   const builderEndpointIdByAddress = new Map<string, string>();
   let builderSimDevices: Record<string, Device> = {};
   let builderSimAdj: Map<string, PortRef> = new Map();
+  const packetRouteTemplateByKey = new Map<string, PortRef[] | null>();
 
   function cloneSimOccupancy(occ: Array<{ port: PortRef; packet: Packet }>): Array<{ port: PortRef; packet: Packet }> {
     return occ.map((e) => ({ port: { ...e.port }, packet: e.packet }));
@@ -962,6 +996,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   function rebuildBuilderSimTopologyCache(top: Topology): void {
     builderSimDevices = top.devices;
     builderSimAdj = buildPortAdjacency(top);
+    packetRouteTemplateByKey.clear();
   }
 
   function syncBuilderSimSliderLabels(): void {
@@ -1699,25 +1734,41 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   }
 
   type SimXY = { x: number; y: number };
+  type SimPreparedPolyline = {
+    points: SimXY[];
+    segLens: number[];
+    totalLen: number;
+  };
 
-  function simPointOnPolylineAt(pts: SimXY[], t: number): SimXY | null {
+  function preparePolyline(points: SimXY[]): SimPreparedPolyline | null {
+    if (points.length === 0) return null;
+    if (points.length === 1) {
+      return { points, segLens: [], totalLen: 0 };
+    }
+    const segLens: number[] = new Array(Math.max(0, points.length - 1));
+    let totalLen = 0;
+    for (let i = 0; i < points.length - 1; i += 1) {
+      const p = points[i]!;
+      const q = points[i + 1]!;
+      const len = Math.hypot(q.x - p.x, q.y - p.y);
+      segLens[i] = len;
+      totalLen += len;
+    }
+    return { points, segLens, totalLen };
+  }
+
+  function simPointOnPreparedPolylineAt(line: SimPreparedPolyline, t: number): SimXY | null {
+    const pts = line.points;
     if (pts.length === 0) return null;
     if (pts.length === 1) {
       return pts[0] ?? null;
     }
-    const segLens: number[] = [];
-    for (let i = 0; i < pts.length - 1; i += 1) {
-      const p = pts[i]!;
-      const q = pts[i + 1]!;
-      segLens.push(Math.hypot(q.x - p.x, q.y - p.y));
-    }
-    const total = segLens.reduce((a, b) => a + b, 0);
-    if (total < 1e-6) {
+    if (line.totalLen < 1e-6) {
       return pts[0] ?? null;
     }
-    let d = t * total;
-    for (let i = 0; i < segLens.length; i += 1) {
-      const L = segLens[i] ?? 0;
+    let d = t * line.totalLen;
+    for (let i = 0; i < line.segLens.length; i += 1) {
+      const L = line.segLens[i] ?? 0;
       if (d <= L) {
         const u = d / (L < 1e-9 ? 1 : L);
         const p0 = pts[i]!;
@@ -1729,21 +1780,16 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     return pts[pts.length - 1] ?? null;
   }
 
-  function buildPacketAnimationPolyline(
-    from: PortRef,
-    to: PortRef,
-    centerCache: Map<string, SimXY | null>,
-  ): SimXY[] | null {
-    const pa = builderPortCenterInOverlayCoords(from, centerCache);
-    const pb = builderPortCenterInOverlayCoords(to, centerCache);
-    if (!pa || !pb) {
-      return null;
-    }
+  function packetRouteKey(from: PortRef, to: PortRef): string {
+    return `${from.deviceId}:${from.port}>${to.deviceId}:${to.port}`;
+  }
+
+  function buildPacketRouteTemplate(from: PortRef, to: PortRef): PortRef[] | null {
     if (from.deviceId === to.deviceId && from.port === to.port) {
-      return [pa];
+      return [{ ...from }];
     }
     if (Object.keys(builderSimDevices).length === 0) {
-      return [pa, pb];
+      return [{ ...from }, { ...to }];
     }
     const dFrom = builderSimDevices[from.deviceId];
     if (dFrom && dFrom.id !== to.deviceId) {
@@ -1751,38 +1797,49 @@ export function mountBuilderView(options: BuilderMountOptions): void {
         const egress = getHubEgressPort(dFrom.rotation, from.port);
         const nbr = builderSimAdj.get(portKey({ deviceId: from.deviceId, port: egress }));
         if (nbr && nbr.deviceId === to.deviceId && nbr.port === to.port) {
-          const pm = builderPortCenterInOverlayCoords({ deviceId: from.deviceId, port: egress }, centerCache);
-          if (pm) {
-            return [pa, pm, pb];
-          }
+          return [{ ...from }, { deviceId: from.deviceId, port: egress }, { ...to }];
         }
       } else if (dFrom.type === "relay") {
         const outPort: 0 | 1 = from.port === 0 ? 1 : 0;
         const nbr = builderSimAdj.get(portKey({ deviceId: from.deviceId, port: outPort }));
         if (nbr && nbr.deviceId === to.deviceId && nbr.port === to.port) {
-          const pm = builderPortCenterInOverlayCoords({ deviceId: from.deviceId, port: outPort }, centerCache);
-          if (pm) {
-            return [pa, pm, pb];
-          }
+          return [{ ...from }, { deviceId: from.deviceId, port: outPort }, { ...to }];
         }
       } else if (dFrom.type === "filter") {
         for (const outPort of [0, 1] as const) {
           const nbr = builderSimAdj.get(portKey({ deviceId: from.deviceId, port: outPort }));
-          if (!nbr || nbr.deviceId !== to.deviceId || nbr.port !== to.port) {
-            continue;
-          }
+          if (!nbr || nbr.deviceId !== to.deviceId || nbr.port !== to.port) continue;
           if (outPort === from.port) {
-            return [pa, pb];
+            return [{ ...from }, { ...to }];
           }
-          const pm = builderPortCenterInOverlayCoords({ deviceId: from.deviceId, port: outPort }, centerCache);
-          if (pm) {
-            return [pa, pm, pb];
-          }
-          return [pa, pb];
+          return [{ ...from }, { deviceId: from.deviceId, port: outPort }, { ...to }];
         }
       }
     }
-    return [pa, pb];
+    return [{ ...from }, { ...to }];
+  }
+
+  function buildPacketAnimationPolylinePrepared(
+    from: PortRef,
+    to: PortRef,
+    centerCache: Map<string, SimXY | null>,
+  ): SimPreparedPolyline | null {
+    const key = packetRouteKey(from, to);
+    let template = packetRouteTemplateByKey.get(key);
+    if (template === undefined) {
+      template = buildPacketRouteTemplate(from, to);
+      packetRouteTemplateByKey.set(key, template);
+    }
+    if (!template || template.length === 0) return null;
+    const points: SimXY[] = [];
+    for (const ref of template) {
+      const c = builderPortCenterInOverlayCoords(ref, centerCache);
+      if (!c) {
+        return null;
+      }
+      points.push(c);
+    }
+    return preparePolyline(points);
   }
 
   function syncBuilderPacketOverlayDimensions(overlayWidth: number, overlayHeight: number): void {
@@ -1795,18 +1852,25 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   }
 
   function renderBuilderPacketCircles(t: number): void {
+    const t0 = performance.now();
     const wrap = packetOverlayEl.parentElement;
     if (!wrap) return;
+    const tResize0 = performance.now();
     const contentWidth = Math.max(canvasEl.scrollWidth, canvasEl.clientWidth);
     const contentHeight = Math.max(canvasEl.scrollHeight, canvasEl.clientHeight);
     const overlayWidth = Math.max(wrap.clientWidth, contentWidth);
     const overlayHeight = Math.max(wrap.clientHeight, contentHeight);
     syncBuilderPacketOverlayDimensions(overlayWidth, overlayHeight);
+    const tResize1 = performance.now();
 
     const prevMap = simPreviousOccupancyByPacketId;
     const centerCache = new Map<string, SimXY | null>();
+    const preparedRouteByKey = new Map<string, SimPreparedPolyline | null>();
     const parts: string[] = [];
     const dotR = 5;
+    let polylineMs = 0;
+    let interpolateMs = 0;
+    const tCompute0 = performance.now();
     for (const { port, packet } of simCurrentOccupancy) {
       const fromEntry = prevMap.get(packet.id);
       const spawnId = builderEndpointIdByAddress.get(packet.src);
@@ -1824,20 +1888,27 @@ export function mountBuilderView(options: BuilderMountOptions): void {
         x = pa.x + o.x;
         y = pa.y + o.y;
       } else {
-        const line = buildPacketAnimationPolyline(fromRef, toRef, centerCache);
-        if (!line || line.length < 2) {
+        const routeKey = packetRouteKey(fromRef, toRef);
+        const tPoly0 = performance.now();
+        let line = preparedRouteByKey.get(routeKey);
+        if (line === undefined) {
+          line = buildPacketAnimationPolylinePrepared(fromRef, toRef, centerCache);
+          preparedRouteByKey.set(routeKey, line);
+        }
+        polylineMs += performance.now() - tPoly0;
+        if (!line || line.points.length < 2) {
           const o = simRestingPortOffset(port.port);
           x = pa.x + o.x;
           y = pa.y + o.y;
         } else {
-          const d0 = line[0]!;
-          const d1 = line[line.length - 1]!;
-          if (Math.hypot(d1.x - d0.x, d1.y - d0.y) < 1) {
+          if (line.totalLen < 1) {
             const o = simRestingPortOffset(port.port);
             x = pa.x + o.x;
             y = pa.y + o.y;
           } else {
-            const p = simPointOnPolylineAt(line, t);
+            const tInterp0 = performance.now();
+            const p = simPointOnPreparedPolylineAt(line, t);
+            interpolateMs += performance.now() - tInterp0;
             if (p) {
               x = p.x;
               y = p.y;
@@ -1859,7 +1930,18 @@ export function mountBuilderView(options: BuilderMountOptions): void {
         `<circle class="builder-packet-dot${selClass}" cx="${x.toFixed(2)}" cy="${y.toFixed(2)}" r="${r}" fill="${fill}" stroke="${selected ? "#f9e2af" : stroke}" stroke-width="${sw}" data-packet-id="${packet.id}" />`,
       );
     }
+    const tCompute1 = performance.now();
+    const tCommit0 = performance.now();
     packetOverlayEl.innerHTML = parts.length ? `<g>${parts.join("")}</g>` : "";
+    const tCommit1 = performance.now();
+    perfCounts.packetsInFlight = simCurrentOccupancy.length;
+    recordPerf("packet.overlayResize", tResize1 - tResize0);
+    recordPerf("packet.compute", tCompute1 - tCompute0);
+    recordPerf("packet.polyline", polylineMs);
+    recordPerf("packet.interpolate", interpolateMs);
+    recordPerf("packet.domCommit", tCommit1 - tCommit0);
+    recordPerf("packet.total", tCommit1 - t0);
+    maybeRenderPerfPanel(tCommit1);
   }
 
   function setEntityDomPosition(rootId: string, x: number, y: number): void {
