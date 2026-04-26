@@ -1537,6 +1537,14 @@ textarea {
   align-items: stretch;
 }
 
+.builder-row-endpoint-addr {
+  align-items: baseline;
+}
+
+.builder-row-endpoint-addr .builder-row-label {
+  top: 0;
+}
+
 .builder-row-collision--hidden {
   visibility: hidden;
   pointer-events: none;

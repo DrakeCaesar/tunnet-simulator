@@ -1859,6 +1859,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     togglePropLabelsBtn.textContent = hideEntityPropertyLabels
       ? "Show property labels"
       : "Hide property labels";
+    scheduleWireOverlayRender();
   }
 
   function applySelectionToCanvas(): void {
