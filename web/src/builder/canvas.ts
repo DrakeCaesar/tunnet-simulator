@@ -1318,7 +1318,8 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   let simPreparedPacketRenderDirty = true;
   let packetCircleGroupEl: SVGGElement | null = null;
   let packetSelectedGuideEl: SVGLineElement | null = null;
-  const packetPortCenterCache = new Map<string, SimXY | null>();
+  type SimPortPoint = SimXY & { clipped: boolean };
+  const packetPortCenterCache = new Map<string, SimPortPoint | null>();
   const packetPreparedRouteByKey = new Map<string, SimPreparedPolyline | null>();
   const packetCirclePool: Array<{
     group: SVGGElement;
@@ -2340,8 +2341,8 @@ export function mountBuilderView(options: BuilderMountOptions): void {
 
   function builderPortCenterInOverlayCoords(
     ref: PortRef,
-    cache?: Map<string, { x: number; y: number } | null>,
-  ): { x: number; y: number } | null {
+    cache?: Map<string, SimPortPoint | null>,
+  ): SimPortPoint | null {
     const key = portKey(ref);
     if (cache?.has(key)) {
       return cache.get(key) ?? null;
@@ -2358,9 +2359,26 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     }
     const wrapRect = wrap.getBoundingClientRect();
     const r = el.getBoundingClientRect();
+    let clientX = r.left + r.width / 2;
+    let clientY = r.top + r.height / 2;
+    let clipped = false;
+    const viewport = el.closest<HTMLElement>(".builder-segment-entities");
+    if (viewport) {
+      const viewportRect = viewport.getBoundingClientRect();
+      if (viewportRect.width <= 0 || viewportRect.height <= 0) {
+        cache?.set(key, null);
+        return null;
+      }
+      const clampedX = Math.max(viewportRect.left, Math.min(viewportRect.right, clientX));
+      const clampedY = Math.max(viewportRect.top, Math.min(viewportRect.bottom, clientY));
+      clipped = clampedX !== clientX || clampedY !== clientY;
+      clientX = clampedX;
+      clientY = clampedY;
+    }
     const center = {
-      x: r.left + r.width / 2 - wrapRect.left + wrap.scrollLeft,
-      y: r.top + r.height / 2 - wrapRect.top + wrap.scrollTop,
+      x: clientX - wrapRect.left + wrap.scrollLeft,
+      y: clientY - wrapRect.top + wrap.scrollTop,
+      clipped,
     };
     cache?.set(key, center);
     return center;
@@ -2474,7 +2492,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   function buildPacketAnimationPolylinePrepared(
     from: PortRef,
     to: PortRef,
-    centerCache: Map<string, SimXY | null>,
+    centerCache: Map<string, SimPortPoint | null>,
   ): SimPreparedPolyline | null {
     const key = packetRouteKey(from, to);
     let template = packetRouteTemplateByKey.get(key);
@@ -2693,6 +2711,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       const pa = builderPortCenterInOverlayCoords(fromRef, centerCache) ?? builderPortCenterInOverlayCoords(toRef, centerCache);
       const pb = builderPortCenterInOverlayCoords(toRef, centerCache);
       if (!pa || !pb) continue;
+      if (pa.clipped && pb.clipped) continue;
       const pFinal = finalDestRef ? builderPortCenterInOverlayCoords(finalDestRef, centerCache) : null;
 
       const o = simRestingPortOffset(port.port);
