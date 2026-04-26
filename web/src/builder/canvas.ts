@@ -36,9 +36,7 @@ import {
 } from "./clone-engine";
 import {
   clearBuilderLayoutSlot,
-  exportBuilderStateText,
   exportBuilderStateUrlToken,
-  importBuilderStateText,
   importBuilderStateUrlToken,
   listBuilderLayoutSlots,
   loadBuilderState,
@@ -809,8 +807,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
           ${panelToggle("actions", "Actions")}
           <div id="builder-panel-actions-body" class="builder-panel-section-body">
             <div class="builder-actions">
-              <button id="builder-import" type="button">Import text</button>
-              <button id="builder-export" type="button">Export text</button>
+              <button id="builder-import" type="button">Import URL</button>
               <button id="builder-toggle-prop-labels" type="button">Hide property labels</button>
             </div>
             <div class="builder-layout-slots-block">
@@ -916,7 +913,6 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   const scaleYInnerValueEl = root.querySelector<HTMLSpanElement>("#builder-scale-y-inner4-value")!;
   const scaleYCoreValueEl = root.querySelector<HTMLSpanElement>("#builder-scale-y-core1-value")!;
   const togglePropLabelsBtn = root.querySelector<HTMLButtonElement>("#builder-toggle-prop-labels")!;
-  const exportBtn = root.querySelector<HTMLButtonElement>("#builder-export")!;
   const importBtn = root.querySelector<HTMLButtonElement>("#builder-import")!;
   const layoutSlotsEl = root.querySelector<HTMLDivElement>("#builder-layout-slots")!;
   const simPlayPauseBtn = root.querySelector<HTMLButtonElement>("#builder-sim-play-pause")!;
@@ -962,6 +958,17 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     const url = new URL(window.location.href);
     url.searchParams.set("layout", token);
     return url.toString();
+  }
+
+  function layoutTokenFromInput(input: string): string | null {
+    const trimmed = input.trim();
+    if (!trimmed) return null;
+    try {
+      const parsed = new URL(trimmed);
+      return parsed.searchParams.get("layout");
+    } catch {
+      return trimmed;
+    }
   }
 
   async function copyLayoutUrlForState(layoutState: BuilderState): Promise<void> {
@@ -4986,21 +4993,28 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     persistHidePropertyLabels();
   });
 
-  exportBtn.addEventListener("click", async () => {
-    const text = await exportBuilderStateText(state);
-    await navigator.clipboard.writeText(text);
-    alert("Tunnet Simulator state copied to clipboard.");
-  });
-
   importBtn.addEventListener("click", async () => {
-    const text = window.prompt("Paste Tunnet Simulator state:");
+    const text = window.prompt("Paste loadout URL or layout token:");
     if (!text) return;
-    const parsed = await importBuilderStateText(text);
-    if (!parsed) {
-      alert("Invalid Tunnet Simulator state.");
+    const token = layoutTokenFromInput(text);
+    if (!token) {
+      alert("Invalid layout URL/token.");
       return;
     }
-    applyLoadedBuilderState(parsed, true);
+    const parsed = await importBuilderStateUrlToken(token);
+    if (!parsed) {
+      alert("Invalid layout URL/token.");
+      return;
+    }
+    const nextUrl = new URL(window.location.href);
+    nextUrl.searchParams.set("layout", token);
+    window.history.replaceState(null, "", nextUrl.toString());
+    urlEmbeddedLayoutState = parsed;
+    urlEmbeddedLayoutToken = token;
+    pendingClearLayoutSlotIndex = null;
+    pendingSaveCopyLayoutSlotIndex = null;
+    activeLayoutTarget = { kind: "url" };
+    applyLoadedBuilderState(parsed, false);
   });
 
   layoutSlotsEl.addEventListener("click", async (ev) => {
