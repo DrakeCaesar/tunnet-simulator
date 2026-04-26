@@ -196,28 +196,6 @@ function isSlottedInnerOuterLayerPair(from: BuilderEntityRoot, to: BuilderEntity
   );
 }
 
-/**
- * Slotted link between two device roots. Mirrored instance-key sets always coincide on the coarse
- * side, so "overlap" is not used for one-wire: only an identical template (same from/to/ports/slot) replaces.
- */
-function isSlottedCrossEntityLink(l: BuilderLinkRoot): boolean {
-  return (
-    l.crossLayerBlockSlot !== undefined &&
-    l.fromEntityId !== l.toEntityId &&
-    l.sameLayerSegmentDelta === undefined
-  );
-}
-
-function slottedCrossEntityExactTemplateDuplicate(a: BuilderLinkRoot, b: BuilderLinkRoot): boolean {
-  return (
-    a.crossLayerBlockSlot === b.crossLayerBlockSlot &&
-    a.fromEntityId === b.fromEntityId &&
-    a.toEntityId === b.toEntityId &&
-    a.fromPort === b.fromPort &&
-    a.toPort === b.toPort
-  );
-}
-
 /** For UI: slotted inner↔outer 0.0.3. void, including links saved before the void flag. */
 export function linkTreatedAsInnerOuterVoidBand(
   l: BuilderLinkRoot,
@@ -515,6 +493,10 @@ function instancePortKey(entityId: string, segmentIndex: number, port: number): 
   return `${entityId}@${segmentIndex}#${port}`;
 }
 
+function expandedInstanceEntityId(root: BuilderEntityRoot, segmentIndex: number): string {
+  return isStaticOuterLeafEndpoint(root) ? outerLeafEntityId(segmentIndex) : root.id;
+}
+
 function isMiddleVoidSegment(segmentIndex: number): boolean {
   return segmentIndex === 3;
 }
@@ -524,9 +506,6 @@ function isMiddleVoidSegment(segmentIndex: number): boolean {
  * This is used for one-wire replacement and instance-port deletion matching.
  */
 function segmentExistsForRootInBuilder(root: BuilderEntityRoot, segment: number): boolean {
-  if (isStaticOuterLeafEndpoint(root)) {
-    return segment === root.segmentIndex;
-  }
   if (root.layer === "outer64") {
     if (isOuterLeafVoidSegment(root.segmentIndex)) {
       return segment === root.segmentIndex;
@@ -568,8 +547,8 @@ function buildInstancePortSetForLink(
       const t = s + d;
       if (t < 0 || t >= toCount) continue;
       if (!segmentExistsForRootInBuilder(from, s) || !segmentExistsForRootInBuilder(to, t)) continue;
-      out.add(instancePortKey(link.fromEntityId, s, link.fromPort));
-      out.add(instancePortKey(link.toEntityId, t, link.toPort));
+      out.add(instancePortKey(expandedInstanceEntityId(from, s), s, link.fromPort));
+      out.add(instancePortKey(expandedInstanceEntityId(to, t), t, link.toPort));
     }
     return out;
   }
@@ -581,8 +560,8 @@ function buildInstancePortSetForLink(
       const t = s + d;
       if (t < 0 || t >= toCount) continue;
       if (!segmentExistsForRootInBuilder(from, s) || !segmentExistsForRootInBuilder(to, t)) continue;
-      out.add(instancePortKey(link.fromEntityId, s, link.fromPort));
-      out.add(instancePortKey(link.toEntityId, t, link.toPort));
+      out.add(instancePortKey(expandedInstanceEntityId(from, s), s, link.fromPort));
+      out.add(instancePortKey(expandedInstanceEntityId(to, t), t, link.toPort));
     }
     return out;
   }
@@ -597,8 +576,8 @@ function buildInstancePortSetForLink(
         const t = s * r + slot;
         if (t < 0 || t >= toCount) continue;
         if (!segmentExistsForRootInBuilder(from, s) || !segmentExistsForRootInBuilder(to, t)) continue;
-        out.add(instancePortKey(link.fromEntityId, s, link.fromPort));
-        out.add(instancePortKey(link.toEntityId, t, link.toPort));
+        out.add(instancePortKey(expandedInstanceEntityId(from, s), s, link.fromPort));
+        out.add(instancePortKey(expandedInstanceEntityId(to, t), t, link.toPort));
       }
       return out;
     }
@@ -608,8 +587,8 @@ function buildInstancePortSetForLink(
       const s = t * r + slot;
       if (s < 0 || s >= fromCount) continue;
       if (!segmentExistsForRootInBuilder(from, s) || !segmentExistsForRootInBuilder(to, t)) continue;
-      out.add(instancePortKey(link.fromEntityId, s, link.fromPort));
-      out.add(instancePortKey(link.toEntityId, t, link.toPort));
+      out.add(instancePortKey(expandedInstanceEntityId(from, s), s, link.fromPort));
+      out.add(instancePortKey(expandedInstanceEntityId(to, t), t, link.toPort));
     }
     return out;
   }
@@ -617,11 +596,11 @@ function buildInstancePortSetForLink(
   // Legacy cross-layer behavior: all aligned base columns (occupies all segments on both sides).
   for (let s = 0; s < fromCount; s += 1) {
     if (!segmentExistsForRootInBuilder(from, s)) continue;
-    out.add(instancePortKey(link.fromEntityId, s, link.fromPort));
+    out.add(instancePortKey(expandedInstanceEntityId(from, s), s, link.fromPort));
   }
   for (let t = 0; t < toCount; t += 1) {
     if (!segmentExistsForRootInBuilder(to, t)) continue;
-    out.add(instancePortKey(link.toEntityId, t, link.toPort));
+    out.add(instancePortKey(expandedInstanceEntityId(to, t), t, link.toPort));
   }
   return out;
 }
@@ -631,12 +610,6 @@ function overlapsAnyInstancePort(
   b: BuilderLinkRoot,
   byId: Map<string, BuilderEntityRoot>,
 ): boolean {
-  if (isSlottedCrossEntityLink(a) && isSlottedCrossEntityLink(b)) {
-    return slottedCrossEntityExactTemplateDuplicate(a, b);
-  }
-  if (isSlottedCrossEntityLink(a) || isSlottedCrossEntityLink(b)) {
-    return false;
-  }
   const aSet = buildInstancePortSetForLink(a, byId);
   const bSet = buildInstancePortSetForLink(b, byId);
   if (!aSet || !bSet) return false;

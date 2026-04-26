@@ -1,9 +1,13 @@
-import assert from "node:assert/strict";
+import * as assert from "node:assert/strict";
 import { expandBuilderState, expandLinks, mapMaskForSegment, parseBuilderInstanceId } from "./clone-engine";
 import {
+  addLinkRootOneWirePerPort,
   crossLayerBlockSlotFromSegments,
   innerOuterSlottedExpansionTouchesVoidBand,
   innerMiddleSlottedHitsColumn0_0_3,
+  outerLeafEntityId,
+  rebuildStateWithOuterLeafEndpoints,
+  removeLinksTouchingInstancePort,
   type BuilderEntityRoot,
   type BuilderLinkRoot,
   type BuilderState,
@@ -69,8 +73,8 @@ const strays: BuilderLinkRoot = {
 const straysOut = expandLinks([strays], [a, b]);
 assert.equal(
   straysOut.length,
-  16,
-  "two roots on same layer: pins ignored, one mirrored link per column segment (16)",
+  15,
+  "two roots on same middle layer: pins ignored, mirrored links skip the 0.0.3.* void segment",
 );
 assert.equal(straysOut[0].fromInstanceId, "a@0");
 assert.equal(straysOut[0].toInstanceId, "b@0");
@@ -86,13 +90,13 @@ const same: BuilderLinkRoot = {
   toSegmentIndex: 2,
 };
 const selfOut = expandLinks([same], [a]);
-assert.equal(selfOut.length, 14, "same-root template delta +2 on middle16: fromSeg 0..13");
+assert.equal(selfOut.length, 12, "same-root template delta +2 on middle16 skips pairs touching the 0.0.3.* void segment");
 assert.equal(selfOut[0].fromInstanceId, "a@0");
 assert.equal(selfOut[0].toInstanceId, "a@2");
 assert.equal(selfOut[0].fromPort, 0);
 assert.equal(selfOut[0].toPort, 1);
-assert.equal(selfOut[13].fromInstanceId, "a@13");
-assert.equal(selfOut[13].toInstanceId, "a@15");
+assert.equal(selfOut[11].fromInstanceId, "a@13");
+assert.equal(selfOut[11].toInstanceId, "a@15");
 
 const m: BuilderEntityRoot = { ...a, id: "m1", groupId: "m1", layer: "middle16" };
 const o: BuilderEntityRoot = { ...a, id: "o1", groupId: "o1", layer: "outer64" };
@@ -105,11 +109,11 @@ const cross: BuilderLinkRoot = {
   toPort: 0,
 };
 const crossOut = expandLinks([cross], [m, o]);
-assert.equal(crossOut.length, 64, "legacy cross-layer: no block slot → one wire per base column");
+assert.equal(crossOut.length, 60, "legacy cross-layer skips the 0.0.3.* void base columns");
 
 const crossSlotted: BuilderLinkRoot = { ...cross, crossLayerBlockSlot: 2 };
 const crossSlottedOut = expandLinks([crossSlotted], [m, o]);
-assert.equal(crossSlottedOut.length, 16, "middle→outer with lane 2: one outer per middle segment");
+assert.equal(crossSlottedOut.length, 15, "middle→outer with lane 2 skips the 0.0.3.* void segment");
 assert.equal(crossSlottedOut[0].fromInstanceId, "m1@0");
 assert.equal(crossSlottedOut[0].toInstanceId, "o1@2");
 assert.equal(crossSlottedOut[1].fromInstanceId, "m1@1");
@@ -117,7 +121,7 @@ assert.equal(crossSlottedOut[1].toInstanceId, "o1@6");
 
 const legacy: BuilderLinkRoot = { ...cross, fromSegmentIndex: 3, toSegmentIndex: 5 };
 const legacyOut = expandLinks([legacy], [m, o]);
-assert.equal(legacyOut.length, 64, "cross-entity with stray pins: still mirrored");
+assert.equal(legacyOut.length, 60, "cross-entity with stray pins: still mirrored, excluding void base columns");
 
 const mini: BuilderState = {
   version: 1,
@@ -126,7 +130,7 @@ const mini: BuilderState = {
   nextId: 10,
 };
 const exp = expandBuilderState(mini, { builderView: false });
-assert.equal(exp.links.length, 64, "full expand matches");
+assert.equal(exp.links.length, 60, "full expand matches");
 
 const h1: BuilderEntityRoot = {
   ...a,
@@ -146,11 +150,68 @@ const slDelta: BuilderLinkRoot = {
   sameLayerSegmentDelta: 2,
 };
 const slOut = expandLinks([slDelta], [h1, h2]);
-assert.equal(slOut.length, 62, "outer same-layer delta +2: fromSeg 0..61");
+assert.equal(slOut.length, 56, "outer same-layer delta +2 skips pairs touching the 0.0.3.* void band");
 assert.equal(slOut[0].fromInstanceId, "h1@0");
 assert.equal(slOut[0].toInstanceId, "h2@2");
-assert.equal(slOut[61].fromInstanceId, "h1@61");
-assert.equal(slOut[61].toInstanceId, "h2@63");
+assert.equal(slOut[55].fromInstanceId, "h1@61");
+assert.equal(slOut[55].toInstanceId, "h2@63");
+
+let endpointWireState = rebuildStateWithOuterLeafEndpoints({
+  version: 1,
+  entities: [h1],
+  links: [],
+  nextId: 20,
+});
+const endpoint0 = outerLeafEntityId(0);
+const endpoint5 = outerLeafEntityId(5);
+const firstEndpointWire = addLinkRootOneWirePerPort(endpointWireState, endpoint0, 0, h1.id, 0, {
+  sameLayerSegmentDelta: 0,
+});
+assert.ok(firstEndpointWire.link, "static endpoint link can be created");
+endpointWireState = firstEndpointWire.state;
+assert.equal(endpointWireState.links.length, 1);
+const removedViaMirror = removeLinksTouchingInstancePort(endpointWireState, endpoint5, 5, 0);
+assert.equal(removedViaMirror.links.length, 0, "static endpoint mirrored wire can be removed from any mirror");
+
+endpointWireState = firstEndpointWire.state;
+const secondEndpointWire = addLinkRootOneWirePerPort(endpointWireState, endpoint5, 0, h1.id, 1, {
+  sameLayerSegmentDelta: 0,
+});
+assert.ok(secondEndpointWire.link, "replacement endpoint link can be created from a mirrored endpoint");
+assert.equal(
+  secondEndpointWire.state.links.length,
+  1,
+  "static endpoint mirrored port overlap replaces the prior root link",
+);
+assert.equal(secondEndpointWire.state.links[0]?.fromEntityId, endpoint5);
+
+let crossLayerPortState: BuilderState = {
+  version: 1,
+  entities: [m, o],
+  links: [],
+  nextId: 30,
+};
+const firstCrossLayerWire = addLinkRootOneWirePerPort(crossLayerPortState, m.id, 0, o.id, 0, {
+  crossLayerBlockSlot: 1,
+});
+assert.ok(firstCrossLayerWire.link, "cross-layer slotted link can be created");
+crossLayerPortState = firstCrossLayerWire.state;
+const secondCrossLayerWire = addLinkRootOneWirePerPort(crossLayerPortState, m.id, 0, o.id, 1, {
+  crossLayerBlockSlot: 2,
+});
+assert.ok(secondCrossLayerWire.link, "cross-layer link from the same port replaces the prior link");
+assert.equal(secondCrossLayerWire.state.links.length, 1);
+assert.equal(secondCrossLayerWire.state.links[0]?.crossLayerBlockSlot, 2);
+assert.equal(secondCrossLayerWire.state.links[0]?.toPort, 1);
+
+crossLayerPortState = secondCrossLayerWire.state;
+const reversedCrossLayerWire = addLinkRootOneWirePerPort(crossLayerPortState, o.id, 1, m.id, 1, {
+  crossLayerBlockSlot: 2,
+});
+assert.ok(reversedCrossLayerWire.link, "cross-layer link ending on an occupied port replaces in reverse direction");
+assert.equal(reversedCrossLayerWire.state.links.length, 1);
+assert.equal(reversedCrossLayerWire.state.links[0]?.fromEntityId, o.id);
+assert.equal(reversedCrossLayerWire.state.links[0]?.fromPort, 1);
 
 console.log("clone-engine mask mapping checks passed");
 console.log("clone-engine pinned link checks passed");
