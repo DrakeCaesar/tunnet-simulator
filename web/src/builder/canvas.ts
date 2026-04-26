@@ -35,9 +35,15 @@ import {
   unmapMaskForSegment,
 } from "./clone-engine";
 import {
+  clearBuilderLayoutSlot,
   exportBuilderStateText,
+  exportBuilderStateUrlToken,
   importBuilderStateText,
+  importBuilderStateUrlToken,
+  listBuilderLayoutSlots,
   loadBuilderState,
+  loadBuilderLayoutSlot,
+  saveBuilderLayoutSlot,
   saveBuilderState,
 } from "./persistence";
 import { compileBuilderPayload } from "./compile";
@@ -71,6 +77,7 @@ const PACKET_DOT_RADIUS_PX = 8;
 const PACKET_LABEL_ANCHOR_X_PX = PACKET_DOT_RADIUS_PX + 5;
 const PACKET_IP_LABEL_OFFSET_X_PX = -3;
 const PACKET_IP_LABEL_OFFSET_Y_PX = -13;
+const BUILDER_LAYOUT_SLOT_COUNT = 4;
 const CANVAS_SCALE_X_STEPS = [1 / 16, 1 / 8, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.25, 2.5, 2.75, 3, 3.25, 3.5, 3.75, 4] as const;
 const BUILDER_PANEL_SECTION_IDS = ["actions", "templates", "simulation", "inspector", "performance"] as const;
 
@@ -106,6 +113,7 @@ type BuilderPageState = {
   collapsedSections: Partial<Record<BuilderPanelSectionId, boolean>>;
   showPacketIps: boolean;
   simSpeedExponent: number;
+  activeLayoutSlotIndex: number;
 };
 
 /** Equilateral triangle: apex up, base horizontal; `r` matches half of global `.builder-port` (17px). */
@@ -699,6 +707,11 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     }
   };
   const loadBuilderPageState = (): BuilderPageState => {
+    const clampLayoutSlotIndex = (value: unknown): number => {
+      const n = Number(value);
+      if (!Number.isFinite(n)) return 1;
+      return Math.max(1, Math.min(BUILDER_LAYOUT_SLOT_COUNT, Math.round(n)));
+    };
     const clampSimSpeedExponent = (value: unknown): number => {
       const n = Number(value);
       if (!Number.isFinite(n)) return SPEED_EXP_DEFAULT;
@@ -711,6 +724,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
           collapsedSections: {},
           showPacketIps: true,
           simSpeedExponent: SPEED_EXP_DEFAULT,
+          activeLayoutSlotIndex: 1,
         };
       }
       const parsed = JSON.parse(raw) as Partial<BuilderPageState>;
@@ -723,12 +737,14 @@ export function mountBuilderView(options: BuilderMountOptions): void {
         collapsedSections,
         showPacketIps: parsed.showPacketIps !== false,
         simSpeedExponent: clampSimSpeedExponent(parsed.simSpeedExponent),
+        activeLayoutSlotIndex: clampLayoutSlotIndex(parsed.activeLayoutSlotIndex),
       };
     } catch {
       return {
         collapsedSections: {},
         showPacketIps: true,
         simSpeedExponent: SPEED_EXP_DEFAULT,
+        activeLayoutSlotIndex: 1,
       };
     }
   };
@@ -753,6 +769,22 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     }
   };
   let builderPageState = loadBuilderPageState();
+  builderPageState.activeLayoutSlotIndex = Math.max(
+    1,
+    Math.min(BUILDER_LAYOUT_SLOT_COUNT, Math.round(builderPageState.activeLayoutSlotIndex || 1)),
+  );
+  {
+    const activeSlot = loadBuilderLayoutSlot(builderPageState.activeLayoutSlotIndex);
+    if (activeSlot) {
+      const rebuilt = rebuildStateWithOuterLeafEndpoints(activeSlot.state);
+      const sanitized = sanitizeDuplicateTypePlacements(rebuilt);
+      const compacted = compactBuilderIds(sanitized.state);
+      state = compacted.state;
+      if (sanitized.changed || compacted.changed) {
+        saveBuilderLayoutSlot(builderPageState.activeLayoutSlotIndex, state);
+      }
+    }
+  }
   let builderSidebarWidth = loadBuilderSidebarWidth();
   let builderSidebarExpandedWidth =
     builderSidebarWidth === BUILDER_SIDEBAR_COLLAPSED_WIDTH_PX
@@ -777,7 +809,10 @@ export function mountBuilderView(options: BuilderMountOptions): void {
               <button id="builder-import" type="button">Import text</button>
               <button id="builder-export" type="button">Export text</button>
               <button id="builder-toggle-prop-labels" type="button">Hide property labels</button>
-              <button id="builder-delete-all" type="button">Delete all</button>
+            </div>
+            <div class="builder-layout-slots-block">
+              <div class="builder-layout-slots-title">Loadouts</div>
+              <div id="builder-layout-slots" class="builder-layout-slots"></div>
             </div>
           </div>
         </section>
@@ -877,10 +912,10 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   const scaleYMiddleValueEl = root.querySelector<HTMLSpanElement>("#builder-scale-y-middle16-value")!;
   const scaleYInnerValueEl = root.querySelector<HTMLSpanElement>("#builder-scale-y-inner4-value")!;
   const scaleYCoreValueEl = root.querySelector<HTMLSpanElement>("#builder-scale-y-core1-value")!;
-  const deleteAllBtn = root.querySelector<HTMLButtonElement>("#builder-delete-all")!;
   const togglePropLabelsBtn = root.querySelector<HTMLButtonElement>("#builder-toggle-prop-labels")!;
   const exportBtn = root.querySelector<HTMLButtonElement>("#builder-export")!;
   const importBtn = root.querySelector<HTMLButtonElement>("#builder-import")!;
+  const layoutSlotsEl = root.querySelector<HTMLDivElement>("#builder-layout-slots")!;
   const simPlayPauseBtn = root.querySelector<HTMLButtonElement>("#builder-sim-play-pause")!;
   const simStepBtn = root.querySelector<HTMLButtonElement>("#builder-sim-step")!;
   const simResetBtn = root.querySelector<HTMLButtonElement>("#builder-sim-reset")!;
@@ -903,6 +938,89 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   let perfCounts = { expandedEntities: 0, stateLinks: 0, expandedLinks: 0, packetsInFlight: 0 };
   let nextPerfPanelAtMs = 0;
   let hideEntityPropertyLabels = loadHidePropertyLabels();
+  let urlEmbeddedLayoutState: BuilderState | null = null;
+  let urlEmbeddedLayoutToken: string | null = null;
+  let pendingClearLayoutSlotIndex: number | null = null;
+  let activeLayoutTarget: { kind: "slot"; index: number } | { kind: "url" } = {
+    kind: "slot",
+    index: builderPageState.activeLayoutSlotIndex,
+  };
+
+  function formatSlotTimestamp(ts: number): string {
+    try {
+      return new Date(ts).toLocaleString();
+    } catch {
+      return "Unknown time";
+    }
+  }
+
+  function slotUrlFromToken(token: string): string {
+    const url = new URL(window.location.href);
+    url.searchParams.set("layout", token);
+    return url.toString();
+  }
+
+  async function copyLayoutUrlForState(layoutState: BuilderState): Promise<void> {
+    const token = await exportBuilderStateUrlToken(layoutState);
+    await navigator.clipboard.writeText(slotUrlFromToken(token));
+  }
+
+  function applyLoadedBuilderState(nextRawState: BuilderState, persistState: boolean): void {
+    const rebuilt = rebuildStateWithOuterLeafEndpoints(nextRawState);
+    const sanitized = sanitizeDuplicateTypePlacements(rebuilt);
+    state = compactBuilderIds(sanitized.state).state;
+    if (persistState) {
+      persist();
+    } else {
+      requestBuilderSimulatorRefresh();
+    }
+    selection = null;
+    selectedEntityRootIds.clear();
+    linkDrag = null;
+    renderLayoutSlots();
+    renderInspector();
+    renderCanvas();
+  }
+
+  function renderLayoutSlots(): void {
+    const byIndex = new Map(listBuilderLayoutSlots().map((slot) => [slot.index, slot]));
+    let html = "";
+    for (let i = 1; i <= BUILDER_LAYOUT_SLOT_COUNT; i += 1) {
+      const slot = byIndex.get(i);
+      const subtitle = slot ? formatSlotTimestamp(slot.updatedAtMs) : "Empty";
+      const active = activeLayoutTarget.kind === "slot" && activeLayoutTarget.index === i;
+      const clearArmed = pendingClearLayoutSlotIndex === i;
+      html += `
+        <div class="builder-layout-slot ${active ? "builder-layout-slot--active" : ""}">
+          <div class="builder-layout-slot-meta">
+            <strong>Slot ${i}</strong>
+            <span>${subtitle}</span>
+          </div>
+          <div class="builder-layout-slot-actions">
+            <button type="button" data-layout-slot-action="select" data-layout-slot="${i}" ${active ? "disabled" : ""}>${active ? "Active" : "Select"}</button>
+            <button type="button" data-layout-slot-action="save-copy" data-layout-slot="${i}" ${active ? "disabled" : ""}>Save copy</button>
+            <button type="button" data-layout-slot-action="clear" data-layout-slot="${i}" ${slot ? "" : "disabled"}>${clearArmed ? "Confirm" : "Clear"}</button>
+            <button type="button" data-layout-slot-action="url" data-layout-slot="${i}" ${slot ? "" : "disabled"}>Copy URL</button>
+          </div>
+        </div>
+      `;
+    }
+    if (urlEmbeddedLayoutState && urlEmbeddedLayoutToken) {
+      html += `
+        <div class="builder-layout-slot builder-layout-slot--url ${activeLayoutTarget.kind === "url" ? "builder-layout-slot--active" : ""}">
+          <div class="builder-layout-slot-meta">
+            <strong>URL layout</strong>
+            <span>Temporary hidden slot</span>
+          </div>
+          <div class="builder-layout-slot-actions">
+            <button type="button" data-layout-slot-action="load-url" ${activeLayoutTarget.kind === "url" ? "disabled" : ""}>${activeLayoutTarget.kind === "url" ? "Active" : "Select"}</button>
+            <button type="button" data-layout-slot-action="url-url">Copy URL</button>
+          </div>
+        </div>
+      `;
+    }
+    layoutSlotsEl.innerHTML = html;
+  }
 
   function persistCanvasScale(): void {
     window.localStorage.setItem(BUILDER_CANVAS_SCALE_KEY, JSON.stringify(canvasScale));
@@ -1208,7 +1326,12 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   }
 
   function persist(): void {
-    saveBuilderState(state);
+    if (activeLayoutTarget.kind === "slot") {
+      saveBuilderLayoutSlot(activeLayoutTarget.index, state);
+    } else {
+      saveBuilderState(state);
+    }    
+    renderLayoutSlots();
     requestBuilderSimulatorRefresh();
   }
 
@@ -4852,17 +4975,6 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     renderCanvas();
   };
 
-  deleteAllBtn.addEventListener("click", () => {
-    if (!state.entities.length && !state.links.length) return;
-    if (!window.confirm("Delete all devices and links?")) return;
-    state = createEmptyBuilderState();
-    selection = null;
-    linkDrag = null;
-    persist();
-    renderInspector();
-    renderCanvas();
-  });
-
   togglePropLabelsBtn.addEventListener("click", () => {
     hideEntityPropertyLabels = !hideEntityPropertyLabels;
     applyPropertyLabelVisibility();
@@ -4883,13 +4995,78 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       alert("Invalid Tunnet Simulator state.");
       return;
     }
-    const rebuiltImportedState = rebuildStateWithOuterLeafEndpoints(parsed);
-    const sanitizedImported = sanitizeDuplicateTypePlacements(rebuiltImportedState);
-    state = compactBuilderIds(sanitizedImported.state).state;
-    persist();
-    selection = null;
-    renderInspector();
-    renderCanvas();
+    applyLoadedBuilderState(parsed, true);
+  });
+
+  layoutSlotsEl.addEventListener("click", async (ev) => {
+    const btn = (ev.target as HTMLElement | null)?.closest<HTMLButtonElement>("[data-layout-slot-action]");
+    if (!btn) return;
+    const action = btn.dataset.layoutSlotAction ?? "";
+    const slotRaw = btn.dataset.layoutSlot;
+    const slotIndex = Number(slotRaw);
+    if (action === "load-url") {
+      pendingClearLayoutSlotIndex = null;
+      if (!urlEmbeddedLayoutState) return;
+      activeLayoutTarget = { kind: "url" };
+      applyLoadedBuilderState(urlEmbeddedLayoutState, false);
+      return;
+    }
+    if (action === "url-url") {
+      pendingClearLayoutSlotIndex = null;
+      if (!urlEmbeddedLayoutState) return;
+      await copyLayoutUrlForState(urlEmbeddedLayoutState);
+      return;
+    }
+    if (!Number.isInteger(slotIndex) || slotIndex < 1 || slotIndex > BUILDER_LAYOUT_SLOT_COUNT) return;
+    if (action === "save-copy") {
+      pendingClearLayoutSlotIndex = null;
+      saveBuilderLayoutSlot(slotIndex, state);
+      renderLayoutSlots();
+      return;
+    }
+    if (action === "select") {
+      pendingClearLayoutSlotIndex = null;
+      activeLayoutTarget = { kind: "slot", index: slotIndex };
+      builderPageState.activeLayoutSlotIndex = slotIndex;
+      persistBuilderPageState();
+      const slot = loadBuilderLayoutSlot(slotIndex);
+      if (slot) {
+        applyLoadedBuilderState(slot.state, false);
+      } else {
+        applyLoadedBuilderState(createEmptyBuilderState(), false);
+      }
+      return;
+    }
+    if (action === "clear") {
+      if (pendingClearLayoutSlotIndex !== slotIndex) {
+        pendingClearLayoutSlotIndex = slotIndex;
+        renderLayoutSlots();
+        return;
+      }
+      pendingClearLayoutSlotIndex = null;
+      clearBuilderLayoutSlot(slotIndex);
+      renderLayoutSlots();
+      return;
+    }
+    if (action === "url") {
+      pendingClearLayoutSlotIndex = null;
+      const slot = loadBuilderLayoutSlot(slotIndex);
+      if (!slot) return;
+      await copyLayoutUrlForState(slot.state);
+    }
+  });
+
+  layoutSlotsEl.addEventListener("mouseout", (ev) => {
+    if (pendingClearLayoutSlotIndex === null) return;
+    const target = ev.target as HTMLElement | null;
+    const clearBtn = target?.closest<HTMLButtonElement>('button[data-layout-slot-action="clear"]');
+    if (!clearBtn) return;
+    const slotIndex = Number(clearBtn.dataset.layoutSlot);
+    if (!Number.isInteger(slotIndex) || slotIndex !== pendingClearLayoutSlotIndex) return;
+    const nextTarget = ev.relatedTarget as Node | null;
+    if (nextTarget && clearBtn.contains(nextTarget)) return;
+    pendingClearLayoutSlotIndex = null;
+    renderLayoutSlots();
   });
 
   packetOverlayEl.addEventListener("click", (ev) => {
@@ -5293,6 +5470,16 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   });
 
   renderTemplates();
+  renderLayoutSlots();
+  const urlToken = new URLSearchParams(window.location.search).get("layout");
+  if (urlToken) {
+    importBuilderStateUrlToken(urlToken).then((parsed) => {
+      if (!parsed) return;
+      urlEmbeddedLayoutState = parsed;
+      urlEmbeddedLayoutToken = urlToken;
+      renderLayoutSlots();
+    });
+  }
   syncBuilderSimSliderLabels();
   renderInspector();
   renderCanvas();
