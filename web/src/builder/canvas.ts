@@ -991,6 +991,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     renderLayoutSlots();
     renderInspector();
     renderCanvas();
+    resetBuilderSimulation();
   }
 
   function renderLayoutSlots(): void {
@@ -5110,6 +5111,10 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       }
       pendingClearLayoutSlotIndex = null;
       clearBuilderLayoutSlot(slotIndex);
+      if (activeLayoutTarget.kind === "slot" && activeLayoutTarget.index === slotIndex) {
+        applyLoadedBuilderState(createEmptyBuilderState(), false);
+        return;
+      }
       renderLayoutSlots();
       return;
     }
