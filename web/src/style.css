@@ -628,6 +628,10 @@ textarea {
   cursor: pointer;
 }
 
+.builder-wire-dragging .builder-packet-dot {
+  pointer-events: none;
+}
+
 .builder-packet-selected-guide {
   stroke: rgba(249, 226, 175, 0.95);
   stroke-width: 1.5;

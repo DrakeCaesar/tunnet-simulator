@@ -632,6 +632,9 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   let selectedEntityRootIds = new Set<string>();
   let boxSelection: BoxSelectionState = null;
   let suppressNextEntityClickToggle = false;
+  let suppressNextPacketClick = false;
+  const WIRE_PORT_DROP_ZONE_PX = 5;
+  const WIRE_DRAG_START_THRESHOLD_PX = 3;
   const nearestCanvasScaleXStep = (v: number): number => {
     let best = CANVAS_SCALE_X_STEPS[0];
     let bestDelta = Math.abs(v - best);
@@ -2280,6 +2283,28 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     );
   }
 
+  function builderPortFromClientPoint(clientX: number, clientY: number): HTMLButtonElement | null {
+    const stackedPort =
+      document
+        .elementsFromPoint(clientX, clientY)
+        .map((node) => node.closest<HTMLButtonElement>(".builder-port"))
+        .find((port): port is HTMLButtonElement => port !== null) ?? null;
+    if (stackedPort) return stackedPort;
+
+    let closestPort: HTMLButtonElement | null = null;
+    let closestDistance = Number.POSITIVE_INFINITY;
+    canvasEl.querySelectorAll<HTMLButtonElement>(".builder-port[data-instance-id][data-port]").forEach((portEl) => {
+      const rect = portEl.getBoundingClientRect();
+      const dx = clientX < rect.left ? rect.left - clientX : clientX > rect.right ? clientX - rect.right : 0;
+      const dy = clientY < rect.top ? rect.top - clientY : clientY > rect.bottom ? clientY - rect.bottom : 0;
+      const distance = Math.hypot(dx, dy);
+      if (distance > WIRE_PORT_DROP_ZONE_PX || distance >= closestDistance) return;
+      closestDistance = distance;
+      closestPort = portEl;
+    });
+    return closestPort;
+  }
+
   function simRestingPortOffset(port: number): { x: number; y: number } {
     const a = (port % 4) * (Math.PI / 2);
     return { x: Math.cos(a) * 6, y: Math.sin(a) * 6 };
@@ -3861,16 +3886,31 @@ export function mountBuilderView(options: BuilderMountOptions): void {
 
   const startLinkDragFromPort = (portEl: HTMLButtonElement, ev: PointerEvent): void => {
     if (ev.button !== 0 || !ev.isPrimary) return;
-    ev.stopPropagation();
-    ev.preventDefault();
+    const downClient = { x: ev.clientX, y: ev.clientY };
+    const startedFromPacket = ev.target instanceof Element && !!ev.target.closest("circle.builder-packet-dot");
     const rootId = portEl.dataset.rootId!;
     const port = Number(portEl.dataset.port);
     const instanceId = portEl.dataset.instanceId ?? "";
     const from: LinkSourceSelection = { rootId, port, instanceId };
     const wrap = wireOverlayEl.parentElement;
     if (!wrap) return;
+    let started = false;
+    const beginDrag = (clientX: number, clientY: number): void => {
+      if (started) return;
+      started = true;
+      root.classList.add("builder-wire-dragging");
+      linkDrag = { from, endClient: { x: clientX, y: clientY } };
+      setBuilderDragCursor("crosshair");
+      renderWireOverlay();
+    };
     const onMove = (e: PointerEvent): void => {
       e.preventDefault();
+      if (!started) {
+        const dx = e.clientX - downClient.x;
+        const dy = e.clientY - downClient.y;
+        if (Math.hypot(dx, dy) < WIRE_DRAG_START_THRESHOLD_PX) return;
+        beginDrag(e.clientX, e.clientY);
+      }
       linkDrag = { from, endClient: { x: e.clientX, y: e.clientY } };
       scheduleWireDragPaint();
     };
@@ -3886,11 +3926,14 @@ export function mountBuilderView(options: BuilderMountOptions): void {
         window.cancelAnimationFrame(wireDragRaf);
         wireDragRaf = null;
       }
-      const stack = document.elementsFromPoint(e.clientX, e.clientY);
-      const toPort =
-        stack
-          .map((node) => node.closest<HTMLButtonElement>(".builder-port"))
-          .find((port): port is HTMLButtonElement => port !== null) ?? null;
+      if (!started) {
+        root.classList.remove("builder-wire-dragging");
+        return;
+      }
+      e.preventDefault();
+      if (startedFromPacket) suppressNextPacketClick = true;
+      const toPort = builderPortFromClientPoint(e.clientX, e.clientY);
+      root.classList.remove("builder-wire-dragging");
       linkDrag = null;
       renderWireOverlay();
       if (!toPort) {
@@ -3968,9 +4011,6 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       persist();
       setSelection({ kind: "link", rootId: added.link.id });
     };
-    linkDrag = { from, endClient: { x: ev.clientX, y: ev.clientY } };
-    setBuilderDragCursor("crosshair");
-    renderWireOverlay();
     window.addEventListener("pointermove", onMove, { passive: false });
     window.addEventListener("pointerup", onEnd);
     window.addEventListener("pointercancel", onEnd);
@@ -4528,6 +4568,12 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   });
 
   packetOverlayEl.addEventListener("click", (ev) => {
+    if (suppressNextPacketClick) {
+      suppressNextPacketClick = false;
+      ev.preventDefault();
+      ev.stopPropagation();
+      return;
+    }
     const t = ev.target;
     if (!(t instanceof Element)) return;
     const el = t.closest("circle.builder-packet-dot");
@@ -4632,19 +4678,14 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     }
   });
 
-  canvasEl.addEventListener("pointerdown", (ev) => {
+  const onWirePortPointerDown = (ev: PointerEvent): void => {
     const target = ev.target as HTMLElement | null;
     if (!target) return;
-    const directPort = target.closest<HTMLButtonElement>(".builder-port");
-    const stackedPort =
-      document
-        .elementsFromPoint(ev.clientX, ev.clientY)
-        .map((node) => node.closest<HTMLButtonElement>(".builder-port"))
-        .find((port): port is HTMLButtonElement => port !== null) ?? null;
-    const portEl = directPort ?? stackedPort;
+    const portEl = target.closest<HTMLButtonElement>(".builder-port") ?? builderPortFromClientPoint(ev.clientX, ev.clientY);
     if (!portEl) return;
     startLinkDragFromPort(portEl, ev);
-  });
+  };
+  canvasWrapEl?.addEventListener("pointerdown", onWirePortPointerDown);
 
   canvasEl.addEventListener("mousedown", (ev) => {
     const target = ev.target as HTMLElement | null;
