@@ -783,6 +783,9 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       if (sanitized.changed || compacted.changed) {
         saveBuilderLayoutSlot(builderPageState.activeLayoutSlotIndex, state);
       }
+    } else {
+      // If the selected loadout slot is empty, start from an empty layout for that slot.
+      state = createEmptyBuilderState();
     }
   }
   let builderSidebarWidth = loadBuilderSidebarWidth();
@@ -941,6 +944,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   let urlEmbeddedLayoutState: BuilderState | null = null;
   let urlEmbeddedLayoutToken: string | null = null;
   let pendingClearLayoutSlotIndex: number | null = null;
+  let pendingSaveCopyLayoutSlotIndex: number | null = null;
   let activeLayoutTarget: { kind: "slot"; index: number } | { kind: "url" } = {
     kind: "slot",
     index: builderPageState.activeLayoutSlotIndex,
@@ -990,6 +994,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       const subtitle = slot ? formatSlotTimestamp(slot.updatedAtMs) : "Empty";
       const active = activeLayoutTarget.kind === "slot" && activeLayoutTarget.index === i;
       const clearArmed = pendingClearLayoutSlotIndex === i;
+      const saveCopyArmed = pendingSaveCopyLayoutSlotIndex === i;
       html += `
         <div class="builder-layout-slot ${active ? "builder-layout-slot--active" : ""}">
           <div class="builder-layout-slot-meta">
@@ -998,7 +1003,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
           </div>
           <div class="builder-layout-slot-actions">
             <button type="button" data-layout-slot-action="select" data-layout-slot="${i}" ${active ? "disabled" : ""}>${active ? "Active" : "Select"}</button>
-            <button type="button" data-layout-slot-action="save-copy" data-layout-slot="${i}" ${active ? "disabled" : ""}>Save copy</button>
+            <button type="button" data-layout-slot-action="save-copy" data-layout-slot="${i}" ${active ? "disabled" : ""}>${saveCopyArmed ? "Confirm" : "Save copy"}</button>
             <button type="button" data-layout-slot-action="clear" data-layout-slot="${i}" ${slot ? "" : "disabled"}>${clearArmed ? "Confirm" : "Clear"}</button>
             <button type="button" data-layout-slot-action="url" data-layout-slot="${i}" ${slot ? "" : "disabled"}>Copy URL</button>
           </div>
@@ -1010,10 +1015,10 @@ export function mountBuilderView(options: BuilderMountOptions): void {
         <div class="builder-layout-slot builder-layout-slot--url ${activeLayoutTarget.kind === "url" ? "builder-layout-slot--active" : ""}">
           <div class="builder-layout-slot-meta">
             <strong>URL layout</strong>
-            <span>Temporary hidden slot</span>
           </div>
           <div class="builder-layout-slot-actions">
             <button type="button" data-layout-slot-action="load-url" ${activeLayoutTarget.kind === "url" ? "disabled" : ""}>${activeLayoutTarget.kind === "url" ? "Active" : "Select"}</button>
+            <button type="button" data-layout-slot-action="clear-url">Clear</button>
             <button type="button" data-layout-slot-action="url-url">Copy URL</button>
           </div>
         </div>
@@ -5006,6 +5011,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     const slotIndex = Number(slotRaw);
     if (action === "load-url") {
       pendingClearLayoutSlotIndex = null;
+      pendingSaveCopyLayoutSlotIndex = null;
       if (!urlEmbeddedLayoutState) return;
       activeLayoutTarget = { kind: "url" };
       applyLoadedBuilderState(urlEmbeddedLayoutState, false);
@@ -5013,19 +5019,56 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     }
     if (action === "url-url") {
       pendingClearLayoutSlotIndex = null;
+      pendingSaveCopyLayoutSlotIndex = null;
       if (!urlEmbeddedLayoutState) return;
       await copyLayoutUrlForState(urlEmbeddedLayoutState);
+      return;
+    }
+    if (action === "clear-url") {
+      pendingClearLayoutSlotIndex = null;
+      pendingSaveCopyLayoutSlotIndex = null;
+      urlEmbeddedLayoutState = null;
+      urlEmbeddedLayoutToken = null;
+      const nextUrl = new URL(window.location.href);
+      nextUrl.searchParams.delete("layout");
+      window.history.replaceState(null, "", nextUrl.toString());
+      if (activeLayoutTarget.kind === "url") {
+        const fallbackSlotIndex = Math.max(1, Math.min(BUILDER_LAYOUT_SLOT_COUNT, builderPageState.activeLayoutSlotIndex));
+        activeLayoutTarget = { kind: "slot", index: fallbackSlotIndex };
+        const fallbackSlot = loadBuilderLayoutSlot(fallbackSlotIndex);
+        if (fallbackSlot) {
+          applyLoadedBuilderState(fallbackSlot.state, false);
+        } else {
+          applyLoadedBuilderState(createEmptyBuilderState(), false);
+        }
+      } else {
+        renderLayoutSlots();
+      }
       return;
     }
     if (!Number.isInteger(slotIndex) || slotIndex < 1 || slotIndex > BUILDER_LAYOUT_SLOT_COUNT) return;
     if (action === "save-copy") {
       pendingClearLayoutSlotIndex = null;
+      const targetSlot = loadBuilderLayoutSlot(slotIndex);
+      if (!targetSlot) {
+        pendingSaveCopyLayoutSlotIndex = null;
+        saveBuilderLayoutSlot(slotIndex, state);
+        renderLayoutSlots();
+        return;
+      }
+      if (pendingSaveCopyLayoutSlotIndex !== slotIndex) {
+        pendingSaveCopyLayoutSlotIndex = slotIndex;
+        renderLayoutSlots();
+        return;
+      }
+      pendingSaveCopyLayoutSlotIndex = null;
       saveBuilderLayoutSlot(slotIndex, state);
       renderLayoutSlots();
       return;
     }
     if (action === "select") {
       pendingClearLayoutSlotIndex = null;
+      pendingSaveCopyLayoutSlotIndex = null;
       activeLayoutTarget = { kind: "slot", index: slotIndex };
       builderPageState.activeLayoutSlotIndex = slotIndex;
       persistBuilderPageState();
@@ -5038,6 +5081,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       return;
     }
     if (action === "clear") {
+      pendingSaveCopyLayoutSlotIndex = null;
       if (pendingClearLayoutSlotIndex !== slotIndex) {
         pendingClearLayoutSlotIndex = slotIndex;
         renderLayoutSlots();
@@ -5050,6 +5094,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     }
     if (action === "url") {
       pendingClearLayoutSlotIndex = null;
+      pendingSaveCopyLayoutSlotIndex = null;
       const slot = loadBuilderLayoutSlot(slotIndex);
       if (!slot) return;
       await copyLayoutUrlForState(slot.state);
@@ -5057,15 +5102,22 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   });
 
   layoutSlotsEl.addEventListener("mouseout", (ev) => {
-    if (pendingClearLayoutSlotIndex === null) return;
+    if (pendingClearLayoutSlotIndex === null && pendingSaveCopyLayoutSlotIndex === null) return;
     const target = ev.target as HTMLElement | null;
-    const clearBtn = target?.closest<HTMLButtonElement>('button[data-layout-slot-action="clear"]');
-    if (!clearBtn) return;
-    const slotIndex = Number(clearBtn.dataset.layoutSlot);
-    if (!Number.isInteger(slotIndex) || slotIndex !== pendingClearLayoutSlotIndex) return;
+    const actionBtn = target?.closest<HTMLButtonElement>('[data-layout-slot-action="clear"],[data-layout-slot-action="save-copy"]');
+    if (!actionBtn) return;
+    const slotIndex = Number(actionBtn.dataset.layoutSlot);
+    if (!Number.isInteger(slotIndex)) return;
+    const action = actionBtn.dataset.layoutSlotAction ?? "";
+    if (action === "clear" && slotIndex !== pendingClearLayoutSlotIndex) return;
+    if (action === "save-copy" && slotIndex !== pendingSaveCopyLayoutSlotIndex) return;
     const nextTarget = ev.relatedTarget as Node | null;
-    if (nextTarget && clearBtn.contains(nextTarget)) return;
-    pendingClearLayoutSlotIndex = null;
+    if (nextTarget && actionBtn.contains(nextTarget)) return;
+    if (action === "clear") {
+      pendingClearLayoutSlotIndex = null;
+    } else if (action === "save-copy") {
+      pendingSaveCopyLayoutSlotIndex = null;
+    }
     renderLayoutSlots();
   });
 
@@ -5477,7 +5529,8 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       if (!parsed) return;
       urlEmbeddedLayoutState = parsed;
       urlEmbeddedLayoutToken = urlToken;
-      renderLayoutSlots();
+      activeLayoutTarget = { kind: "url" };
+      applyLoadedBuilderState(parsed, false);
     });
   }
   syncBuilderSimSliderLabels();
