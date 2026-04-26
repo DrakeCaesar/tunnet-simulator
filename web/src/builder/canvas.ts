@@ -3075,6 +3075,35 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     return options[(safeIdx + delta + options.length) % options.length];
   };
 
+  function filterDisplayValue(key: string, settings: Record<string, string>): string {
+    if (key === "operatingPort") return settings.operatingPort ?? "0";
+    if (key === "addressField") return (settings.addressField ?? "destination") === "source" ? "Source" : "Destination";
+    if (key === "operation") return (settings.operation ?? "differ") === "match" ? "Match" : "Differ";
+    if (key === "action") return (settings.action ?? "send_back") === "drop" ? "Drop" : "Send back";
+    if (key === "collisionHandling") {
+      const value = settings.collisionHandling ?? "send_back_outbound";
+      if (value === "drop_inbound") return "Drop<br/>Inbound";
+      if (value === "drop_outbound") return "Drop<br/>Outbound";
+      return "Send back<br/>Outbound";
+    }
+    return settings[key] ?? "";
+  }
+
+  function refreshFilterSettingControls(rootId: string): void {
+    const rootEnt = state.entities.find((e) => e.id === rootId);
+    if (!rootEnt || rootEnt.templateType !== "filter") return;
+    canvasEl.querySelectorAll<HTMLElement>(`.builder-entity[data-root-id="${rootId}"]`).forEach((entityEl) => {
+      entityEl.querySelectorAll<HTMLElement>("[data-setting-value]").forEach((valueEl) => {
+        const key = valueEl.dataset.settingValue;
+        if (!key) return;
+        valueEl.innerHTML = filterDisplayValue(key, rootEnt.settings);
+      });
+      entityEl.querySelectorAll<HTMLElement>("[data-filter-collision-row]").forEach((rowEl) => {
+        rowEl.style.display = (rootEnt.settings.action ?? "send_back") === "send_back" ? "" : "none";
+      });
+    });
+  }
+
   const setFilterSetting = (rootId: string, key: string, direction: "next" | "prev"): void => {
     const rootEnt = state.entities.find((e) => e.id === rootId);
     if (!rootEnt) return;
@@ -3092,8 +3121,8 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       );
     }
     state = updateEntitySettings(state, rootEnt.id, { ...rootEnt.settings, [key]: next });
-    persist();
-    renderCanvas();
+    refreshFilterSettingControls(rootEnt.id);
+    schedulePersist();
     renderInspector();
   };
 
@@ -3123,10 +3152,55 @@ export function mountBuilderView(options: BuilderMountOptions): void {
         ? unmapMaskForSegment(nextParts.join("."), rootEnt.layer, delta)
         : nextParts.join(".");
     state = updateEntitySettings(state, rootEnt.id, { ...rootEnt.settings, mask: rootMask });
-    persist();
-    renderCanvas();
+    refreshFilterMaskControls(rootEnt.id);
+    schedulePersist();
     renderInspector();
   };
+
+  function refreshFilterMaskControls(rootId: string): void {
+    const rootEnt = state.entities.find((e) => e.id === rootId);
+    if (!rootEnt || rootEnt.templateType !== "filter") return;
+    canvasEl.querySelectorAll<HTMLElement>(`.builder-entity[data-root-id="${rootId}"]`).forEach((entityEl) => {
+      const instance = parseBuilderInstanceId(entityEl.dataset.instanceId ?? "");
+      const segmentIndex = instance?.segmentIndex ?? rootEnt.segmentIndex;
+      const delta = (segmentIndex - rootEnt.segmentIndex + LAYER_COUNTS[rootEnt.layer]) % LAYER_COUNTS[rootEnt.layer];
+      const maskParts = mapMaskForSegment(rootEnt.settings.mask ?? "*.*.*.*", rootEnt.layer, delta).split(".");
+      while (maskParts.length < 4) maskParts.push("*");
+      entityEl.querySelectorAll<HTMLElement>("[data-mask-value-idx]").forEach((valueEl) => {
+        const idx = Number(valueEl.dataset.maskValueIdx);
+        if (!Number.isInteger(idx) || idx < 0 || idx > 3) return;
+        const value = maskParts[idx] ?? "*";
+        valueEl.textContent = value;
+        valueEl.classList.toggle("builder-mask-value-wildcard", value === "*");
+      });
+    });
+  }
+
+  function refreshHubControls(rootId: string): void {
+    const rootEnt = state.entities.find((e) => e.id === rootId);
+    if (!rootEnt || rootEnt.templateType !== "hub") return;
+    const cw = (rootEnt.settings.rotation ?? "clockwise") !== "counterclockwise";
+    canvasEl.querySelectorAll<HTMLElement>(`.builder-entity[data-root-id="${rootId}"]`).forEach((entityEl) => {
+      const instanceId = entityEl.dataset.instanceId ?? rootId;
+      const svg = entityEl.querySelector<SVGSVGElement>(".builder-hub-svg");
+      if (svg) {
+        const nextSvgWrap = document.createElement("div");
+        nextSvgWrap.innerHTML = hubTriangleSvg(instanceId, rootEnt.settings.rotation);
+        const nextSvg = nextSvgWrap.firstElementChild;
+        if (nextSvg) {
+          svg.replaceWith(nextSvg);
+        }
+      }
+      const icon = entityEl.querySelector<HTMLElement>(".builder-hub-reverse-icon");
+      if (icon) icon.textContent = cw ? "↻" : "↺";
+    });
+  }
+
+  function refreshHubControlsForRoots(rootIds: string[]): void {
+    rootIds.forEach((id) => {
+      refreshHubControls(id);
+    });
+  }
   let hoveredHubEl: HTMLElement | null = null;
   let hoveredRelayEl: HTMLElement | null = null;
 
@@ -3985,7 +4059,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
         const next = removeLinksTouchingInstancePort(state, fromInst.rootId, fromInst.segmentIndex, from.port);
         if (next !== state) {
           state = next;
-          persist();
+          schedulePersist();
           {
             const sel = selection;
             if (sel && sel.kind === "link" && !state.links.some((l) => l.id === sel.rootId)) {
@@ -3993,7 +4067,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
               renderInspector();
             }
           }
-          renderCanvas();
+          renderWireOverlay();
         }
         return;
       }
@@ -4051,7 +4125,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       );
       if (!added.link) return;
       state = added.state;
-      persist();
+      schedulePersist();
       setSelection({ kind: "link", rootId: added.link.id });
     };
     window.addEventListener("pointermove", onMove, { passive: false });
@@ -4176,7 +4250,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
                                         <span class="builder-row-label">Port:</span>
                                         <div class="builder-cycle">
                                           <button class="builder-cycle-btn" data-setting-cycle="operatingPort" data-dir="prev" data-root-id="${entity.rootId}" type="button">&lt;</button>
-                                          <span class="builder-cycle-value">${entity.settings.operatingPort ?? "0"}</span>
+                                          <span class="builder-cycle-value" data-setting-value="operatingPort">${entity.settings.operatingPort ?? "0"}</span>
                                           <button class="builder-cycle-btn" data-setting-cycle="operatingPort" data-dir="next" data-root-id="${entity.rootId}" type="button">&gt;</button>
                                         </div>
                                       </div>
@@ -4184,7 +4258,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
                                         <span class="builder-row-label">Address:</span>
                                         <div class="builder-cycle">
                                           <button class="builder-cycle-btn" data-setting-cycle="addressField" data-dir="prev" data-root-id="${entity.rootId}" type="button">&lt;</button>
-                                          <span class="builder-cycle-value">${displayAddressField}</span>
+                                          <span class="builder-cycle-value" data-setting-value="addressField">${displayAddressField}</span>
                                           <button class="builder-cycle-btn" data-setting-cycle="addressField" data-dir="next" data-root-id="${entity.rootId}" type="button">&gt;</button>
                                         </div>
                                       </div>
@@ -4192,7 +4266,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
                                         <span class="builder-row-label">Operation:</span>
                                         <div class="builder-cycle">
                                           <button class="builder-cycle-btn" data-setting-cycle="operation" data-dir="prev" data-root-id="${entity.rootId}" type="button">&lt;</button>
-                                          <span class="builder-cycle-value">${displayOperation}</span>
+                                          <span class="builder-cycle-value" data-setting-value="operation">${displayOperation}</span>
                                           <button class="builder-cycle-btn" data-setting-cycle="operation" data-dir="next" data-root-id="${entity.rootId}" type="button">&gt;</button>
                                         </div>
                                       </div>
@@ -4204,7 +4278,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
                                               (idx) => `
                                                 <div class="builder-mask-cell">
                                                   <button class="builder-mask-arrow" data-mask-dir="up" data-mask-idx="${idx}" data-root-id="${entity.rootId}" type="button">+</button>
-                                                  <span class="${(maskParts[idx] ?? "*") === "*" ? "builder-mask-value-wildcard" : ""}">${maskParts[idx] ?? "*"}</span>
+                                                  <span data-mask-value-idx="${idx}" class="${(maskParts[idx] ?? "*") === "*" ? "builder-mask-value-wildcard" : ""}">${maskParts[idx] ?? "*"}</span>
                                                   <button class="builder-mask-arrow" data-mask-dir="down" data-mask-idx="${idx}" data-root-id="${entity.rootId}" type="button">-</button>
                                                 </div>
                                               `,
@@ -4216,23 +4290,21 @@ export function mountBuilderView(options: BuilderMountOptions): void {
                                         <span class="builder-row-label">Action:</span>
                                         <div class="builder-cycle">
                                           <button class="builder-cycle-btn" data-setting-cycle="action" data-dir="prev" data-root-id="${entity.rootId}" type="button">&lt;</button>
-                                          <span class="builder-cycle-value">${displayAction}</span>
+                                          <span class="builder-cycle-value" data-setting-value="action">${displayAction}</span>
                                           <button class="builder-cycle-btn" data-setting-cycle="action" data-dir="next" data-root-id="${entity.rootId}" type="button">&gt;</button>
                                         </div>
                                       </div>
                                       ${
-                                        (entity.settings.action ?? "send_back") === "send_back"
-                                          ? `
-                                        <div class="builder-row builder-row-collision">
+                                        `
+                                        <div class="builder-row builder-row-collision" data-filter-collision-row style="${(entity.settings.action ?? "send_back") === "send_back" ? "" : "display:none"}">
                                           <span class="builder-row-label">Collision<br/>handling:</span>
                                           <div class="builder-cycle builder-cycle--tall">
                                             <button class="builder-cycle-btn" data-setting-cycle="collisionHandling" data-dir="prev" data-root-id="${entity.rootId}" type="button">&lt;</button>
-                                            <span class="builder-cycle-value">${displayCollision}</span>
+                                            <span class="builder-cycle-value" data-setting-value="collisionHandling">${displayCollision}</span>
                                             <button class="builder-cycle-btn" data-setting-cycle="collisionHandling" data-dir="next" data-root-id="${entity.rootId}" type="button">&gt;</button>
                                           </div>
                                         </div>
                                       `
-                                          : ""
                                       }
                                     </div>
                                   </div>
@@ -4522,6 +4594,13 @@ export function mountBuilderView(options: BuilderMountOptions): void {
         const key = input.dataset.settingKey!;
         const next = { ...entity.settings, [key]: input.value };
         state = updateEntitySettings(state, entity.id, next);
+        if (entity.templateType === "filter") {
+          refreshFilterSettingControls(entity.id);
+          refreshFilterMaskControls(entity.id);
+          schedulePersist();
+          renderInspector();
+          return;
+        }
         persist();
         renderInspector();
         renderCanvas();
@@ -4547,6 +4626,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       renderWireOverlay();
       return;
     }
+    const removingLink = selection.kind === "link" && !selectedEntityRootIds.size;
     if (selection.kind === "entity" || selectedEntityRootIds.size) {
       const ids = selectedEntityRootIds.size
         ? Array.from(selectedEntityRootIds)
@@ -4562,11 +4642,20 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     } else {
       state = removeLinkGroup(state, selection.rootId);
     }
-    persist();
+    if (removingLink) {
+      schedulePersist();
+    } else {
+      persist();
+    }
     selection = null;
     linkDrag = null;
     renderInspector();
-    renderCanvas();
+    if (removingLink) {
+      applySelectionToCanvas();
+      renderWireOverlay();
+    } else {
+      renderCanvas();
+    }
   };
 
   deleteBtn.addEventListener("click", deleteSelected);
@@ -4681,8 +4770,8 @@ export function mountBuilderView(options: BuilderMountOptions): void {
           (ent.settings.rotation ?? "clockwise") === "counterclockwise" ? "clockwise" : "counterclockwise";
         state = updateEntitySettings(state, ent.id, { ...ent.settings, rotation: next });
       });
-      persist();
-      renderCanvas();
+      refreshHubControlsForRoots(targetIds);
+      schedulePersist();
       applySelectionToCanvas();
       renderInspector();
       return;
