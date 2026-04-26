@@ -41,17 +41,6 @@ function colorForType(type: string): string {
   return "#cdd6f4";
 }
 
-function matchAddressPattern(pattern: string, address: string): boolean {
-  const p = pattern.split(".");
-  const a = address.split(".");
-  if (p.length !== 4 || a.length !== 4) return false;
-  for (let i = 0; i < 4; i += 1) {
-    if (p[i] === "*") continue;
-    if (p[i] !== a[i]) return false;
-  }
-  return true;
-}
-
 function uniqueList(values: string[]): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
@@ -154,22 +143,11 @@ export function compileBuilderPayload(state: BuilderState): CompiledBuilderPaylo
   const endpointEntities = expanded.entities.filter((e) => e.templateType === "endpoint");
   const sourceEndpointEntities = endpointEntities.filter((e) => !e.isShadow);
   const rowByAddress = new Map<string, EndpointDatasetRow>(endpointData.map((row) => [row.address, row]));
-  const uniqueAddresses = Array.from(
-    new Set(endpointEntities.map((e) => e.settings.address ?? "0.0.0.0")),
-  ).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
   sourceEndpointEntities.forEach((entity) => {
     const addr = entity.settings.address ?? "0.0.0.0";
     const row = rowByAddress.get(addr);
-    const destinations = uniqueList(
-      uniqueAddresses.filter((d) => {
-        if (d === addr) return false;
-        if (!row || row.sends_to.length === 0) return false;
-        return row.sends_to.some((pattern) => matchAddressPattern(pattern, d));
-      }),
-    );
-    const replyToSources = uniqueList(
-      uniqueAddresses.filter((d) => row?.replies_to.some((pattern) => matchAddressPattern(pattern, d)) ?? false),
-    );
+    const destinations = uniqueList((row?.sends_to ?? []).filter((d) => d !== addr));
+    const replyToSources = uniqueList((row?.replies_to ?? []).filter((d) => d !== addr));
     const device = devices[entity.instanceId];
     if (!device || device.type !== "endpoint") return;
     const sendRate = Number.isFinite(row?.send_rate) ? Math.max(0, Math.floor(row!.send_rate)) : 0;
