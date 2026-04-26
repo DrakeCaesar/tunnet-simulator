@@ -1348,6 +1348,8 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   let packetRenderFrameId = 0;
   let packetOverlayWidthPx = -1;
   let packetOverlayHeightPx = -1;
+  let simTickDeliveredEntityRootIds = new Set<string>();
+  let simTickCollisionDropEntityRootIds = new Set<string>();
   applyBuilderSidebarWidth(builderSidebarWidth);
 
   function cloneSimOccupancy(occ: Array<{ port: PortRef; packet: Packet }>): Array<{ port: PortRef; packet: Packet }> {
@@ -1356,6 +1358,58 @@ export function mountBuilderView(options: BuilderMountOptions): void {
 
   function cloneSimOccupancyWithPackets(occ: Array<{ port: PortRef; packet: Packet }>): Array<{ port: PortRef; packet: Packet }> {
     return occ.map((e) => ({ port: { ...e.port }, packet: { ...e.packet } }));
+  }
+
+  function simRootIdFromDeviceId(deviceId: string): string | null {
+    if (state.entities.some((e) => e.id === deviceId)) return deviceId;
+    const m = deviceId.match(/^(.+)@\d+$/);
+    if (!m) return null;
+    const rootId = m[1] ?? "";
+    return state.entities.some((e) => e.id === rootId) ? rootId : null;
+  }
+
+  function computeSimTickHighlights(
+    prev: Array<{ port: PortRef; packet: Packet }>,
+    current: Array<{ port: PortRef; packet: Packet }>,
+    statsBefore: SimulationStats,
+    statsAfter: SimulationStats,
+  ): { delivered: Set<string>; collisionDrop: Set<string> } {
+    const currentPacketIds = new Set(current.map((e) => e.packet.id));
+    const delivered = new Set<string>();
+    const missingNonDelivered: Array<{ port: PortRef; packet: Packet }> = [];
+    const prevCountByDevice = new Map<string, number>();
+    for (const e of prev) {
+      prevCountByDevice.set(e.port.deviceId, (prevCountByDevice.get(e.port.deviceId) ?? 0) + 1);
+    }
+    for (const e of prev) {
+      if (currentPacketIds.has(e.packet.id)) continue;
+      const device = builderSimDevices[e.port.deviceId];
+      if (device?.type === "endpoint" && e.port.port === 0 && e.packet.dest === device.address) {
+        const rootId = simRootIdFromDeviceId(e.port.deviceId);
+        if (rootId) delivered.add(rootId);
+        continue;
+      }
+      missingNonDelivered.push(e);
+    }
+    const collisionTickCount = Math.max(0, statsAfter.collisions - statsBefore.collisions);
+    if (collisionTickCount <= 0 || missingNonDelivered.length === 0) {
+      return { delivered, collisionDrop: new Set<string>() };
+    }
+    const weightedRoots: string[] = [];
+    for (const e of missingNonDelivered) {
+      const rootId = simRootIdFromDeviceId(e.port.deviceId);
+      if (!rootId) continue;
+      weightedRoots.push(rootId);
+      if ((prevCountByDevice.get(e.port.deviceId) ?? 0) > 1) {
+        weightedRoots.push(rootId);
+      }
+    }
+    const collisionDrop = new Set<string>();
+    for (const rootId of weightedRoots) {
+      collisionDrop.add(rootId);
+      if (collisionDrop.size >= collisionTickCount) break;
+    }
+    return { delivered, collisionDrop };
   }
 
   function simPortCountForDevice(device: Device): number {
@@ -1398,6 +1452,8 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     simCurrentOccupancy = cloneSimOccupancy(occupancy);
     simStats = { ...stats };
     simPreviousStatsTotals = { ...stats };
+    simTickDeliveredEntityRootIds = new Set();
+    simTickCollisionDropEntityRootIds = new Set();
     simPacketProgress = 1;
     invalidateBuilderPacketRenderCache();
     if (selection?.kind === "packet") {
@@ -1551,6 +1607,8 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     simAchievedStartTick = 0;
     simLastStepComputeMs = null;
     simEmaStepComputeMs = null;
+    simTickDeliveredEntityRootIds = new Set();
+    simTickCollisionDropEntityRootIds = new Set();
     rebuildBuilderSimEndpointIndex(topo);
     simPreviousOccupancy = [];
     simPreviousOccupancyByPacketId = new Map();
@@ -1608,6 +1666,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     simAnimating = true;
     simPreviousOccupancy = frame.prevOccupancy;
     simPreviousOccupancyByPacketId = simOccupancyByPacketId(simPreviousOccupancy);
+    const statsBeforeTick = simPreviousStatsTotals;
     const emittedTick = frame.stats.emitted - simPreviousStatsTotals.emitted;
     const deliveredTickCount = frame.stats.delivered - simPreviousStatsTotals.delivered;
     const droppedTickCount = frame.stats.dropped - simPreviousStatsTotals.dropped;
@@ -1623,6 +1682,15 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     simDropPctTick = emittedTick > 0 ? (droppedTickCount / emittedTick) * 100 : null;
     simDropPctCumulative =
       frame.stats.emitted > 0 ? (frame.stats.dropped / frame.stats.emitted) * 100 : null;
+    const tickHighlights = computeSimTickHighlights(
+      frame.prevOccupancy,
+      frame.currentOccupancy,
+      statsBeforeTick,
+      frame.stats,
+    );
+    simTickDeliveredEntityRootIds = tickHighlights.delivered;
+    simTickCollisionDropEntityRootIds = tickHighlights.collisionDrop;
+    applySimTickHighlightsToCanvas();
     simPreviousStatsTotals = { ...frame.stats };
     const stepMs = frame.stepComputeMs;
     simLastStepComputeMs = stepMs;
@@ -1739,6 +1807,27 @@ export function mountBuilderView(options: BuilderMountOptions): void {
         .querySelectorAll<HTMLElement>(`.builder-entity[data-root-id="${id}"]`)
         .forEach((el) => {
           el.classList.add("selected");
+        });
+    });
+  }
+
+  function applySimTickHighlightsToCanvas(): void {
+    canvasEl
+      .querySelectorAll<HTMLElement>(".builder-entity--tick-delivered, .builder-entity--tick-collision-drop")
+      .forEach((el) => {
+        el.classList.remove("builder-entity--tick-delivered", "builder-entity--tick-collision-drop");
+      });
+    simTickDeliveredEntityRootIds.forEach((rootId) => {
+      canvasEl
+        .querySelectorAll<HTMLElement>(`.builder-entity[data-root-id="${rootId}"]`)
+        .forEach((el) => el.classList.add("builder-entity--tick-delivered"));
+    });
+    simTickCollisionDropEntityRootIds.forEach((rootId) => {
+      canvasEl
+        .querySelectorAll<HTMLElement>(`.builder-entity[data-root-id="${rootId}"]`)
+        .forEach((el) => {
+          el.classList.remove("builder-entity--tick-delivered");
+          el.classList.add("builder-entity--tick-collision-drop");
         });
     });
   }
@@ -4455,6 +4544,11 @@ export function mountBuilderView(options: BuilderMountOptions): void {
                                 : entity.templateType === "hub"
                                   ? " builder-entity--hub"
                                   : "";
+                            const simTickFlashClass = simTickCollisionDropEntityRootIds.has(entity.rootId)
+                              ? " builder-entity--tick-collision-drop"
+                              : simTickDeliveredEntityRootIds.has(entity.rootId)
+                                ? " builder-entity--tick-delivered"
+                                : "";
                             const settingsBlock =
                               entity.templateType === "relay" ||
                               entity.templateType === "filter" ||
@@ -4479,7 +4573,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
                                   : `<div class="builder-ports">${entity.ports.map((p) => portBtn(p)).join("")}</div>`;
                             return `
                               <div
-                                class="builder-entity ${selected}${entityShapeClass}"
+                                class="builder-entity ${selected}${entityShapeClass}${simTickFlashClass}"
                                 data-instance-id="${entity.instanceId}"
                                 data-root-id="${entity.rootId}"
                                 data-static-endpoint="${isOuterStatic ? "1" : "0"}"
@@ -4560,6 +4654,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     recordPerf("canvas.total", performance.now() - t0);
     renderPerfPanel();
     applySelectionToCanvas();
+    applySimTickHighlightsToCanvas();
 
     // entity/port selection and link-drag start are delegated once (outside renderCanvas)
 

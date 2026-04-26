@@ -825,6 +825,42 @@ textarea {
   cursor: grab;
 }
 
+.builder-entity.builder-entity--tick-delivered {
+  border-color: #a6e3a1;
+  z-index: 5;
+}
+
+.builder-entity.builder-entity--tick-collision-drop {
+  border-color: #f38ba8;
+  z-index: 5;
+}
+
+.builder-entity.builder-entity--tick-delivered.builder-entity--hub {
+  border: none;
+  box-shadow: none;
+}
+
+.builder-entity.builder-entity--tick-collision-drop.builder-entity--hub {
+  border: none;
+  box-shadow: none;
+}
+
+.builder-entity.builder-entity--tick-delivered.builder-entity--hub .builder-hub-triangle {
+  stroke: #a6e3a1;
+}
+
+.builder-entity.builder-entity--tick-collision-drop.builder-entity--hub .builder-hub-triangle {
+  stroke: #f38ba8;
+}
+
+.builder-entity.builder-entity--tick-delivered.builder-entity--relay .builder-relay-core {
+  border-color: #a6e3a1;
+}
+
+.builder-entity.builder-entity--tick-collision-drop.builder-entity--relay .builder-relay-core {
+  border-color: #f38ba8;
+}
+
 .builder-dragging-grab .builder-entity,
 .builder-dragging-grab .builder-entity--hub,
 .builder-dragging-grab .builder-port,
