@@ -596,6 +596,8 @@ textarea {
   gap: 10px;
   width: max-content;
   pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .builder-floating-templates {
