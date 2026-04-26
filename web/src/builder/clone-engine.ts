@@ -44,7 +44,7 @@ export interface ExpandedBuilderState {
 }
 
 function wrappedAdd(value: number, add: number): number {
-  return (value + add) % 4;
+  return ((value + add) % 4 + 4) % 4;
 }
 
 function strideForMask(layer: BuilderLayer, fixedIndex: number): number | null {
@@ -66,6 +66,14 @@ function strideForMask(layer: BuilderLayer, fixedIndex: number): number | null {
 }
 
 export function mapMaskForSegment(mask: string, layer: BuilderLayer, deltaSegments: number): string {
+  return mapMaskWithDirection(mask, layer, deltaSegments, 1);
+}
+
+export function unmapMaskForSegment(mask: string, layer: BuilderLayer, deltaSegments: number): string {
+  return mapMaskWithDirection(mask, layer, deltaSegments, -1);
+}
+
+function mapMaskWithDirection(mask: string, layer: BuilderLayer, deltaSegments: number, direction: 1 | -1): string {
   const parts = mask.split(".");
   if (parts.length !== 4) return mask;
   const fixed = parts
@@ -76,7 +84,7 @@ export function mapMaskForSegment(mask: string, layer: BuilderLayer, deltaSegmen
   const fixedIndex = fixed[0].idx;
   const stride = strideForMask(layer, fixedIndex);
   if (!stride) return mask;
-  const delta = Math.floor(deltaSegments / stride);
+  const delta = Math.floor(deltaSegments / stride) * direction;
   const original = Number(parts[fixedIndex]);
   if (!Number.isFinite(original)) return mask;
   parts[fixedIndex] = String(wrappedAdd(original, delta));

@@ -1,5 +1,5 @@
 import * as assert from "node:assert/strict";
-import { expandBuilderState, expandLinks, mapMaskForSegment, parseBuilderInstanceId } from "./clone-engine";
+import { expandBuilderState, expandLinks, mapMaskForSegment, parseBuilderInstanceId, unmapMaskForSegment } from "./clone-engine";
 import {
   addLinkRootOneWirePerPort,
   crossLayerBlockSlotFromSegments,
@@ -24,6 +24,9 @@ assert.equal(mapMaskForSegment("*.1.*.*", "middle16", 4), "*.2.*.*");
 assert.equal(mapMaskForSegment("*.1.*.*", "outer64", 15), "*.1.*.*");
 assert.equal(mapMaskForSegment("*.1.*.*", "outer64", 16), "*.2.*.*");
 assert.equal(mapMaskForSegment("*.*.1.*", "outer64", 4), "*.*.2.*");
+assert.equal(unmapMaskForSegment("*.*.0.*", "middle16", 3), "*.*.1.*");
+assert.equal(unmapMaskForSegment("*.1.*.*", "middle16", 3), "*.1.*.*");
+assert.equal(unmapMaskForSegment("*.0.*.*", "middle16", 4), "*.3.*.*");
 
 assert.deepEqual(parseBuilderInstanceId("e1@3"), { rootId: "e1", segmentIndex: 3 });
 assert.deepEqual(parseBuilderInstanceId("ol-ep-12@12"), { rootId: "ol-ep-12", segmentIndex: 12 });

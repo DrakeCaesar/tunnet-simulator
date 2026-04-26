@@ -11,6 +11,7 @@ import {
   defaultSettings,
   isStaticOuterLeafEndpoint,
   isOuterLeafVoidSegment,
+  LAYER_COUNTS,
   linkTreatedAsInnerOuterVoidBand,
   linkTreatedAsSlottedInnerMiddle,
   OUTER_CANVAS_VOID_MERGE_KEY,
@@ -25,10 +26,12 @@ import {
   expandLinks,
   layerColumns,
   layerTitle,
+  mapMaskForSegment,
   parseBuilderInstanceId,
   outerLayerBuilderColumnSlots,
   orderedLayersTopDown,
   segmentLabel,
+  unmapMaskForSegment,
 } from "./clone-engine";
 import {
   exportBuilderStateText,
@@ -3094,10 +3097,16 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     renderInspector();
   };
 
-  const updateMaskAt = (rootId: string, maskIdx: number, dir: "up" | "down"): void => {
+  const updateMaskAt = (rootId: string, maskIdx: number, dir: "up" | "down", instanceSegmentIndex?: number): void => {
     const rootEnt = state.entities.find((e) => e.id === rootId);
     if (!rootEnt) return;
-    const parts = (rootEnt.settings.mask ?? "*.*.*.*").split(".");
+    const segmentIndex = Number.isInteger(instanceSegmentIndex) ? instanceSegmentIndex : rootEnt.segmentIndex;
+    const delta = (segmentIndex - rootEnt.segmentIndex + LAYER_COUNTS[rootEnt.layer]) % LAYER_COUNTS[rootEnt.layer];
+    const visibleMask =
+      rootEnt.templateType === "filter"
+        ? mapMaskForSegment(rootEnt.settings.mask ?? "*.*.*.*", rootEnt.layer, delta)
+        : (rootEnt.settings.mask ?? "*.*.*.*");
+    const parts = visibleMask.split(".");
     while (parts.length < 4) parts.push("*");
     for (let i = 0; i < 4; i += 1) parts[i] = parts[i] ?? "*";
 
@@ -3109,7 +3118,11 @@ export function mountBuilderView(options: BuilderMountOptions): void {
 
     const nextParts: string[] = ["*", "*", "*", "*"];
     nextParts[maskIdx] = MASK_VALUE_CYCLE[poolIdx];
-    state = updateEntitySettings(state, rootEnt.id, { ...rootEnt.settings, mask: nextParts.join(".") });
+    const rootMask =
+      rootEnt.templateType === "filter"
+        ? unmapMaskForSegment(nextParts.join("."), rootEnt.layer, delta)
+        : nextParts.join(".");
+    state = updateEntitySettings(state, rootEnt.id, { ...rootEnt.settings, mask: rootMask });
     persist();
     renderCanvas();
     renderInspector();
@@ -4645,7 +4658,9 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       const rawIdx = maskBtn.dataset.maskIdx;
       const dir = maskBtn.dataset.maskDir === "down" ? "down" : "up";
       if (!rootId || rawIdx === undefined) return;
-      updateMaskAt(rootId, Number(rawIdx), dir);
+      const instanceId = maskBtn.closest<HTMLElement>(".builder-entity")?.dataset.instanceId ?? "";
+      const instance = parseBuilderInstanceId(instanceId);
+      updateMaskAt(rootId, Number(rawIdx), dir, instance?.segmentIndex);
       return;
     }
 
