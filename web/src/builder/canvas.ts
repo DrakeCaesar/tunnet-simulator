@@ -2684,6 +2684,8 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     const label = packetLabelPool[slotIndex];
     if (label) {
       if (label.visible) {
+        label.bg.setAttribute("display", "none");
+        label.text.setAttribute("display", "none");
         label.visible = false;
       }
       if (label.lastPacketId !== null) {
