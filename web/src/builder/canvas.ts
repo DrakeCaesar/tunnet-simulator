@@ -78,7 +78,7 @@ const PACKET_IP_LABEL_OFFSET_Y_PX = -13;
 const BUILDER_LAYOUT_SLOT_COUNT = 4;
 const CANVAS_SCALE_X_STEPS = [1 / 16, 1 / 8, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.25, 2.5, 2.75, 3, 3.25, 3.5, 3.75, 4] as const;
 const DEFAULT_LAYER_SCALE_Y = { outer64: 0.5, middle16: 1.5, inner4: 1.5, core1: 0.5 } as const;
-const BUILDER_PANEL_SECTION_IDS = ["actions", "templates", "simulation", "inspector", "performance"] as const;
+const BUILDER_PANEL_SECTION_IDS = ["actions", "templates", "simulation", "performance"] as const;
 
 /** One mask nibble cycles * → 0 → 1 → 2 → 3 → * (matches game semantics). */
 const MASK_VALUE_CYCLE = ["*", "0", "1", "2", "3"] as const;
@@ -584,7 +584,9 @@ function buildFilterDescription(settings: Record<string, string>): string {
   const operation = settings.operation === "match" ? "match" : "differ";
   const action = settings.action === "drop" ? "drop" : "send_back";
   const collisionHandling =
-    settings.collisionHandling === "drop_inbound" || settings.collisionHandling === "drop_outbound"
+    settings.collisionHandling === "drop_inbound" ||
+    settings.collisionHandling === "drop_outbound" ||
+    settings.collisionHandling === "send_back_outbound"
       ? settings.collisionHandling
       : "drop_inbound";
   const mask = settings.mask ?? "*.*.*.*";
@@ -663,10 +665,12 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     const i = Math.max(0, Math.min(CANVAS_SCALE_X_STEPS.length - 1, Math.round(index)));
     return CANVAS_SCALE_X_STEPS[i];
   };
-  const formatCanvasScaleX = (v: number): string => {
+  const formatScaleLabel = (v: number): string => {
     if (Math.abs(v - 1 / 32) < 1e-9) return "1/32x";
     if (Math.abs(v - 1 / 16) < 1e-9) return "1/16x";
     if (Math.abs(v - 1 / 8) < 1e-9) return "1/8x";
+    if (Math.abs(v - 1 / 4) < 1e-9) return "1/4x";
+    if (Math.abs(v - 1 / 2) < 1e-9) return "1/2x";
     return `${v.toFixed(2)}x`;
   };
   const clampCanvasScaleY = (v: number): number => Math.max(0.25, Math.min(4, v));
@@ -819,29 +823,6 @@ export function mountBuilderView(options: BuilderMountOptions): void {
             </div>
           </div>
         </section>
-        <section ${panelSectionAttrs("simulation")}>
-          ${panelToggle("simulation", "Simulation")}
-          <div id="builder-panel-simulation-body" class="builder-panel-section-body">
-            <div class="builder-sim-toolbar">
-              <button id="builder-sim-play-pause" type="button">Play</button>
-              <button id="builder-sim-step" type="button">Step</button>
-              <button id="builder-sim-reset" type="button">Reset</button>
-              <button id="builder-sim-toggle-packet-ips" type="button">${builderPageState.showPacketIps ? "Hide IPs" : "Show IPs"}</button>
-            </div>
-            <label class="builder-scale-row" for="builder-sim-speed">
-              <span>Tick pace</span>
-              <input id="builder-sim-speed" type="range" min="${SPEED_EXP_MIN}" max="${SPEED_EXP_MAX}" step="1" value="${SPEED_EXP_DEFAULT}" />
-              <span id="builder-sim-speed-value">${formatSpeedLabel(SPEED_EXP_DEFAULT)}</span>
-            </label>
-            <div id="builder-sim-meta" class="builder-sim-meta">Initializing…</div>
-          </div>
-        </section>
-        <section ${panelSectionAttrs("inspector")}>
-          ${panelToggle("inspector", "Inspector")}
-          <div id="builder-panel-inspector-body" class="builder-panel-section-body">
-            <div id="builder-inspector">No selection.</div>
-          </div>
-        </section>
         <section ${panelSectionAttrs("performance")}>
           ${panelToggle("performance", "Performance")}
           <div id="builder-panel-performance-body" class="builder-panel-section-body">
@@ -863,32 +844,50 @@ export function mountBuilderView(options: BuilderMountOptions): void {
             </div>
             <div id="builder-templates" class="builder-floating-templates"></div>
           </div>
+          <div class="builder-floating-simulation" aria-label="Simulation controls">
+            <div class="builder-sim-left">
+              <div class="builder-sim-toolbar">
+                <button id="builder-sim-play-pause" type="button">Play</button>
+                <button id="builder-sim-step" type="button">Step</button>
+                <button id="builder-sim-reset" type="button">Reset</button>
+                <button id="builder-sim-toggle-packet-ips" type="button">${builderPageState.showPacketIps ? "Hide IPs" : "Show IPs"}</button>
+              </div>
+              <label class="builder-scale-row builder-sim-speed-row" for="builder-sim-speed">
+                <span>Tick pace</span>
+                <input id="builder-sim-speed" type="range" min="${SPEED_EXP_MIN}" max="${SPEED_EXP_MAX}" step="1" value="${SPEED_EXP_DEFAULT}" />
+                <span id="builder-sim-speed-value">${formatSpeedLabel(SPEED_EXP_DEFAULT)}</span>
+              </label>
+            </div>
+            <div class="builder-sim-right">
+              <div id="builder-sim-meta" class="builder-sim-meta">Initializing…</div>
+            </div>
+          </div>
           <div class="builder-floating-scale" aria-label="Canvas scale controls">
             <div class="builder-scale-controls">
               <label class="builder-scale-row" for="builder-scale-x">
                 <span>Horizontal</span>
                 <input id="builder-scale-x" type="range" min="0" max="${CANVAS_SCALE_X_STEPS.length - 1}" step="1" value="${canvasScaleXIndexFromValue(canvasScale.x)}" />
-                <span id="builder-scale-x-value">${formatCanvasScaleX(canvasScale.x)}</span>
+                <span id="builder-scale-x-value">${formatScaleLabel(canvasScale.x)}</span>
               </label>
               <label class="builder-scale-row" for="builder-scale-y-outer64">
                 <span>Octet 4</span>
                 <input id="builder-scale-y-outer64" type="range" min="0.25" max="4" step="0.25" value="${canvasScale.yByLayer.outer64.toFixed(2)}" />
-                <span id="builder-scale-y-outer64-value">${canvasScale.yByLayer.outer64.toFixed(2)}x</span>
+                <span id="builder-scale-y-outer64-value">${formatScaleLabel(canvasScale.yByLayer.outer64)}</span>
               </label>
               <label class="builder-scale-row" for="builder-scale-y-middle16">
                 <span>Octet 3</span>
                 <input id="builder-scale-y-middle16" type="range" min="0.25" max="4" step="0.25" value="${canvasScale.yByLayer.middle16.toFixed(2)}" />
-                <span id="builder-scale-y-middle16-value">${canvasScale.yByLayer.middle16.toFixed(2)}x</span>
+                <span id="builder-scale-y-middle16-value">${formatScaleLabel(canvasScale.yByLayer.middle16)}</span>
               </label>
               <label class="builder-scale-row" for="builder-scale-y-inner4">
                 <span>Octet 2</span>
                 <input id="builder-scale-y-inner4" type="range" min="0.25" max="4" step="0.25" value="${canvasScale.yByLayer.inner4.toFixed(2)}" />
-                <span id="builder-scale-y-inner4-value">${canvasScale.yByLayer.inner4.toFixed(2)}x</span>
+                <span id="builder-scale-y-inner4-value">${formatScaleLabel(canvasScale.yByLayer.inner4)}</span>
               </label>
               <label class="builder-scale-row" for="builder-scale-y-core1">
                 <span>Octet 1</span>
                 <input id="builder-scale-y-core1" type="range" min="0.25" max="4" step="0.25" value="${canvasScale.yByLayer.core1.toFixed(2)}" />
-                <span id="builder-scale-y-core1-value">${canvasScale.yByLayer.core1.toFixed(2)}x</span>
+                <span id="builder-scale-y-core1-value">${formatScaleLabel(canvasScale.yByLayer.core1)}</span>
               </label>
             </div>
           </div>
@@ -905,7 +904,6 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   const canvasEl = root.querySelector<HTMLDivElement>("#builder-canvas")!;
   const wireOverlayEl = root.querySelector<SVGSVGElement>("#builder-wire-overlay")!;
   const packetOverlayEl = root.querySelector<SVGSVGElement>("#builder-packet-overlay")!;
-  const inspectorEl = root.querySelector<HTMLDivElement>("#builder-inspector")!;
   const perfEl = root.querySelector<HTMLPreElement>("#builder-perf")!;
   const scaleXEl = root.querySelector<HTMLInputElement>("#builder-scale-x")!;
   const scaleYOuterEl = root.querySelector<HTMLInputElement>("#builder-scale-y-outer64")!;
@@ -950,6 +948,10 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     kind: "slot",
     index: builderPageState.activeLayoutSlotIndex,
   };
+  let filterTooltipTimer: number | null = null;
+  let filterTooltipRootId: string | null = null;
+  let filterTooltipInstanceId: string | null = null;
+  let filterTooltipEl: HTMLDivElement | null = null;
 
   function formatSlotTimestamp(ts: number): string {
     try {
@@ -1262,11 +1264,11 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       wrap.style.overflowY = totalYScale > 4 ? "scroll" : "hidden";
     }
     scaleXEl.value = String(canvasScaleXIndexFromValue(canvasScale.x));
-    scaleXValueEl.textContent = formatCanvasScaleX(canvasScale.x);
-    scaleYOuterValueEl.textContent = `${canvasScale.yByLayer.outer64.toFixed(2)}x`;
-    scaleYMiddleValueEl.textContent = `${canvasScale.yByLayer.middle16.toFixed(2)}x`;
-    scaleYInnerValueEl.textContent = `${canvasScale.yByLayer.inner4.toFixed(2)}x`;
-    scaleYCoreValueEl.textContent = `${canvasScale.yByLayer.core1.toFixed(2)}x`;
+    scaleXValueEl.textContent = formatScaleLabel(canvasScale.x);
+    scaleYOuterValueEl.textContent = formatScaleLabel(canvasScale.yByLayer.outer64);
+    scaleYMiddleValueEl.textContent = formatScaleLabel(canvasScale.yByLayer.middle16);
+    scaleYInnerValueEl.textContent = formatScaleLabel(canvasScale.yByLayer.inner4);
+    scaleYCoreValueEl.textContent = formatScaleLabel(canvasScale.yByLayer.core1);
     scheduleWireOverlayRender();
   }
 
@@ -1701,19 +1703,16 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       return `${sign}${grouped}`;
     };
     simMetaEl.innerHTML = `
-      <div class="stats-row">
+      <div class="builder-sim-stats-grid">
         <div class="stat-pill"><span>Tick</span><strong>${formatSimInteger(simStats.tick)}</strong></div>
         <div class="stat-pill"><span>In-flight</span><strong>${formatSimInteger(simCurrentOccupancy.length)}</strong></div>
         <div class="stat-pill"><span>Emitted</span><strong>${formatSimInteger(simStats.emitted)}</strong></div>
         <div class="stat-pill"><span>Delivered</span><strong>${formatSimInteger(simStats.delivered)}</strong></div>
         <div class="stat-pill"><span>Dropped</span><strong>${formatSimInteger(simStats.dropped)}</strong></div>
-        <div class="stat-pill"><span>Bounced</span><strong>${formatSimInteger(simStats.bounced)}</strong></div>
         <div class="stat-pill"><span>TTL expired</span><strong>${formatSimInteger(simStats.ttlExpired)}</strong></div>
         <div class="stat-pill"><span>Collisions</span><strong>${formatSimInteger(simStats.collisions)}</strong></div>
-        <div class="stat-pill"><span>Delivered/tick</span><strong>${simDeliveredPerTick === null ? "—" : simDeliveredPerTick.toFixed(2)}</strong></div>
-        <div class="stat-pill"><span>Delivered avg100</span><strong>${simDeliveredPerTickAvg100 === null ? "—" : simDeliveredPerTickAvg100.toFixed(2)}</strong></div>
-        <div class="stat-pill"><span>Drop % tick</span><strong>${simDropPctTick === null ? "—" : `${simDropPctTick.toFixed(1)}%`}</strong></div>
-        <div class="stat-pill"><span>Drop % cumulative</span><strong>${simDropPctCumulative === null ? "—" : `${simDropPctCumulative.toFixed(1)}%`}</strong></div>
+        <div class="stat-pill"><span>Delivered /100</span><strong>${simDeliveredPerTickAvg100 === null ? "—" : simDeliveredPerTickAvg100.toFixed(2)}</strong></div>
+        <div class="stat-pill"><span>Drop %</span><strong>${simDropPctCumulative === null ? "—" : `${simDropPctCumulative.toFixed(1)}%`}</strong></div>
       </div>
     `;
   }
@@ -1972,6 +1971,52 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   function isPointInDeleteDropZone(clientX: number, clientY: number): boolean {
     const r = deleteDropZoneEl.getBoundingClientRect();
     return clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom;
+  }
+
+  function ensureFilterTooltipEl(): HTMLDivElement {
+    if (filterTooltipEl) return filterTooltipEl;
+    const el = document.createElement("div");
+    el.className = "builder-filter-tooltip";
+    el.style.display = "none";
+    document.body.appendChild(el);
+    filterTooltipEl = el;
+    return el;
+  }
+
+  function hideFilterTooltip(): void {
+    if (filterTooltipTimer !== null) {
+      window.clearTimeout(filterTooltipTimer);
+      filterTooltipTimer = null;
+    }
+    filterTooltipRootId = null;
+    filterTooltipInstanceId = null;
+    if (filterTooltipEl) {
+      filterTooltipEl.style.display = "none";
+    }
+  }
+
+  function showFilterTooltip(rootId: string, instanceId?: string | null): void {
+    const entity = state.entities.find((e) => e.id === rootId && e.templateType === "filter");
+    if (!entity) return;
+    const host =
+      (instanceId
+        ? canvasEl.querySelector<HTMLElement>(
+            `.builder-entity[data-root-id="${rootId}"][data-instance-id="${instanceId}"]`,
+          )
+        : null) ?? canvasEl.querySelector<HTMLElement>(`.builder-entity[data-root-id="${rootId}"]`);
+    if (!host) return;
+    const tooltip = ensureFilterTooltipEl();
+    tooltip.textContent = buildFilterDescription(entity.settings);
+    const r = host.getBoundingClientRect();
+    tooltip.style.left = `${Math.round(r.left + r.width / 2)}px`;
+    tooltip.style.top = `${Math.round(r.top - 10)}px`;
+    tooltip.style.display = "block";
+  }
+
+  function refreshFilterTooltipIfVisible(rootId: string): void {
+    if (filterTooltipRootId !== rootId) return;
+    if (!filterTooltipEl || filterTooltipEl.style.display !== "block") return;
+    showFilterTooltip(rootId, filterTooltipInstanceId);
   }
 
   function applySimTickHighlightsToCanvas(): void {
@@ -2415,6 +2460,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     if (ev.button !== 0) return;
     ev.preventDefault();
     ev.stopPropagation();
+    hideFilterTooltip();
     let createdRootId: string | null = null;
     let lastPlacementKey = "";
     const floatingGhostEl = buildTemplateDragImage(templateType);
@@ -2429,6 +2475,11 @@ export function mountBuilderView(options: BuilderMountOptions): void {
 
     const updateDraggedEntity = (clientX: number, clientY: number): void => {
       moveFloatingGhost(clientX, clientY);
+      const overDeleteZone = isPointInDeleteDropZone(clientX, clientY);
+      setDeleteDropZoneActive(overDeleteZone);
+      if (createdRootId && overDeleteZone) {
+        return;
+      }
       const section = segmentFromClientPoint(clientX, clientY);
       if (!section) return;
       const placement = templatePlacementInSection(templateType, section, clientX, clientY);
@@ -2487,9 +2538,15 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     const onUp = (up: MouseEvent): void => {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
+      const droppedInDeleteZone = isPointInDeleteDropZone(up.clientX, up.clientY);
+      setDeleteDropZoneActive(false);
       clearBuilderDragCursor();
       floatingGhostEl.remove();
       if (!createdRootId) return;
+      if (droppedInDeleteZone) {
+        deleteEntityRootIds([createdRootId]);
+        return;
+      }
       schedulePersist();
       renderInspector();
       up.preventDefault();
@@ -3492,6 +3549,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     }
     state = updateEntitySettings(state, rootEnt.id, { ...rootEnt.settings, [key]: next });
     refreshFilterSettingControls(rootEnt.id);
+    refreshFilterTooltipIfVisible(rootEnt.id);
     schedulePersist();
     renderInspector();
   };
@@ -3523,6 +3581,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
         : nextParts.join(".");
     state = updateEntitySettings(state, rootEnt.id, { ...rootEnt.settings, mask: rootMask });
     refreshFilterMaskControls(rootEnt.id);
+    refreshFilterTooltipIfVisible(rootEnt.id);
     schedulePersist();
     renderInspector();
   };
@@ -3666,6 +3725,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     const rootEnt = state.entities.find((e) => e.id === rootId);
     const seg = entityEl.closest<HTMLElement>(".builder-segment");
     if (!rootEnt || !seg) return;
+    hideFilterTooltip();
     if (isStaticOuterLeafEndpoint(rootEnt)) return;
     if (rootEnt.templateType === "text") {
       const rect = entityEl.getBoundingClientRect();
@@ -4524,6 +4584,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   };
 
   function renderCanvas(): void {
+    hideFilterTooltip();
     const t0 = performance.now();
     const tExpand0 = performance.now();
     const expanded = expandBuilderState(state, { builderView: true });
@@ -4768,6 +4829,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
                                 data-root-id="${entity.rootId}"
                                 data-static-endpoint="${isOuterStatic ? "1" : "0"}"
                                 data-relay-angle="${entity.templateType === "relay" ? String(relayAngleDeg) : ""}"
+                                data-template-type="${entity.templateType}"
                                 style="left:${
                                   entity.templateType === "hub"
                                     ? `calc(${entity.x} * var(--builder-grid-step-x) - ${HUB_LAYOUT.G.x.toFixed(3)}px)`
@@ -4857,152 +4919,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     });
   }
 
-  function renderInspector(): void {
-    if (!selection) {
-      inspectorEl.textContent = "No selection.";
-      return;
-    }
-    if (selection.kind === "link") {
-      const lSel = selection;
-      const link = state.links.find((l) => l.id === lSel.rootId);
-      if (!link) {
-        inspectorEl.textContent = "Link missing.";
-        return;
-      }
-      const isSameRootPin =
-        link.fromEntityId === link.toEntityId &&
-        link.fromSegmentIndex !== undefined &&
-        link.toSegmentIndex !== undefined;
-      const isSameLayerTwoRoots =
-        link.fromEntityId !== link.toEntityId && link.sameLayerSegmentDelta !== undefined;
-      const isCrossLayerSlot =
-        link.fromEntityId !== link.toEntityId &&
-        link.crossLayerBlockSlot !== undefined &&
-        link.sameLayerSegmentDelta === undefined &&
-        !isSameRootPin;
-      const sameRootDelta =
-        isSameRootPin && link.fromSegmentIndex !== undefined && link.toSegmentIndex !== undefined
-          ? link.toSegmentIndex - link.fromSegmentIndex
-          : 0;
-      const fromText = isSameRootPin
-        ? `${link.fromEntityId}@${link.fromSegmentIndex}`
-        : link.fromEntityId;
-      const toText = isSameRootPin
-        ? `${link.toEntityId}@${link.toSegmentIndex}`
-        : link.toEntityId;
-      const byEntityId = new Map(state.entities.map((e) => [e.id, e]));
-      let slottedScopeExtra = "";
-      if (isCrossLayerSlot) {
-        if (linkTreatedAsInnerOuterVoidBand(link, byEntityId)) {
-          slottedScopeExtra = " — to/from outer 0.0.3. void; does not displace other slotted cross-layer";
-        } else if (linkTreatedAsSlottedInnerMiddle(link, byEntityId)) {
-          slottedScopeExtra = " — inner↔middle (per 0.0.n. block lane); does not displace other lanes, or inner↔outer";
-        }
-      }
-      const scopeNote = isSameRootPin
-        ? `<div class="kv"><span>Scope</span><strong>Same device: mirrors port ${link.fromPort} → port ${link.toPort} with toSeg = fromSeg + ${sameRootDelta}</strong></div>`
-        : isSameLayerTwoRoots
-          ? `<div class="kv"><span>Scope</span><strong>Same layer: each mirror uses toSeg = fromSeg + ${link.sameLayerSegmentDelta}</strong></div>`
-          : isCrossLayerSlot
-            ? `<div class="kv"><span>Scope</span><strong>Cross-layer: one fine column per coarse segment (lane ${
-                link.crossLayerBlockSlot
-              } in each block)${slottedScopeExtra}</strong></div>`
-            : `<div class="kv"><span>Scope</span><strong>Cross-layer (legacy): one wire per base column (64)</strong></div>`;
-      inspectorEl.innerHTML = `
-        <div class="kv"><span>Type</span><strong>Link</strong></div>
-        <div class="kv"><span>From</span><strong>${fromText} port ${link.fromPort}</strong></div>
-        <div class="kv"><span>To</span><strong>${toText} port ${link.toPort}</strong></div>
-        ${scopeNote}
-      `;
-      return;
-    }
-    if (selection.kind === "packet") {
-      const pSel = selection;
-      const inFlight = simCurrentOccupancy.find((e) => e.packet.id === pSel.packetId);
-      if (!inFlight) {
-        selection = null;
-        renderInspector();
-        renderWireOverlay();
-        return;
-      }
-      const p = inFlight.packet;
-      const { deviceId, port } = inFlight.port;
-      inspectorEl.innerHTML = `
-        <div class="kv"><span>Type</span><strong>Packet</strong></div>
-        <div class="kv"><span>Id</span><strong>${p.id}</strong></div>
-        <div class="kv"><span>At device</span><strong>${deviceId}</strong></div>
-        <div class="kv"><span>At port</span><strong>${port}</strong></div>
-        <div class="kv"><span>Source</span><strong>${p.src}</strong></div>
-        <div class="kv"><span>Destination</span><strong>${p.dest}</strong></div>
-        <div class="kv"><span>TTL</span><strong>${p.ttl === undefined ? "inf" : String(p.ttl)}</strong></div>
-        <div class="kv"><span>Sensitive</span><strong>${p.sensitive ? "yes" : "no"}</strong></div>
-        <div class="kv"><span>Subject</span><strong>${p.subject ?? "—"}</strong></div>
-        <div class="kv"><span>Sim tick</span><strong>${simStats.tick}</strong></div>
-      `;
-      return;
-    }
-    if (selection.kind !== "entity") {
-      inspectorEl.textContent = "Unknown selection.";
-      return;
-    }
-    const eSel = selection;
-    const entity = state.entities.find((e) => e.id === eSel.rootId);
-    if (!entity) {
-      inspectorEl.textContent = "Entity missing.";
-      return;
-    }
-    if (isStaticOuterLeafEndpoint(entity)) {
-      const addr = entity.settings.address ?? "0.0.0.0";
-      inspectorEl.innerHTML = `
-        <div class="kv"><span>Type</span><strong>Endpoint (fixed)</strong></div>
-        <div class="kv"><span>Layer</span><strong>${entity.layer}</strong></div>
-        <div class="kv"><span>Segment</span><strong>${entity.segmentIndex}</strong></div>
-        <div class="kv"><span>Address</span><strong>${addr}</strong></div>
-        <p class="builder-inspector-note">This endpoint is preplaced and cannot be moved or deleted.</p>
-      `;
-      return;
-    }
-    const entries = Object.entries(entity.settings);
-    inspectorEl.innerHTML = `
-      <div class="kv"><span>Type</span><strong>${entity.templateType}</strong></div>
-      <div class="kv"><span>Layer</span><strong>${entity.layer}</strong></div>
-      <div class="kv"><span>Segment</span><strong>${entity.segmentIndex}</strong></div>
-      ${
-        entity.templateType === "filter"
-          ? `<div class="builder-inspector-description">${buildFilterDescription(entity.settings)}</div>`
-          : ""
-      }
-      ${
-        entries.length
-          ? `<div class="builder-settings">
-        ${entries
-          .map(
-            ([k, v]) =>
-              `<label class="builder-setting"><span>${k}</span><input data-setting-key="${k}" type="text" value="${v}" /></label>`,
-          )
-          .join("")}
-      </div>`
-          : ""
-      }
-    `;
-    inspectorEl.querySelectorAll<HTMLInputElement>("input[data-setting-key]").forEach((input) => {
-      input.addEventListener("change", () => {
-        const key = input.dataset.settingKey!;
-        const next = { ...entity.settings, [key]: input.value };
-        state = updateEntitySettings(state, entity.id, next);
-        if (entity.templateType === "filter") {
-          refreshFilterSettingControls(entity.id);
-          refreshFilterMaskControls(entity.id);
-          schedulePersist();
-          renderInspector();
-          return;
-        }
-        persist();
-        renderInspector();
-        renderCanvas();
-      });
-    });
-  }
+  function renderInspector(): void {}
 
   root.querySelectorAll<HTMLButtonElement>("[data-builder-panel-toggle]").forEach((toggleEl) => {
     toggleEl.addEventListener("click", () => {
@@ -5336,6 +5253,35 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       }
       setSelection({ kind: "entity", rootId });
     }
+  });
+
+  canvasEl.addEventListener("mousemove", (ev) => {
+    if (root.classList.contains("builder-dragging-grab")) {
+      hideFilterTooltip();
+      return;
+    }
+    const entityEl = (ev.target as Element | null)?.closest<HTMLElement>(".builder-entity[data-template-type]");
+    const nextRootId = entityEl?.dataset.templateType === "filter" ? (entityEl.dataset.rootId ?? null) : null;
+    const nextInstanceId =
+      entityEl?.dataset.templateType === "filter" ? (entityEl.dataset.instanceId ?? null) : null;
+    if (!nextRootId) {
+      hideFilterTooltip();
+      return;
+    }
+    if (filterTooltipRootId === nextRootId && filterTooltipInstanceId === nextInstanceId) {
+      return;
+    }
+    hideFilterTooltip();
+    filterTooltipRootId = nextRootId;
+    filterTooltipInstanceId = nextInstanceId;
+    filterTooltipTimer = window.setTimeout(() => {
+      if (filterTooltipRootId !== nextRootId || filterTooltipInstanceId !== nextInstanceId) return;
+      showFilterTooltip(nextRootId, nextInstanceId);
+      filterTooltipTimer = null;
+    }, 1000);
+  });
+  canvasEl.addEventListener("mouseleave", () => {
+    hideFilterTooltip();
   });
 
   const onWirePortPointerDown = (ev: PointerEvent): void => {
