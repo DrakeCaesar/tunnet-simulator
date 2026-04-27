@@ -1,3 +1,5 @@
+@import url("https://cdn.jsdelivr.net/npm/firacode@6.2.0/distr/fira_code.css");
+
 :root {
   --bg-main: #0f1115;
   --text-main: #e6e6e6;
@@ -16,19 +18,31 @@
   --scrollbar-thumb: #3a445a;
   --scrollbar-thumb-hover: #4a5670;
   --builder-sidebar-width: 400px;
-  --builder-layer-gap: 5px;
+  --builder-layer-gap: 4px;
   --builder-grid-step-x: 20px;
   --builder-grid-step-y: 20px;
+  --font-size-11: 11px;
+  --font-size-12: 12px;
+  --font-size-13: 13px;
+  --font-size-19: 19px;
+  --font-size-0: 0;
 }
 
 body {
   margin: 0;
-  font-family: "FiraCode Nerd Font", "Fira Code Nerd Font", "Fira Code", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: "Fira Code", ui-monospace, SFMono-Regular, Menlo, monospace;
   font-feature-settings: "zero" 1;
+  font-variant-ligatures: contextual;
   background: var(--bg-main);
   color: var(--text-main);
   scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
   scrollbar-width: thin;
+}
+
+@supports (font-variation-settings: normal) {
+  body {
+    font-family: "Fira Code VF", "Fira Code", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
 }
 
 * {
@@ -99,7 +113,7 @@ body {
   border: 1px solid var(--panel-border);
   color: var(--text-main);
   border-radius: 8px;
-  font-size: 10px;
+  font-size: var(--font-size-11);
 }
 
 .app-tab.active {
@@ -128,7 +142,7 @@ body {
 
 .panel-title {
   margin: 0;
-  font-size: 19px;
+  font-size: var(--font-size-19);
 }
 
 .card {
@@ -139,7 +153,7 @@ body {
 }
 
 .section-title {
-  font-size: 12px;
+  font-size: var(--font-size-12);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -149,7 +163,7 @@ body {
 
 .meta {
   color: var(--meta-text);
-  font-size: 13px;
+  font-size: var(--font-size-13);
   line-height: 1;
 }
 
@@ -167,7 +181,7 @@ body {
 
 .hint {
   color: var(--hint-text);
-  font-size: 12px;
+  font-size: var(--font-size-12);
   margin-bottom: 12px;
 }
 
@@ -185,7 +199,7 @@ body {
   color: var(--text-main);
   border-radius: 8px;
   padding: 5px 8px;
-  font-size: 12px;
+  font-size: var(--font-size-12);
 }
 
 .sim-send-rate-block {
@@ -194,7 +208,7 @@ body {
 
 .sim-send-rate-label {
   display: block;
-  font-size: 12px;
+  font-size: var(--font-size-12);
   color: var(--meta-text);
   margin-bottom: 4px;
 }
@@ -214,7 +228,7 @@ body {
 
 .sim-send-rate-value {
   flex-shrink: 0;
-  font-size: 11px;
+  font-size: var(--font-size-11);
   color: var(--meta-text);
   min-width: 9em;
   text-align: right;
@@ -222,7 +236,7 @@ body {
 
 .sim-meta {
   color: var(--meta-text);
-  font-size: 12px;
+  font-size: var(--font-size-12);
   line-height: 1;
 }
 
@@ -238,12 +252,12 @@ body {
   color: #d8ffe2;
   border-radius: 999px;
   padding: 2px 8px;
-  font-size: 11px;
+  font-size: var(--font-size-11);
   font-weight: 700;
 }
 
 .status-label {
-  font-size: 12px;
+  font-size: var(--font-size-12);
   color: var(--meta-text);
 }
 
@@ -255,7 +269,7 @@ body {
 
 .stats-subtitle {
   margin: 2px 0 6px;
-  font-size: 11px;
+  font-size: var(--font-size-11);
   font-weight: 700;
   letter-spacing: 0.03em;
   color: #9aa6bf;
@@ -281,13 +295,13 @@ body {
 
 .stat-pill span {
   color: var(--meta-text);
-  font-size: 11px;
+  font-size: var(--font-size-11);
   flex-shrink: 0;
 }
 
 .stat-pill strong {
   color: #d9e1f3;
-  font-size: 13px;
+  font-size: var(--font-size-13);
   margin-left: 0;
   align-self: stretch;
   text-align: right;
@@ -307,7 +321,7 @@ body {
 .timings-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 11px;
+  font-size: var(--font-size-11);
 }
 
 .timings-table th,
@@ -342,7 +356,7 @@ body {
 
 .details {
   white-space: pre-wrap;
-  font-size: 12px;
+  font-size: var(--font-size-12);
   background: var(--details-bg);
   border: 1px solid var(--details-border);
   border-radius: 8px;
@@ -362,7 +376,8 @@ textarea {
   height: 100vh;
   padding: 10px;
   box-sizing: border-box;
-  font-size: 10px;
+  --builder-font-scale: 1;
+  font-size: var(--font-size-11);
 }
 
 .builder-layout {
@@ -478,7 +493,7 @@ textarea {
   color: var(--text-main);
   border-radius: 8px;
   padding: 6px 8px;
-  font-size: 12px;
+  font-size: var(--font-size-12);
 }
 
 .builder-layout-slots-block {
@@ -488,7 +503,7 @@ textarea {
 }
 
 .builder-layout-slots-title {
-  font-size: 11px;
+  font-size: var(--font-size-11);
   color: #9aa6be;
   text-transform: uppercase;
   letter-spacing: 0.03em;
@@ -525,7 +540,7 @@ textarea {
 }
 
 .builder-layout-slot-meta strong {
-  font-size: 12px;
+  font-size: var(--font-size-12);
   color: #d9e1f3;
 }
 
@@ -553,7 +568,7 @@ textarea {
   color: var(--text-main);
   border-radius: 6px;
   padding: 4px 6px;
-  font-size: 11px;
+  font-size: var(--font-size-11);
   transition:
     background-color 120ms ease,
     border-color 120ms ease,
@@ -589,12 +604,12 @@ textarea {
   color: var(--text-main);
   border-radius: 8px;
   padding: 6px 8px;
-  font-size: 12px;
+  font-size: var(--font-size-12);
 }
 
 .builder-sim-meta {
   color: var(--meta-text);
-  font-size: 11px;
+  font-size: var(--font-size-11);
   margin-top: 6px;
 }
 
@@ -608,7 +623,7 @@ textarea {
   grid-template-columns: 64px 1fr 44px;
   gap: 6px;
   align-items: center;
-  font-size: 11px;
+  font-size: var(--font-size-11);
   color: #b6beca;
 }
 
@@ -636,7 +651,7 @@ textarea {
   border: 1px solid #2a3242;
   border-radius: 8px;
   padding: 8px;
-  font-size: 12px;
+  font-size: var(--font-size-12);
   margin-bottom: 6px;
   cursor: grab;
 }
@@ -660,7 +675,7 @@ textarea {
   position: relative;
   z-index: 0;
   height: 100%;
-  min-width: max-content;
+  min-width: 0;
   user-select: none;
   -webkit-user-select: none;
 }
@@ -681,7 +696,7 @@ textarea {
   bottom: calc(20px + var(--builder-floating-scrollbar-bottom, 0px));
   z-index: 7;
   display: flex;
-  align-items: flex-end;
+  align-items: stretch;
   gap: 10px;
   width: max-content;
   pointer-events: none;
@@ -689,13 +704,20 @@ textarea {
   -webkit-user-select: none;
 }
 
+.builder-floating-tool-stack {
+  width: 380px;
+  height: 106px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
 .builder-floating-scale {
-  position: absolute;
-  right: calc(20px + var(--builder-floating-scrollbar-right, 0px));
-  bottom: calc(20px + var(--builder-floating-scrollbar-bottom, 0px));
-  z-index: 7;
-  width: 360px;
-  max-width: min(360px, calc(100% - 40px));
+  position: relative;
+  width: 380px;
+  max-width: 380px;
+  height: 106px;
+  box-sizing: border-box;
   padding: 8px;
   border: 1px solid #2a3242;
   border-radius: 10px;
@@ -709,7 +731,10 @@ textarea {
 .builder-floating-templates {
   display: flex;
   gap: 6px;
-  padding: 8px;
+  padding: 6px;
+  height: 48px;
+  width: 100%;
+  box-sizing: border-box;
   border: 1px solid #2a3242;
   border-radius: 10px;
   background: rgba(15, 19, 27, 0.92);
@@ -719,22 +744,28 @@ textarea {
 
 .builder-floating-templates .builder-template {
   margin-bottom: 0;
-  min-width: 82px;
+  min-width: 0;
+  flex: 1 1 0;
+  height: 34px;
+  box-sizing: border-box;
+  padding: 4px;
+  line-height: 1.1;
   text-align: center;
 }
 
 .builder-delete-drop-zone {
-  min-width: 150px;
-  height: 56px;
+  width: 100%;
+  height: 48px;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 0 10px;
+  padding: 6px;
+  box-sizing: border-box;
   border: 2px dotted rgba(243, 139, 168, 0.95);
   border-radius: 10px;
   background: rgba(92, 35, 52, 0.35);
   color: #f3a1b8;
-  font-size: 12px;
+  font-size: var(--font-size-12);
   font-weight: 700;
   letter-spacing: 0.02em;
   text-transform: uppercase;
@@ -878,7 +909,7 @@ textarea {
 
 
 .builder-layer-title {
-  font-size: 11px;
+  font-size: var(--font-size-11);
   color: #aeb8cc;
   margin-bottom: 4px;
 }
@@ -890,37 +921,40 @@ textarea {
 }
 
 .builder-layer-outer64 {
-  grid-template-columns: repeat(
-    64,
-    minmax(
+  grid-template-columns: var(
+    --builder-cols-outer64,
+    repeat(
+      64,
       calc(
         (var(--builder-middle-col-width-px, var(--builder-middle-col-base-px, 1280px)) - (3 * var(--builder-layer-gap))) / 4
-      ),
-      1fr
+      )
     )
   );
 }
 
 .builder-layer-middle16 {
-  grid-template-columns: repeat(16, minmax(var(--builder-middle-col-width-px, var(--builder-middle-col-base-px, 1280px)), 1fr));
+  grid-template-columns: var(
+    --builder-cols-middle16,
+    repeat(16, var(--builder-middle-col-width-px, var(--builder-middle-col-base-px, 1280px)))
+  );
 }
 
 .builder-layer-inner4 {
-  grid-template-columns: repeat(
-    4,
-    minmax(
-      calc((var(--builder-middle-col-width-px, var(--builder-middle-col-base-px, 1280px)) * 4) + (3 * var(--builder-layer-gap))),
-      1fr
+  grid-template-columns: var(
+    --builder-cols-inner4,
+    repeat(
+      4,
+      calc((var(--builder-middle-col-width-px, var(--builder-middle-col-base-px, 1280px)) * 4) + (3 * var(--builder-layer-gap)))
     )
   );
 }
 
 .builder-layer-core1 {
-  grid-template-columns: repeat(
-    1,
-    minmax(
-      calc((var(--builder-middle-col-width-px, var(--builder-middle-col-base-px, 1280px)) * 16) + (15 * var(--builder-layer-gap))),
-      1fr
+  grid-template-columns: var(
+    --builder-cols-core1,
+    repeat(
+      1,
+      calc((var(--builder-middle-col-width-px, var(--builder-middle-col-base-px, 1280px)) * 16) + (15 * var(--builder-layer-gap)))
     )
   );
 }
@@ -948,6 +982,9 @@ textarea {
   color: #7f8aa0;
   text-align: center;
   margin-bottom: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .builder-segment-entities {
@@ -1077,7 +1114,6 @@ textarea {
   line-height: 1;
   text-align: center;
   box-sizing: border-box;
-  padding: 1px 0 0;
   height: 15px;
   display: flex;
   align-items: center;
@@ -1087,7 +1123,7 @@ textarea {
 }
 
 .builder-inspector-note {
-  font-size: 11px;
+  font-size: var(--font-size-11);
   color: #7f8aa0;
   margin: 0.5rem 0 0 0;
   line-height: 1;
@@ -1154,8 +1190,7 @@ textarea {
 
 .builder-entity--filter .builder-entity-title {
   position: absolute;
-  top: 13px;
-  left: px;
+  top: 12px;
   transform: translateY(-50%);
   margin: 0;
   line-height: 1;
@@ -1374,7 +1409,7 @@ textarea {
   border: 1px solid rgba(255, 255, 255, 0.2);
   background: rgba(15, 19, 27, 0.92);
   color: rgba(255, 255, 255, 0.75);
-  font-size: 0;
+  font-size: var(--font-size-0);
   line-height: 1;
   padding: 0;
   cursor: pointer;
@@ -1385,7 +1420,7 @@ textarea {
 }
 
 .builder-hub-reverse-icon {
-  font-size: var(--hub-reverse-icon-size, 13px);
+  font-size: var(--font-size-13);
   line-height: 1;
   display: block;
 }
@@ -1440,7 +1475,6 @@ textarea {
   letter-spacing: 0.03em;
   margin-bottom: 2px;
   position: relative;
-  top: 1px;
 }
 
 .builder-entity-settings {
@@ -1448,7 +1482,6 @@ textarea {
   color: #b5bfd4;
   margin-bottom: 2px;
   position: relative;
-  top: 1px;
 }
 
 .builder-inline-controls {
@@ -1480,7 +1513,6 @@ textarea {
 .builder-row-label {
   color: #c7d0e3;
   position: relative;
-  top: 1px;
 }
 
 .builder-hide-property-labels .builder-row-label {
@@ -1538,7 +1570,6 @@ textarea {
   height: 20px;
   line-height: 1;
   box-sizing: border-box;
-  padding: 1px 0 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1560,7 +1591,6 @@ textarea {
   border: 1px solid #3a445a;
   background: #0f131b;
   border-radius: 0;
-  padding: 3px 4px 1px;
   min-height: 20px;
   box-sizing: border-box;
   text-align: center;
@@ -1582,19 +1612,27 @@ textarea {
 }
 
 .builder-mask-dot {
-  flex: 0 0 auto;
+  flex: 0 0 13px;
+  width: 13px;
+  min-width: 13px;
+  max-width: 13px;
+  display: flex;
   align-self: center;
+  align-items: center;
+  justify-content: center;
   color: #c7d0e3;
   line-height: 1;
-  padding: 0 2px;
+  padding: 0;
   user-select: none;
   position: relative;
-  top: 1px;
 }
 
 .builder-mask-cell {
-  flex: 1 1 0;
-  min-width: 0;
+  flex: 0 0 19px;
+  width: 19px;
+  min-width: 19px;
+  max-width: 19px;
+  box-sizing: border-box;
   border: 1px solid #3a445a;
   border-radius: 4px;
   overflow: hidden;
@@ -1609,7 +1647,7 @@ textarea {
   color: #c7d0e3;
   text-align: center;
   box-sizing: border-box;
-  padding: 1px 0 0;
+  padding: 0;
   height: 15px;
   display: flex;
   align-items: center;
@@ -1630,7 +1668,10 @@ textarea {
   width: 100%;
   height: 16px;
   box-sizing: border-box;
-  padding: 1px 0 0;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
 }
 
@@ -1677,7 +1718,7 @@ textarea {
   background: #0f131b;
   color: #d9e1f3;
   line-height: 1;
-  padding: 1px 0 0;
+
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1694,7 +1735,7 @@ textarea {
 .builder-setting {
   display: grid;
   gap: 3px;
-  font-size: 11px;
+  font-size: var(--font-size-11);
   color: #aeb8cc;
 }
 
@@ -1704,5 +1745,5 @@ textarea {
   color: #d9e1f3;
   border-radius: 4px;
   padding: 5px 6px;
-  font-size: 12px;
+  font-size: var(--font-size-12);
 }

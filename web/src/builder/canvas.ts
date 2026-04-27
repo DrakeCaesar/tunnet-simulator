@@ -59,7 +59,7 @@ const BUILDER_CANVAS_SCALE_KEY = "tunnet.builder.canvasScale";
 const BUILDER_HIDE_PROP_LABELS_KEY = "tunnet.builder.hidePropertyLabels";
 const BUILDER_PAGE_STATE_KEY = "tunnet.builder.pageState";
 const BUILDER_SIDEBAR_WIDTH_KEY = "tunnet.builder.sidebarWidth";
-const BUILDER_LAYER_GAP_PX = 5;
+const BUILDER_LAYER_GAP_PX = 4;
 const BUILDER_GRID_TILE_SIZE_X_PX = 20;
 const BUILDER_GRID_TILE_SIZE_Y_PX = 20;
 const BUILDER_SIDEBAR_DEFAULT_WIDTH_PX = 400;
@@ -857,38 +857,40 @@ export function mountBuilderView(options: BuilderMountOptions): void {
           <div id="builder-canvas" class="builder-canvas"></div>
         </div>
         <div class="builder-floating-tools" aria-label="Canvas tools">
-          <div id="builder-templates" class="builder-floating-templates"></div>
-          <div id="builder-delete-drop-zone" class="builder-delete-drop-zone" aria-label="Drop here to delete">
-            Drop to delete
+          <div class="builder-floating-tool-stack">
+            <div id="builder-delete-drop-zone" class="builder-delete-drop-zone" aria-label="Drop here to delete">
+              Drop to delete
+            </div>
+            <div id="builder-templates" class="builder-floating-templates"></div>
           </div>
-        </div>
-        <div class="builder-floating-scale" aria-label="Canvas scale controls">
-          <div class="builder-scale-controls">
-            <label class="builder-scale-row" for="builder-scale-x">
-              <span>Horizontal</span>
-              <input id="builder-scale-x" type="range" min="0" max="${CANVAS_SCALE_X_STEPS.length - 1}" step="1" value="${canvasScaleXIndexFromValue(canvasScale.x)}" />
-              <span id="builder-scale-x-value">${formatCanvasScaleX(canvasScale.x)}</span>
-            </label>
-            <label class="builder-scale-row" for="builder-scale-y-outer64">
-              <span>Octet 4</span>
-              <input id="builder-scale-y-outer64" type="range" min="0.25" max="4" step="0.25" value="${canvasScale.yByLayer.outer64.toFixed(2)}" />
-              <span id="builder-scale-y-outer64-value">${canvasScale.yByLayer.outer64.toFixed(2)}x</span>
-            </label>
-            <label class="builder-scale-row" for="builder-scale-y-middle16">
-              <span>Octet 3</span>
-              <input id="builder-scale-y-middle16" type="range" min="0.25" max="4" step="0.25" value="${canvasScale.yByLayer.middle16.toFixed(2)}" />
-              <span id="builder-scale-y-middle16-value">${canvasScale.yByLayer.middle16.toFixed(2)}x</span>
-            </label>
-            <label class="builder-scale-row" for="builder-scale-y-inner4">
-              <span>Octet 2</span>
-              <input id="builder-scale-y-inner4" type="range" min="0.25" max="4" step="0.25" value="${canvasScale.yByLayer.inner4.toFixed(2)}" />
-              <span id="builder-scale-y-inner4-value">${canvasScale.yByLayer.inner4.toFixed(2)}x</span>
-            </label>
-            <label class="builder-scale-row" for="builder-scale-y-core1">
-              <span>Octet 1</span>
-              <input id="builder-scale-y-core1" type="range" min="0.25" max="4" step="0.25" value="${canvasScale.yByLayer.core1.toFixed(2)}" />
-              <span id="builder-scale-y-core1-value">${canvasScale.yByLayer.core1.toFixed(2)}x</span>
-            </label>
+          <div class="builder-floating-scale" aria-label="Canvas scale controls">
+            <div class="builder-scale-controls">
+              <label class="builder-scale-row" for="builder-scale-x">
+                <span>Horizontal</span>
+                <input id="builder-scale-x" type="range" min="0" max="${CANVAS_SCALE_X_STEPS.length - 1}" step="1" value="${canvasScaleXIndexFromValue(canvasScale.x)}" />
+                <span id="builder-scale-x-value">${formatCanvasScaleX(canvasScale.x)}</span>
+              </label>
+              <label class="builder-scale-row" for="builder-scale-y-outer64">
+                <span>Octet 4</span>
+                <input id="builder-scale-y-outer64" type="range" min="0.25" max="4" step="0.25" value="${canvasScale.yByLayer.outer64.toFixed(2)}" />
+                <span id="builder-scale-y-outer64-value">${canvasScale.yByLayer.outer64.toFixed(2)}x</span>
+              </label>
+              <label class="builder-scale-row" for="builder-scale-y-middle16">
+                <span>Octet 3</span>
+                <input id="builder-scale-y-middle16" type="range" min="0.25" max="4" step="0.25" value="${canvasScale.yByLayer.middle16.toFixed(2)}" />
+                <span id="builder-scale-y-middle16-value">${canvasScale.yByLayer.middle16.toFixed(2)}x</span>
+              </label>
+              <label class="builder-scale-row" for="builder-scale-y-inner4">
+                <span>Octet 2</span>
+                <input id="builder-scale-y-inner4" type="range" min="0.25" max="4" step="0.25" value="${canvasScale.yByLayer.inner4.toFixed(2)}" />
+                <span id="builder-scale-y-inner4-value">${canvasScale.yByLayer.inner4.toFixed(2)}x</span>
+              </label>
+              <label class="builder-scale-row" for="builder-scale-y-core1">
+                <span>Octet 1</span>
+                <input id="builder-scale-y-core1" type="range" min="0.25" max="4" step="0.25" value="${canvasScale.yByLayer.core1.toFixed(2)}" />
+                <span id="builder-scale-y-core1-value">${canvasScale.yByLayer.core1.toFixed(2)}x</span>
+              </label>
+            </div>
           </div>
         </div>
       </main>
@@ -1172,14 +1174,72 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       const layerCount = orderedLayersTopDown().length;
       const totalGapPx = Math.max(0, layerCount - 1) * BUILDER_LAYER_GAP_PX;
       const usableHeight = Math.max(120, wrap.clientHeight - totalGapPx);
-      const layerBasePx = Math.max(120, usableHeight / Math.max(1, layerCount));
-      const rawMiddleColWidthPx = (middleBasePx + BUILDER_LAYER_GAP_PX) * canvasScale.x - BUILDER_LAYER_GAP_PX;
-      // Snap horizontal segment widths to full grid tiles to avoid subpixel-rendered
-      // background lines appearing thicker/fainter at some slider values.
-      const middleColWidthPx = Math.max(
-        BUILDER_GRID_TILE_SIZE_X_PX,
-        Math.round(rawMiddleColWidthPx / BUILDER_GRID_TILE_SIZE_X_PX) * BUILDER_GRID_TILE_SIZE_X_PX,
-      );
+      const rawLayerBasePx = Math.max(120, usableHeight / Math.max(1, layerCount));
+      // Floor (not nearest) and quantize to 4px steps so 0.5x/1.5x vertical
+      // scale multipliers resolve to clean integer heights.
+      const layerBasePx = Math.max(4, Math.floor(rawLayerBasePx / 4) * 4);
+      let rawMiddleColWidthPx: number;
+      if (canvasScale.x <= 0.5) {
+        // For sub-1x zoom, make the horizontal scale represent how many outer (64-layer)
+        // segments fit in the viewport:
+        // 0.5 -> 8, 0.25 -> 16, 1/8 -> 32, 1/16 -> 64.
+        const outerSegmentsToFit = Math.max(1, Math.round(4 / canvasScale.x));
+        const outerTrackSpacePx = Math.max(
+          1,
+          middleBasePx - (outerSegmentsToFit - 1) * BUILDER_LAYER_GAP_PX,
+        );
+        // Distribute remainder across visible Octet-4 columns so widths stay integer
+        // without coarse 64/32/16px jumps.
+        const outerBasePx = Math.max(1, Math.floor(outerTrackSpacePx / outerSegmentsToFit));
+        const outerRemainder = Math.max(0, outerTrackSpacePx - outerBasePx * outerSegmentsToFit);
+        const outerVisibleWidths = Array.from({ length: outerSegmentsToFit }, (_, idx) =>
+          outerBasePx + (idx < outerRemainder ? 1 : 0),
+        );
+        const repeats = Math.max(1, Math.floor(64 / outerSegmentsToFit));
+        const outerWidths = Array.from({ length: repeats }, () => outerVisibleWidths).flat();
+        const middleWidths = Array.from({ length: 16 }, (_, idx) => {
+          const base = idx * 4;
+          return (
+            outerWidths[base] +
+            outerWidths[base + 1] +
+            outerWidths[base + 2] +
+            outerWidths[base + 3] +
+            3 * BUILDER_LAYER_GAP_PX
+          );
+        });
+        const innerWidths = Array.from({ length: 4 }, (_, idx) => {
+          const base = idx * 4;
+          return (
+            middleWidths[base] +
+            middleWidths[base + 1] +
+            middleWidths[base + 2] +
+            middleWidths[base + 3] +
+            3 * BUILDER_LAYER_GAP_PX
+          );
+        });
+        const coreWidth =
+          innerWidths[0] +
+          innerWidths[1] +
+          innerWidths[2] +
+          innerWidths[3] +
+          3 * BUILDER_LAYER_GAP_PX;
+        root.style.setProperty("--builder-cols-outer64", outerWidths.map((w) => `${w}px`).join(" "));
+        root.style.setProperty("--builder-cols-middle16", middleWidths.map((w) => `${w}px`).join(" "));
+        root.style.setProperty("--builder-cols-inner4", innerWidths.map((w) => `${w}px`).join(" "));
+        root.style.setProperty("--builder-cols-core1", `${coreWidth}px`);
+
+        rawMiddleColWidthPx =
+          middleWidths.reduce((sum, w) => sum + w, 0) / Math.max(1, middleWidths.length);
+      } else {
+        root.style.removeProperty("--builder-cols-outer64");
+        root.style.removeProperty("--builder-cols-middle16");
+        root.style.removeProperty("--builder-cols-inner4");
+        root.style.removeProperty("--builder-cols-core1");
+        rawMiddleColWidthPx = (middleBasePx + BUILDER_LAYER_GAP_PX) * canvasScale.x - BUILDER_LAYER_GAP_PX;
+      }
+      // Match vertical strategy: always floor to 4px multiples.
+      // This avoids subpixel widths while keeping low-zoom fit behavior.
+      const middleColWidthPx = Math.max(4, Math.floor(rawMiddleColWidthPx / 4) * 4);
       root.style.setProperty("--builder-middle-col-base-px", `${middleBasePx.toFixed(2)}px`);
       root.style.setProperty("--builder-middle-col-width-px", `${middleColWidthPx.toFixed(2)}px`);
       root.style.setProperty("--builder-layer-base-height-px", `${layerBasePx.toFixed(2)}px`);
@@ -1191,6 +1251,16 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     root.style.setProperty("--builder-scale-y-core1", canvasScale.yByLayer.core1.toFixed(3));
     root.style.setProperty("--builder-grid-step-x", `${BUILDER_GRID_TILE_SIZE_X_PX}px`);
     root.style.setProperty("--builder-grid-step-y", `${BUILDER_GRID_TILE_SIZE_Y_PX}px`);
+    if (wrap) {
+      const isOneSixteenth = Math.abs(canvasScale.x - 1 / 16) < 1e-9;
+      wrap.style.overflowX = isOneSixteenth ? "hidden" : "scroll";
+      const totalYScale =
+        canvasScale.yByLayer.outer64 +
+        canvasScale.yByLayer.middle16 +
+        canvasScale.yByLayer.inner4 +
+        canvasScale.yByLayer.core1;
+      wrap.style.overflowY = totalYScale > 4 ? "scroll" : "hidden";
+    }
     scaleXEl.value = String(canvasScaleXIndexFromValue(canvasScale.x));
     scaleXValueEl.textContent = formatCanvasScaleX(canvasScale.x);
     scaleYOuterValueEl.textContent = `${canvasScale.yByLayer.outer64.toFixed(2)}x`;
@@ -4504,7 +4574,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
                     }>
                       <div class="builder-segment-label">${
                         isOuterVoid
-                          ? "0.0.3.* (no endpoints)"
+                          ? "0.0.3.*"
                           : segmentLabel(layer, segment as number)
                       }</div>
                       <div class="builder-segment-entities">
