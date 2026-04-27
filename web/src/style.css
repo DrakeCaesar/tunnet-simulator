@@ -692,8 +692,10 @@ textarea {
 }
 
 .builder-scale-controls {
-  display: grid;
-  gap: 6px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  height: 100%;
 }
 
 .builder-scale-row {
@@ -793,9 +795,9 @@ textarea {
 
 .builder-floating-scale {
   position: relative;
-  width: 380px;
-  max-width: 380px;
-  min-height: 136px;
+  width: 280px;
+  max-width: 280px;
+  height: 136px;
   box-sizing: border-box;
   padding: var(--builder-hud-gap);
   border: 1px solid #2a3242;
@@ -808,10 +810,7 @@ textarea {
 }
 
 .builder-floating-scale-area {
-  display: grid;
-  grid-template-columns: 380px 480px;
-  gap: var(--builder-hud-gap);
-  align-items: end;
+  display: block;
 }
 
 .builder-actions--floating {
@@ -832,6 +831,14 @@ textarea {
   -webkit-user-select: none;
   display: grid;
   gap: var(--builder-hud-gap);
+}
+
+.builder-floating-loadouts-detached {
+  position: absolute;
+  right: calc(20px + var(--builder-floating-scrollbar-right, 0px));
+  bottom: calc(20px + var(--builder-floating-scrollbar-bottom, 0px));
+  z-index: 7;
+  padding: 8px;
 }
 
 .builder-layout-slots--floating {
@@ -1840,6 +1847,22 @@ textarea {
 }
 
 .builder-hide-property-labels .builder-row-mask .builder-mask-row {
+  grid-column: 1 / 2;
+}
+
+/* Always hide property labels for endpoints and filters (independent of global toggle). */
+.builder-entity--filter .builder-row,
+.builder-entity--outer-endpoint .builder-row {
+  grid-template-columns: var(--builder-prop-value-col);
+}
+
+.builder-entity--filter .builder-row-label,
+.builder-entity--outer-endpoint .builder-row-label {
+  display: none;
+}
+
+.builder-entity--filter .builder-row-mask .builder-mask-row,
+.builder-entity--outer-endpoint .builder-row-mask .builder-mask-row {
   grid-column: 1 / 2;
 }
 

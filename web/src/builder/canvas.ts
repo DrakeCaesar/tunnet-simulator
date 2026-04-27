@@ -56,7 +56,6 @@ import {
 } from "../sim-controls";
 
 const BUILDER_CANVAS_SCALE_KEY = "tunnet.builder.canvasScale";
-const BUILDER_HIDE_PROP_LABELS_KEY = "tunnet.builder.hidePropertyLabels";
 const BUILDER_PAGE_STATE_KEY = "tunnet.builder.pageState";
 const BUILDER_SIDEBAR_WIDTH_KEY = "tunnet.builder.sidebarWidth";
 const BUILDER_LAYER_GAP_PX = 4;
@@ -702,15 +701,6 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     }
   };
   let canvasScale = loadCanvasScale();
-  const loadHidePropertyLabels = (): boolean => {
-    try {
-      const raw = window.localStorage.getItem(BUILDER_HIDE_PROP_LABELS_KEY);
-      if (raw === null) return true;
-      return raw === "1";
-    } catch {
-      return true;
-    }
-  };
   const loadBuilderPageState = (): BuilderPageState => {
     const clampLayoutSlotIndex = (value: unknown): number => {
       const n = Number(value);
@@ -883,15 +873,12 @@ export function mountBuilderView(options: BuilderMountOptions): void {
                   <input id="builder-scale-y-core1" type="range" min="0.25" max="4" step="0.25" value="${canvasScale.yByLayer.core1.toFixed(2)}" />
                   <span id="builder-scale-y-core1-value">${formatScaleLabel(canvasScale.yByLayer.core1)}</span>
                 </label>
-                <div class="builder-actions builder-actions--floating">
-                  <button id="builder-toggle-prop-labels" type="button">Hide property labels</button>
-                </div>
               </div>
             </div>
-            <div class="builder-floating-loadouts">
-              <div id="builder-layout-slots" class="builder-layout-slots builder-layout-slots--floating"></div>
-            </div>
           </div>
+        </div>
+        <div class="builder-floating-loadouts builder-floating-loadouts-detached">
+          <div id="builder-layout-slots" class="builder-layout-slots builder-layout-slots--floating"></div>
         </div>
       </main>
     </div>
@@ -916,7 +903,6 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   const scaleYMiddleValueEl = root.querySelector<HTMLSpanElement>("#builder-scale-y-middle16-value")!;
   const scaleYInnerValueEl = root.querySelector<HTMLSpanElement>("#builder-scale-y-inner4-value")!;
   const scaleYCoreValueEl = root.querySelector<HTMLSpanElement>("#builder-scale-y-core1-value")!;
-  const togglePropLabelsBtn = root.querySelector<HTMLButtonElement>("#builder-toggle-prop-labels")!;
   const layoutSlotsEl = root.querySelector<HTMLDivElement>("#builder-layout-slots")!;
   const simPlayPauseBtn = root.querySelector<HTMLButtonElement>("#builder-sim-play-pause")!;
   const simStepBtn = root.querySelector<HTMLButtonElement>("#builder-sim-step")!;
@@ -939,7 +925,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   const PERF_EMA_ALPHA = 0.18;
   let perfCounts = { expandedEntities: 0, stateLinks: 0, expandedLinks: 0, packetsInFlight: 0 };
   let nextPerfPanelAtMs = 0;
-  let hideEntityPropertyLabels = loadHidePropertyLabels();
+  const hideEntityPropertyLabels = true;
   let urlEmbeddedLayoutState: BuilderState | null = null;
   let urlEmbeddedLayoutToken: string | null = null;
   let pendingClearLayoutSlotIndex: number | null = null;
@@ -1073,10 +1059,6 @@ export function mountBuilderView(options: BuilderMountOptions): void {
 
   function persistCanvasScale(): void {
     window.localStorage.setItem(BUILDER_CANVAS_SCALE_KEY, JSON.stringify(canvasScale));
-  }
-
-  function persistHidePropertyLabels(): void {
-    window.localStorage.setItem(BUILDER_HIDE_PROP_LABELS_KEY, hideEntityPropertyLabels ? "1" : "0");
   }
 
   function persistBuilderPageState(): void {
@@ -1969,9 +1951,6 @@ export function mountBuilderView(options: BuilderMountOptions): void {
 
   function applyPropertyLabelVisibility(): void {
     root.classList.toggle("builder-hide-property-labels", hideEntityPropertyLabels);
-    togglePropLabelsBtn.textContent = hideEntityPropertyLabels
-      ? "Show property labels"
-      : "Hide property labels";
     scheduleWireOverlayRender();
   }
 
@@ -5055,12 +5034,6 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     renderInspector();
     renderCanvas();
   };
-
-  togglePropLabelsBtn.addEventListener("click", () => {
-    hideEntityPropertyLabels = !hideEntityPropertyLabels;
-    applyPropertyLabelVisibility();
-    persistHidePropertyLabels();
-  });
 
   layoutSlotsEl.addEventListener("input", (ev) => {
     const input = (ev.target as HTMLElement | null)?.closest<HTMLInputElement>("[data-layout-slot-import-input]");
