@@ -429,11 +429,16 @@ export function outerLayerBuilderColumnSlots(): OuterBuilderColumnSlot[] {
 
 export function segmentLabel(layer: BuilderLayer, segment: number): string {
   if (layer === "outer64") {
-    const third = Math.floor(segment / 4);
+    const second = Math.floor(segment / 16);
+    const third = Math.floor((segment % 16) / 4);
     const fourth = segment % 4;
-    return `0.0.${third}.${fourth}`;
+    return `0.${second}.${third}.${fourth}`;
   }
-  if (layer === "middle16") return `0.0.${segment}.*`;
+  if (layer === "middle16") {
+    const second = Math.floor(segment / 4);
+    const third = segment % 4;
+    return `0.${second}.${third}.*`;
+  }
   if (layer === "inner4") return `0.${segment}.*.*`;
   return "0.*.*.*";
 }
