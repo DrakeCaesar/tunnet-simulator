@@ -1586,6 +1586,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   let packetOverlayWidthPx = -1;
   let packetOverlayHeightPx = -1;
   let simTickDeliveredEntityRootIds = new Set<string>();
+  let simTickCollisionDropEntityInstanceIds = new Set<string>();
   let simTickCollisionDropEntityRootIds = new Set<string>();
   applyBuilderSidebarWidth(builderSidebarWidth);
 
@@ -1663,6 +1664,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     simStats = { ...stats };
     simPreviousStatsTotals = { ...stats };
     simTickDeliveredEntityRootIds = new Set();
+    simTickCollisionDropEntityInstanceIds = new Set();
     simTickCollisionDropEntityRootIds = new Set();
     simPacketProgress = 1;
     invalidateBuilderPacketRenderCache();
@@ -1806,6 +1808,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     simLastStepComputeMs = null;
     simEmaStepComputeMs = null;
     simTickDeliveredEntityRootIds = new Set();
+    simTickCollisionDropEntityInstanceIds = new Set();
     simTickCollisionDropEntityRootIds = new Set();
     rebuildBuilderSimEndpointIndex(topo);
     simPreviousOccupancy = [];
@@ -1885,9 +1888,16 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       frame.currentOccupancy,
     );
     simTickDeliveredEntityRootIds = tickHighlights.delivered;
-    simTickCollisionDropEntityRootIds = new Set(
-      frame.droppedDeviceIds.map((deviceId) => simRootIdFromDeviceId(deviceId)).filter((rootId): rootId is string => !!rootId),
-    );
+    simTickCollisionDropEntityInstanceIds = new Set();
+    simTickCollisionDropEntityRootIds = new Set();
+    frame.droppedDeviceIds.forEach((deviceId) => {
+      if (/@\d+$/.test(deviceId)) {
+        simTickCollisionDropEntityInstanceIds.add(deviceId);
+        return;
+      }
+      const rootId = simRootIdFromDeviceId(deviceId);
+      if (rootId) simTickCollisionDropEntityRootIds.add(rootId);
+    });
     applySimTickHighlightsToCanvas();
     simPreviousStatsTotals = { ...frame.stats };
     const stepMs = frame.stepComputeMs;
@@ -2073,10 +2083,20 @@ export function mountBuilderView(options: BuilderMountOptions): void {
         .querySelectorAll<HTMLElement>(`.builder-entity[data-root-id="${rootId}"]`)
         .forEach((el) => el.classList.add("builder-entity--tick-delivered"));
     });
+    simTickCollisionDropEntityInstanceIds.forEach((instanceId) => {
+      canvasEl
+        .querySelectorAll<HTMLElement>(`.builder-entity[data-instance-id="${instanceId}"]`)
+        .forEach((el) => {
+          el.classList.remove("builder-entity--tick-delivered");
+          el.classList.add("builder-entity--tick-collision-drop");
+        });
+    });
     simTickCollisionDropEntityRootIds.forEach((rootId) => {
       canvasEl
         .querySelectorAll<HTMLElement>(`.builder-entity[data-root-id="${rootId}"]`)
         .forEach((el) => {
+          // Instance-level highlights win if present.
+          if (simTickCollisionDropEntityInstanceIds.has(el.dataset.instanceId ?? "")) return;
           el.classList.remove("builder-entity--tick-delivered");
           el.classList.add("builder-entity--tick-collision-drop");
         });
@@ -4875,7 +4895,10 @@ export function mountBuilderView(options: BuilderMountOptions): void {
                                 : entity.templateType === "hub"
                                   ? " builder-entity--hub"
                                   : "";
-                            const simTickFlashClass = simTickCollisionDropEntityRootIds.has(entity.rootId)
+                            const simTickFlashClass =
+                              simTickCollisionDropEntityInstanceIds.has(entity.instanceId)
+                                ? " builder-entity--tick-collision-drop"
+                                : simTickCollisionDropEntityRootIds.has(entity.rootId)
                               ? " builder-entity--tick-collision-drop"
                               : simTickDeliveredEntityRootIds.has(entity.rootId)
                                 ? " builder-entity--tick-delivered"
