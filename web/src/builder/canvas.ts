@@ -3235,6 +3235,25 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     ent.y = y;
   }
 
+  function segmentTransitionChangesMirrorMembership(
+    layer: BuilderLayer,
+    fromSegment: number,
+    toSegment: number,
+  ): boolean {
+    if (fromSegment === toSegment) return false;
+    // outer64 12-15 (0.0.3.*) is non-mirroring
+    if (layer === "outer64") {
+      return isOuterLeafVoidSegment(fromSegment) !== isOuterLeafVoidSegment(toSegment);
+    }
+    // middle16 segment 3 (0.0.3.* lane) is non-mirroring
+    if (layer === "middle16") {
+      const fromIsVoid = fromSegment === 3;
+      const toIsVoid = toSegment === 3;
+      return fromIsVoid !== toIsVoid;
+    }
+    return false;
+  }
+
   function setHubFaceAngleDom(rootId: string, faceDeg: number): void {
     const normalizedFace = ((faceDeg % 360) + 360) % 360;
     const portStyleFor = (port: string): string => {
@@ -4100,8 +4119,17 @@ export function mountBuilderView(options: BuilderMountOptions): void {
               setEntityPlacementDuringDrag(id, targetLayer, targetSegment, nx, ny);
               scheduleDragRender();
             } else if (cur.segmentIndex !== targetSegment) {
+              const needsRebuild = segmentTransitionChangesMirrorMembership(
+                targetLayer,
+                cur.segmentIndex,
+                targetSegment,
+              );
               setEntityPlacementDuringDrag(id, targetLayer, targetSegment, nx, ny);
-              setEntityDomPosition(id, nx, ny);
+              if (needsRebuild) {
+                scheduleDragRender();
+              } else {
+                setEntityDomPosition(id, nx, ny);
+              }
             } else {
               setEntityPositionDuringDrag(id, nx, ny);
               setEntityDomPosition(id, nx, ny);
@@ -4403,8 +4431,17 @@ export function mountBuilderView(options: BuilderMountOptions): void {
           setEntityPlacementDuringDrag(id, targetLayer, targetSegment, nx, ny);
           scheduleDragRender();
         } else if (cur.segmentIndex !== targetSegment) {
+          const needsRebuild = segmentTransitionChangesMirrorMembership(
+            targetLayer,
+            cur.segmentIndex,
+            targetSegment,
+          );
           setEntityPlacementDuringDrag(id, targetLayer, targetSegment, nx, ny);
-          setEntityDomPosition(id, nx, ny);
+          if (needsRebuild) {
+            scheduleDragRender();
+          } else {
+            setEntityDomPosition(id, nx, ny);
+          }
         } else {
           setEntityPositionDuringDrag(id, nx, ny);
           setEntityDomPosition(id, nx, ny);
