@@ -831,7 +831,13 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   };
 
   root.innerHTML = `
-    <div class="builder-layout">
+    <div
+      class="builder-layout"
+      data-1p-ignore="true"
+      data-lpignore="true"
+      data-bwignore="true"
+      data-form-type="other"
+    >
       <aside class="builder-sidebar card">
         <div id="builder-controls-sidebar-host" class="builder-controls-sidebar-host"></div>
       </aside>
@@ -1086,6 +1092,11 @@ export function mountBuilderView(options: BuilderMountOptions): void {
             <input
               type="text"
               value="${escapedImportText}"
+              data-1p-ignore="true"
+              data-lpignore="true"
+              data-bwignore="true"
+              data-form-type="other"
+              autocomplete="off"
               data-layout-slot-import-input
               placeholder="Paste URL or token"
             />
