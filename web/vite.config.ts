@@ -19,5 +19,11 @@ export default defineConfig({
   build: {
     outDir: resolve(webRoot, "dist"),
     emptyOutDir: true,
+    rollupOptions: {
+      input: {
+        main: resolve(webRoot, "index.html"),
+        saveViewer: resolve(webRoot, "save-viewer/index.html"),
+      },
+    },
   },
 });

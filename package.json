@@ -24,6 +24,7 @@
     "vite": "^8.0.10"
   },
   "dependencies": {
-    "brotli-ts": "^0.0.7"
+    "brotli-ts": "^0.0.7",
+    "three": "^0.184.0"
   }
 }

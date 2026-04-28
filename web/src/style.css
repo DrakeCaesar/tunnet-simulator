@@ -2084,3 +2084,188 @@ textarea {
   padding: 5px 6px;
   font-size: var(--font-size-12);
 }
+
+.sv-root {
+  display: grid;
+  grid-template-columns: 360px 1fr;
+  height: 100vh;
+}
+
+.sv-sidebar {
+  border-right: 1px solid var(--panel-border);
+  padding: 10px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sv-button-row {
+  margin-top: 10px;
+}
+
+.sv-canvas-wrap {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #0d1018;
+  font-size: var(--font-size-11);
+}
+
+.sv-wires {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+  touch-action: none;
+}
+
+.sv-3d-view {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 3;
+}
+
+.sv-wires.is-panning {
+  cursor: grabbing;
+}
+
+.sv-wire {
+  stroke: #3f4d68;
+  stroke-width: 0.6;
+  opacity: 0.8;
+}
+
+.sv-grid-line {
+  stroke: #202838;
+  stroke-width: 0.2;
+  opacity: 0.9;
+}
+
+.sv-grid-line-minor {
+  stroke: #1a2130;
+  stroke-width: 0.14;
+  opacity: 0.8;
+}
+
+.sv-grid-axis {
+  stroke: #395175;
+  stroke-width: 0.35;
+  opacity: 0.95;
+}
+
+.sv-grid-label {
+  fill: #8fa4c8;
+  paint-order: stroke;
+  stroke: #0d1018;
+  stroke-width: 0.35;
+  dominant-baseline: hanging;
+  pointer-events: none;
+}
+
+.sv-node text {
+  fill: #dfe8ff;
+  paint-order: stroke;
+  stroke: #0d1018;
+  stroke-width: 0.35;
+  dominant-baseline: hanging;
+}
+
+.sv-node circle {
+  stroke: #0f1115;
+  stroke-width: 0.18;
+}
+
+.sv-node-endpoint circle {
+  fill: #89b4fa;
+}
+
+.sv-node-relay circle {
+  fill: #cdd6f4;
+}
+
+.sv-node-filter circle {
+  fill: #f5c2e7;
+}
+
+.sv-node-hub circle {
+  fill: #f9e2af;
+}
+
+.sv-node-bridge circle {
+  fill: #a6e3a1;
+}
+
+.sv-node-antenna circle {
+  fill: #fab387;
+}
+
+.sv-legend {
+  display: grid;
+  gap: 6px;
+}
+
+.sv-legend-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  color: var(--meta-text);
+  font-size: var(--font-size-12);
+}
+
+.sv-chip {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  display: inline-block;
+  border: 1px solid #2a2f3a;
+}
+
+.sv-chip.sv-node-endpoint {
+  background: #89b4fa;
+}
+
+.sv-chip.sv-node-relay {
+  background: #cdd6f4;
+}
+
+.sv-chip.sv-node-filter {
+  background: #f5c2e7;
+}
+
+.sv-chip.sv-node-hub {
+  background: #f9e2af;
+}
+
+.sv-chip.sv-node-bridge {
+  background: #a6e3a1;
+}
+
+.sv-chip.sv-node-antenna {
+  background: #fab387;
+}
+
+.sv-packet {
+  fill: #8bd5ff;
+  stroke: #0d1018;
+  stroke-width: 0.14;
+  opacity: 0.95;
+}
+
+.sv-packet-sensitive {
+  fill: #ff7f9f;
+}
+
+.sv-packet-label {
+  fill: #d8e6ff;
+  font-size: 10px;
+  paint-order: stroke;
+  stroke: #0d1018;
+  stroke-width: 0.8px;
+  dominant-baseline: hanging;
+  pointer-events: none;
+}
