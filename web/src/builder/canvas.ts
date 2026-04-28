@@ -2400,46 +2400,40 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     y: number,
     ignoreIds?: Set<string>,
   ): boolean {
-    return state.entities.some((e) => {
-      if (ignoreIds?.has(e.id)) return false;
-      return (
-        e.templateType === templateType &&
-        e.layer === layer &&
-        e.segmentIndex === segment &&
-        e.x === x &&
-        e.y === y
-      );
-    });
+  const expanded = expandBuilderState(state, { builderView: true });
+  return expanded.entities.some((e) => {
+    if (ignoreIds?.has(e.rootId)) return false;
+    return e.templateType === templateType && e.layer === layer && e.segmentIndex === segment && e.x === x && e.y === y;
+  });
   }
 
   function hasPlacementMapConflicts(placements: Map<string, DragPlacement>): boolean {
-    const movingIds = new Set(placements.keys());
+  if (placements.size === 0) return false;
+  const moved = new Map<string, DragPlacement>(placements);
+  const nextState: BuilderState = {
+    ...state,
+    entities: state.entities.map((e) => {
+      const p = moved.get(e.id);
+      if (!p) return e;
+      return {
+        ...e,
+        layer: p.layer,
+        segmentIndex: p.segment,
+        x: p.x,
+        y: p.y,
+      };
+    }),
+  };
+  const expanded = expandBuilderState(nextState, { builderView: true });
     const seen = new Set<string>();
-    let conflict = false;
-    placements.forEach((placement, id) => {
-      if (conflict) return;
-      const ent = state.entities.find((e) => e.id === id);
-      if (!ent) return;
-      const key = `${ent.templateType}:${placement.layer}:${placement.segment}:${placement.x}:${placement.y}`;
+  for (const ent of expanded.entities) {
+    const key = `${ent.templateType}:${ent.layer}:${ent.segmentIndex}:${ent.x}:${ent.y}`;
       if (seen.has(key)) {
-        conflict = true;
-        return;
+      return true;
       }
       seen.add(key);
-      if (
-        hasSameTypePlacementConflict(
-          ent.templateType,
-          placement.layer,
-          placement.segment,
-          placement.x,
-          placement.y,
-          movingIds,
-        )
-      ) {
-        conflict = true;
-      }
-    });
-    return conflict;
+  }
+  return false;
   }
 
   function segmentEntitiesHost(layer: BuilderLayer, segment: number): HTMLElement | null {
@@ -2678,8 +2672,8 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     const maxY = Math.max(0, Math.floor(Math.max(1, section.heightPx) / BUILDER_GRID_TILE_SIZE_Y_PX) - 1);
     const minAnchorX = -footprint.left;
     const minAnchorY = -footprint.top;
-    const maxAnchorX = Math.max(minAnchorX, maxX - footprint.right);
-    const maxAnchorY = Math.max(minAnchorY, maxY - footprint.bottom);
+    const maxAnchorX = maxX - footprint.left;
+    const maxAnchorY = maxY - footprint.top;
     return {
       layer: section.layer,
       segment: section.segment,
@@ -4333,42 +4327,32 @@ export function mountBuilderView(options: BuilderMountOptions): void {
           if (minSegmentDelta > maxSegmentDelta) {
             return placements;
           }
-          let minDx = -Infinity;
-          let maxDx = Infinity;
-          let minDy = -Infinity;
-          let maxDy = Infinity;
+          let minFootprintLeftX = Infinity;
+          let minFootprintTopY = Infinity;
           targetById.forEach((t, id) => {
             const targetSegment = t.p0.segment + segmentDelta;
             t.segment = targetSegment;
-            const b = boundsFor(t.layer, targetSegment);
             const ent = state.entities.find((e) => e.id === id);
             if (!ent) {
-              minDx = Infinity;
-              maxDx = -Infinity;
-              minDy = Infinity;
-              maxDy = -Infinity;
+              minFootprintLeftX = Infinity;
+              minFootprintTopY = Infinity;
               return;
             }
             const fp = entityFootprintOffsets(ent);
-            const minX = -fp.left;
-            const maxX = b.maxX - fp.right;
-            const minY = -fp.top;
-            const maxY = b.maxY - fp.bottom;
-            if (minX > maxX || minY > maxY) {
-              minDx = Infinity;
-              maxDx = -Infinity;
-              minDy = Infinity;
-              maxDy = -Infinity;
-              return;
-            }
-            minDx = Math.max(minDx, minX - t.p0.x);
-            maxDx = Math.min(maxDx, maxX - t.p0.x);
-            minDy = Math.max(minDy, minY - t.p0.y);
-            maxDy = Math.min(maxDy, maxY - t.p0.y);
+            minFootprintLeftX = Math.min(minFootprintLeftX, t.p0.x + fp.left);
+            minFootprintTopY = Math.min(minFootprintTopY, t.p0.y + fp.top);
           });
-          if (minDx > maxDx || minDy > maxDy) {
+          if (!Number.isFinite(minFootprintLeftX) || !Number.isFinite(minFootprintTopY)) {
             return placements;
           }
+          const rootTarget = targetById.get(rootDragEnt.id);
+          if (!rootTarget) return placements;
+          const rootBounds = boundsFor(rootTarget.layer, rootTarget.segment);
+          const minDx = -minFootprintLeftX;
+          const maxDx = rootBounds.maxX - minFootprintLeftX;
+          const minDy = -minFootprintTopY;
+          const maxDy = rootBounds.maxY - minFootprintTopY;
+          if (minDx > maxDx || minDy > maxDy) return placements;
           const dxGrid = clampToRange(primaryX - primaryInitial.x, minDx, maxDx);
           const dyGrid = clampToRange(primaryY - primaryInitial.y, minDy, maxDy);
           targetById.forEach((t, id) => {
@@ -4653,42 +4637,32 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       if (minSegmentDelta > maxSegmentDelta) {
         return placements;
       }
-      let minDx = -Infinity;
-      let maxDx = Infinity;
-      let minDy = -Infinity;
-      let maxDy = Infinity;
+      let minFootprintLeftX = Infinity;
+      let minFootprintTopY = Infinity;
       targetById.forEach((t, id) => {
         const targetSegment = t.p0.segment + segmentDelta;
         t.segment = targetSegment;
-        const b = boundsFor(t.layer, targetSegment);
         const ent = state.entities.find((e) => e.id === id);
         if (!ent) {
-          minDx = Infinity;
-          maxDx = -Infinity;
-          minDy = Infinity;
-          maxDy = -Infinity;
+          minFootprintLeftX = Infinity;
+          minFootprintTopY = Infinity;
           return;
         }
         const fp = entityFootprintOffsets(ent);
-        const minX = -fp.left;
-        const maxX = b.maxX - fp.right;
-        const minY = -fp.top;
-        const maxY = b.maxY - fp.bottom;
-        if (minX > maxX || minY > maxY) {
-          minDx = Infinity;
-          maxDx = -Infinity;
-          minDy = Infinity;
-          maxDy = -Infinity;
-          return;
-        }
-        minDx = Math.max(minDx, minX - t.p0.x);
-        maxDx = Math.min(maxDx, maxX - t.p0.x);
-        minDy = Math.max(minDy, minY - t.p0.y);
-        maxDy = Math.min(maxDy, maxY - t.p0.y);
+        minFootprintLeftX = Math.min(minFootprintLeftX, t.p0.x + fp.left);
+        minFootprintTopY = Math.min(minFootprintTopY, t.p0.y + fp.top);
       });
-      if (minDx > maxDx || minDy > maxDy) {
+      if (!Number.isFinite(minFootprintLeftX) || !Number.isFinite(minFootprintTopY)) {
         return placements;
       }
+      const rootTarget = targetById.get(rootDragEnt.id);
+      if (!rootTarget) return placements;
+      const rootBounds = boundsFor(rootTarget.layer, rootTarget.segment);
+      const minDx = -minFootprintLeftX;
+      const maxDx = rootBounds.maxX - minFootprintLeftX;
+      const minDy = -minFootprintTopY;
+      const maxDy = rootBounds.maxY - minFootprintTopY;
+      if (minDx > maxDx || minDy > maxDy) return placements;
       const dxGrid = clampToRange(primaryX - primaryInitial.x, minDx, maxDx);
       const dyGrid = clampToRange(primaryY - primaryInitial.y, minDy, maxDy);
       targetById.forEach((t, id) => {
