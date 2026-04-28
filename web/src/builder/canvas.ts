@@ -2815,11 +2815,6 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     return closestPort;
   }
 
-  function simRestingPortOffset(port: number): { x: number; y: number } {
-    const a = (port % 4) * (Math.PI / 2);
-    return { x: Math.cos(a) * 6, y: Math.sin(a) * 6 };
-  }
-
   function simOccupancyByPacketId(
     occ: Array<{ port: PortRef; packet: Packet }>,
   ): Map<number, { port: PortRef; packet: Packet }> {
@@ -2988,10 +2983,18 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     centerCache: Map<string, SimPortPoint | null>,
   ): SimPreparedPolyline | null {
     const key = packetRouteKey(from, to);
+    const reverseKey = packetRouteKey(to, from);
     let template = packetRouteTemplateByKey.get(key);
     if (template === undefined) {
       template = buildPacketRouteTemplate(from, to);
       packetRouteTemplateByKey.set(key, template);
+      // Keep forward/backward animation paths symmetric: once we decide on a template for
+      // one direction, reuse its reverse for the opposite direction.
+      if (template) {
+        if (packetRouteTemplateByKey.get(reverseKey) === undefined) {
+          packetRouteTemplateByKey.set(reverseKey, [...template].reverse());
+        }
+      }
     }
     if (!template || template.length === 0) return null;
     const points: SimXY[] = [];
@@ -3000,7 +3003,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       if (!c) {
         return null;
       }
-      points.push(c);
+      points.push({ x: c.x, y: c.y });
     }
     return preparePolyline(points);
   }
@@ -3197,8 +3200,13 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     for (const { port, packet } of simCurrentOccupancy) {
       const fromEntry = simPreviousOccupancyByPacketId.get(packet.id);
       const spawnId = builderEndpointIdByAddress.get(packet.src);
-      const fromDeviceId = fromEntry?.port.deviceId ?? spawnId ?? port.deviceId;
-      const fromPortNum = fromEntry?.port.port ?? 0;
+      // Forward animation: if we didn't see the packet last tick, assume it was emitted from its source endpoint.
+      // Reverse animation: if we didn't see the packet in the newer tick, it was likely consumed/dropped; don't
+      // animate it "from the source" — keep it at its current (older) port.
+      const fromDeviceId =
+        fromEntry?.port.deviceId ??
+        (simReverseAnimationMode ? port.deviceId : (spawnId ?? port.deviceId));
+      const fromPortNum = fromEntry?.port.port ?? (simReverseAnimationMode ? port.port : 0);
       const fromRef: PortRef = { deviceId: fromDeviceId, port: fromPortNum };
       const toRef: PortRef = { ...port };
       const finalEndpointId = builderEndpointIdByAddress.get(packet.dest);
@@ -3209,8 +3217,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       if (pa.clipped && pb.clipped) continue;
       const pFinal = finalDestRef ? builderPortCenterInOverlayCoords(finalDestRef, centerCache) : null;
 
-      const o = simRestingPortOffset(port.port);
-      const fallback = { x: pa.x + o.x, y: pa.y + o.y };
+      const fallback = { x: pa.x, y: pa.y };
       let line: SimPreparedPolyline | null = null;
       if (fromDeviceId !== port.deviceId || fromPortNum !== port.port) {
         const routeKey = packetRouteKey(fromRef, toRef);
@@ -3266,8 +3273,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
         if (!line || line.points.length < 2 || line.totalLen < 1) {
           line = null;
         }
-        const o = simRestingPortOffset(fromRef.port);
-        const fallback = { x: pa.x + o.x, y: pa.y + o.y };
+        const fallback = { x: pa.x, y: pa.y };
         const hue = (packet.id * 47) % 360;
         prepared.push({
           packetId: packet.id,
@@ -3295,8 +3301,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
         if (currentIds.has(ghost.packet.id)) continue;
         const p = builderPortCenterInOverlayCoords(ghost.endpointRef, centerCache);
         if (!p || p.clipped) continue;
-        const o = simRestingPortOffset(ghost.endpointRef.port);
-        const fallback = { x: p.x + o.x, y: p.y + o.y };
+        const fallback = { x: p.x, y: p.y };
         const hue = (ghost.packet.id * 47) % 360;
         prepared.push({
           packetId: ghost.packet.id,
