@@ -1,5 +1,12 @@
 import * as assert from "node:assert/strict";
-import { expandBuilderState, expandLinks, mapMaskForSegment, parseBuilderInstanceId, unmapMaskForSegment } from "./clone-engine";
+import {
+  expandBuilderState,
+  expandLinks,
+  mapMaskForSegment,
+  mapMaskForSegmentIndex,
+  parseBuilderInstanceId,
+  unmapMaskForSegment,
+} from "./clone-engine";
 import {
   addLinkRootOneWirePerPort,
   crossLayerBlockSlotFromSegments,
@@ -24,6 +31,9 @@ assert.equal(mapMaskForSegment("*.1.*.*", "middle16", 4), "*.2.*.*");
 assert.equal(mapMaskForSegment("*.1.*.*", "outer64", 15), "*.1.*.*");
 assert.equal(mapMaskForSegment("*.1.*.*", "outer64", 16), "*.2.*.*");
 assert.equal(mapMaskForSegment("*.*.1.*", "outer64", 4), "*.*.2.*");
+// Segment-indexed mapping aligns buckets to parent boundaries (outer64 groups of 4 -> middle16 segment).
+assert.equal(mapMaskForSegmentIndex("*.*.1.*", "outer64", 1, 3), "*.*.1.*", "segments 1..3 stay in same group");
+assert.equal(mapMaskForSegmentIndex("*.*.1.*", "outer64", 1, 4), "*.*.2.*", "segment 4 enters next group of 4");
 assert.equal(unmapMaskForSegment("*.*.0.*", "middle16", 3), "*.*.1.*");
 assert.equal(unmapMaskForSegment("*.1.*.*", "middle16", 3), "*.1.*.*");
 assert.equal(unmapMaskForSegment("*.0.*.*", "middle16", 4), "*.3.*.*");

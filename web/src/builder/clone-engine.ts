@@ -47,48 +47,131 @@ function wrappedAdd(value: number, add: number): number {
   return ((value + add) % 4 + 4) % 4;
 }
 
-function strideForMask(layer: BuilderLayer, fixedIndex: number): number | null {
-  if (layer === "core1") {
-    return null;
-  }
+/**
+ * Mask octets are base-4 digits: `a.b.c.d` (octet1..octet4).
+ *
+ * Segment deltas are expressed in the root's layer units:
+ * - core1:   1 segment  (octet1)
+ * - inner4:  4 segments (octet2)
+ * - middle16:16 segments (octet3)
+ * - outer64: 64 segments (octet4)
+ *
+ * Game equivalence is 4:1 between adjacent layers, so when cloning/mirroring:
+ * - octet1 (idx 0) is never shifted (only mirrored)
+ * - octet2 (idx 1) shifts every 1/4/16 segments depending on layer
+ * - octet3 (idx 2) shifts every 1/4 segments depending on layer
+ * - octet4 (idx 3) shifts every 1 segment only on outer64
+ */
+function strideForMask(layer: BuilderLayer, octetIndex: number): number | null {
+  // Octet 1 is never shifted.
+  if (octetIndex === 0) return null;
+  if (layer === "core1") return null;
   if (layer === "inner4") {
-    return fixedIndex === 1 ? 1 : null;
+    // One segment step equals one octet2 step.
+    return octetIndex === 1 ? 1 : null;
   }
   if (layer === "middle16") {
-    if (fixedIndex === 1) return 4;
-    if (fixedIndex === 2) return 1;
+    // Four middle16 segments == one octet2 step; one segment == one octet3 step.
+    if (octetIndex === 1) return 4;
+    if (octetIndex === 2) return 1;
     return null;
   }
-  if (fixedIndex === 1) return 16;
-  if (fixedIndex === 2) return 4;
-  if (fixedIndex === 3) return 1;
+  // outer64:
+  // Sixteen outer64 segments == one octet2 step; four segments == one octet3 step; one segment == one octet4 step.
+  if (octetIndex === 1) return 16;
+  if (octetIndex === 2) return 4;
+  if (octetIndex === 3) return 1;
   return null;
 }
 
+/**
+ * Legacy helpers (delta-based). Kept for compatibility with existing callers/tests,
+ * but prefer the segment-indexed versions below to ensure boundaries line up with
+ * parent segment groups (e.g. outer64 groups of 4 align to middle16 segments).
+ */
 export function mapMaskForSegment(mask: string, layer: BuilderLayer, deltaSegments: number): string {
-  return mapMaskWithDirection(mask, layer, deltaSegments, 1);
+  return mapMaskWithDirectionByDelta(mask, layer, deltaSegments, 1);
 }
 
 export function unmapMaskForSegment(mask: string, layer: BuilderLayer, deltaSegments: number): string {
-  return mapMaskWithDirection(mask, layer, deltaSegments, -1);
+  return mapMaskWithDirectionByDelta(mask, layer, deltaSegments, -1);
 }
 
-function mapMaskWithDirection(mask: string, layer: BuilderLayer, deltaSegments: number, direction: 1 | -1): string {
+export function mapMaskForSegmentIndex(
+  mask: string,
+  layer: BuilderLayer,
+  rootSegmentIndex: number,
+  segmentIndex: number,
+): string {
+  return mapMaskWithDirectionByIndex(mask, layer, rootSegmentIndex, segmentIndex, 1);
+}
+
+export function unmapMaskForSegmentIndex(
+  mask: string,
+  layer: BuilderLayer,
+  rootSegmentIndex: number,
+  segmentIndex: number,
+): string {
+  return mapMaskWithDirectionByIndex(mask, layer, rootSegmentIndex, segmentIndex, -1);
+}
+
+function mapMaskWithDirectionByDelta(mask: string, layer: BuilderLayer, deltaSegments: number, direction: 1 | -1): string {
   const parts = mask.split(".");
   if (parts.length !== 4) return mask;
-  const fixed = parts
-    .map((value, idx) => ({ value, idx }))
-    .filter((entry) => entry.value !== "*")
-    .filter((entry) => /^\d+$/.test(entry.value));
-  if (fixed.length !== 1) return mask;
-  const fixedIndex = fixed[0].idx;
-  const stride = strideForMask(layer, fixedIndex);
-  if (!stride) return mask;
-  const delta = Math.floor(deltaSegments / stride) * direction;
-  const original = Number(parts[fixedIndex]);
-  if (!Number.isFinite(original)) return mask;
-  parts[fixedIndex] = String(wrappedAdd(original, delta));
-  return parts.join(".");
+  let changed = false;
+  for (let idx = 0; idx < 4; idx += 1) {
+    const raw = parts[idx];
+    if (!raw || raw === "*" || !/^\d+$/.test(raw)) continue;
+    const stride = strideForMask(layer, idx);
+    if (!stride) continue;
+    const delta = Math.floor(deltaSegments / stride) * direction;
+    if (delta === 0) continue;
+    const original = Number(raw);
+    if (!Number.isFinite(original)) continue;
+    parts[idx] = String(wrappedAdd(original, delta));
+    changed = true;
+  }
+  return changed ? parts.join(".") : mask;
+}
+
+function alignedDeltaForStride(
+  layer: BuilderLayer,
+  rootSegmentIndex: number,
+  segmentIndex: number,
+  stride: number,
+): number {
+  const count = LAYER_COUNTS[layer];
+  const root = ((rootSegmentIndex % count) + count) % count;
+  const target = ((segmentIndex % count) + count) % count;
+  const d = (target - root + count) % count;
+  // Crucial: compute bucket transitions in *global* segment space, anchored at 0,
+  // not relative to root. This ensures outer64 groups of 4 line up to middle16 segments.
+  return Math.floor((root + d) / stride) - Math.floor(root / stride);
+}
+
+function mapMaskWithDirectionByIndex(
+  mask: string,
+  layer: BuilderLayer,
+  rootSegmentIndex: number,
+  segmentIndex: number,
+  direction: 1 | -1,
+): string {
+  const parts = mask.split(".");
+  if (parts.length !== 4) return mask;
+  let changed = false;
+  for (let idx = 0; idx < 4; idx += 1) {
+    const raw = parts[idx];
+    if (!raw || raw === "*" || !/^\d+$/.test(raw)) continue;
+    const stride = strideForMask(layer, idx);
+    if (!stride) continue;
+    const delta = alignedDeltaForStride(layer, rootSegmentIndex, segmentIndex, stride) * direction;
+    if (delta === 0) continue;
+    const original = Number(raw);
+    if (!Number.isFinite(original)) continue;
+    parts[idx] = String(wrappedAdd(original, delta));
+    changed = true;
+  }
+  return changed ? parts.join(".") : mask;
 }
 
 function transformSettingsForSegment(
@@ -97,9 +180,8 @@ function transformSettingsForSegment(
 ): Record<string, string> {
   const settings = { ...root.settings };
   if (root.templateType === "filter") {
-    const delta = (segmentIndex - root.segmentIndex + LAYER_COUNTS[root.layer]) % LAYER_COUNTS[root.layer];
     if (typeof settings.mask === "string") {
-      settings.mask = mapMaskForSegment(settings.mask, root.layer, delta);
+      settings.mask = mapMaskForSegmentIndex(settings.mask, root.layer, root.segmentIndex, segmentIndex);
     }
     return settings;
   }

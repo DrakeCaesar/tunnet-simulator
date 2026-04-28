@@ -33,6 +33,8 @@ import {
   orderedLayersTopDown,
   segmentLabel,
   unmapMaskForSegment,
+  mapMaskForSegmentIndex,
+  unmapMaskForSegmentIndex,
 } from "./clone-engine";
 import {
   clearBuilderLayoutSlot,
@@ -3844,10 +3846,9 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     const rootEnt = state.entities.find((e) => e.id === rootId);
     if (!rootEnt) return;
     const segmentIndex = Number.isInteger(instanceSegmentIndex) ? instanceSegmentIndex : rootEnt.segmentIndex;
-    const delta = (segmentIndex - rootEnt.segmentIndex + LAYER_COUNTS[rootEnt.layer]) % LAYER_COUNTS[rootEnt.layer];
     const visibleMask =
       rootEnt.templateType === "filter"
-        ? mapMaskForSegment(rootEnt.settings.mask ?? "*.*.*.*", rootEnt.layer, delta)
+        ? mapMaskForSegmentIndex(rootEnt.settings.mask ?? "*.*.*.*", rootEnt.layer, rootEnt.segmentIndex, segmentIndex)
         : (rootEnt.settings.mask ?? "*.*.*.*");
     const parts = visibleMask.split(".");
     while (parts.length < 4) parts.push("*");
@@ -3859,11 +3860,11 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     const n = MASK_VALUE_CYCLE.length;
     poolIdx = dir === "up" ? (poolIdx + 1) % n : (poolIdx + n - 1) % n;
 
-    const nextParts: string[] = ["*", "*", "*", "*"];
+    const nextParts = parts.slice(0, 4);
     nextParts[maskIdx] = MASK_VALUE_CYCLE[poolIdx];
     const rootMask =
       rootEnt.templateType === "filter"
-        ? unmapMaskForSegment(nextParts.join("."), rootEnt.layer, delta)
+        ? unmapMaskForSegmentIndex(nextParts.join("."), rootEnt.layer, rootEnt.segmentIndex, segmentIndex)
         : nextParts.join(".");
     state = updateEntitySettings(state, rootEnt.id, { ...rootEnt.settings, mask: rootMask });
     refreshFilterMaskControls(rootEnt.id);
@@ -3878,8 +3879,12 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     canvasEl.querySelectorAll<HTMLElement>(`.builder-entity[data-root-id="${rootId}"]`).forEach((entityEl) => {
       const instance = parseBuilderInstanceId(entityEl.dataset.instanceId ?? "");
       const segmentIndex = instance?.segmentIndex ?? rootEnt.segmentIndex;
-      const delta = (segmentIndex - rootEnt.segmentIndex + LAYER_COUNTS[rootEnt.layer]) % LAYER_COUNTS[rootEnt.layer];
-      const maskParts = mapMaskForSegment(rootEnt.settings.mask ?? "*.*.*.*", rootEnt.layer, delta).split(".");
+      const maskParts = mapMaskForSegmentIndex(
+        rootEnt.settings.mask ?? "*.*.*.*",
+        rootEnt.layer,
+        rootEnt.segmentIndex,
+        segmentIndex,
+      ).split(".");
       while (maskParts.length < 4) maskParts.push("*");
       entityEl.querySelectorAll<HTMLElement>("[data-mask-value-idx]").forEach((valueEl) => {
         const idx = Number(valueEl.dataset.maskValueIdx);
