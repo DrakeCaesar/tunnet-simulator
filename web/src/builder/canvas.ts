@@ -870,12 +870,16 @@ export function mountBuilderView(options: BuilderMountOptions): void {
                 </span>
               </button>
               <button id="builder-sim-toggle-packet-ips" type="button">${builderPageState.showPacketIps ? "Hide IPs" : "Show IPs"}</button>
+              <div class="builder-sim-speed-inline" aria-label="Tick speed">
+                <div class="builder-sim-speed-inline-top">
+                  <span class="builder-sim-speed-inline-label">Speed</span>
+                  <span id="builder-sim-speed-value" class="builder-sim-speed-inline-value">${formatSpeedLabel(
+                    SPEED_EXP_DEFAULT,
+                  )}</span>
+                </div>
+                <input id="builder-sim-speed" class="builder-sim-speed-inline-range" type="range" min="${SPEED_EXP_MIN}" max="${SPEED_EXP_MAX}" step="1" value="${SPEED_EXP_DEFAULT}" />
+              </div>
             </div>
-            <label class="builder-scale-row builder-sim-speed-row" for="builder-sim-speed">
-              <span>Tick pace</span>
-              <input id="builder-sim-speed" type="range" min="${SPEED_EXP_MIN}" max="${SPEED_EXP_MAX}" step="1" value="${SPEED_EXP_DEFAULT}" />
-              <span id="builder-sim-speed-value">${formatSpeedLabel(SPEED_EXP_DEFAULT)}</span>
-            </label>
             <div id="builder-sim-meta" class="builder-sim-meta">Initializing…</div>
           </div>
           <div id="builder-panel-scale" class="builder-floating-scale-area">

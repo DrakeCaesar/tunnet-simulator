@@ -910,7 +910,7 @@ textarea {
   box-sizing: border-box;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 330px;
-  grid-template-rows: auto 34px;
+  grid-template-rows: auto;
   gap: var(--builder-hud-gap);
   align-items: start;
   padding: var(--builder-hud-gap);
@@ -932,9 +932,40 @@ textarea {
   grid-template-columns: 9ch 1fr 4ch;
 }
 
+.builder-sim-speed-inline {
+  display: grid;
+  grid-template-rows: auto auto;
+  gap: 4px;
+  align-self: stretch;
+  width: 100%;
+  min-width: 0;
+}
+
+.builder-sim-speed-inline-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: var(--font-size-11);
+  color: #b6beca;
+  line-height: 1;
+}
+
+.builder-sim-speed-inline-value {
+  color: var(--text-main);
+  white-space: nowrap;
+}
+
+.builder-sim-speed-inline-range {
+  width: 100%;
+  min-width: 0;
+  height: 6px;
+  accent-color: #89b4fa;
+}
+
 .builder-floating-simulation .builder-sim-meta {
   grid-column: 2;
-  grid-row: 1 / span 2;
+  grid-row: 1;
 }
 
 .builder-floating-templates {
@@ -989,7 +1020,7 @@ textarea {
 
 .builder-controls-in-sidebar .builder-controls-sidebar-host .builder-floating-simulation {
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: auto 34px auto;
+  grid-template-rows: auto auto;
   align-content: start;
 }
 
