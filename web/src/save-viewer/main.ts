@@ -17,6 +17,7 @@ import type { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js
 import { acceleratedRaycast, computeBoundsTree, disposeBoundsTree } from "three-mesh-bvh";
 import { applyWorldVertexAo, type WorldAoColorSet } from "./world-ao-block";
 import { createWorldSsao, setWorldSsaoEnabled } from "./world-ao-ssao";
+import { buildWorldCullCapGeometry, createWorldCullCapMaterial } from "./world-cull-cap";
 import { createWorldGridLines, setWorldGridLineResolution, type WorldGridLines } from "./world-grid-lines";
 
 {
@@ -155,6 +156,11 @@ const WORLD_CHUNK_RES = 32;
 const WORLD_VOXEL_SIZE = WORLD_CHUNK_SIZE / WORLD_CHUNK_RES;
 const WORLD_CHUNK_Y_SIGN = 1;
 const WORLD_CHUNK_Y_OFFSET = -1;
+const SAVE_VIEWER_MINIMAP_MARGIN_PX = 16;
+const SAVE_VIEWER_MINIMAP_CHUNKS_ACROSS = 7;
+const SAVE_VIEWER_MINIMAP_PIXELS_PER_BLOCK = 2;
+const SAVE_VIEWER_MINIMAP_VIEWPORT_SIZE_PX =
+  SAVE_VIEWER_MINIMAP_CHUNKS_ACROSS * WORLD_CHUNK_RES * SAVE_VIEWER_MINIMAP_PIXELS_PER_BLOCK;
 /** World-space Y offset for the 3D graph (node points + edge lines) as a group. */
 const SAVE_VIEWER_GRAPH_ENTITY_Y_OFFSET = -1;
 
@@ -869,12 +875,10 @@ type Viewer3DState = {
   controls: OrbitControls;
   animationFrame: number;
   clipPlane: THREE.Plane;
-  cullBall: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>;
-  cullCenterX: number;
-  cullCenterZ: number;
   cullMinY: number;
   cullMaxY: number;
   worldMeshes: THREE.Mesh[];
+  cullCapMesh: THREE.Mesh<THREE.BufferGeometry, THREE.MeshPhongMaterial>;
   worldBoundaryLines: WorldGridLines[];
   worldMaterials: THREE.Material[];
   worldMeshWorkers: Worker[];
@@ -1003,7 +1007,8 @@ async function createOrRefresh3DWorld(
     { key: "sim_vertical", label: "sim vertical", color: "#fab387" },
     { key: "sim_sync", label: "sim sync", color: "#f9e2af" },
     { key: "update", label: "update", color: "#94e2d5" },
-    { key: "render", label: "render", color: "#a6e3a1" },
+    { key: "render_main", label: "render main", color: "#a6e3a1" },
+    { key: "render_minimap", label: "render map", color: "#74c7ec" },
     { key: "other", label: "other", color: "#7f849c" },
   ] as const;
   type PerfSliceKey = (typeof perfSlices)[number]["key"];
@@ -1014,7 +1019,8 @@ async function createOrRefresh3DWorld(
     sim_vertical: 0,
     sim_sync: 0,
     update: 0,
-    render: 0,
+    render_main: 0,
+    render_minimap: 0,
     other: 0,
   };
   let perfFrameEma = 0;
@@ -1389,17 +1395,26 @@ async function createOrRefresh3DWorld(
     await Promise.all(workerTasks);
   }
 
-  const cullCenterX = center.x;
-  const cullCenterZ = center.z;
-  const cullBall = new THREE.Mesh(
-    new THREE.SphereGeometry(Math.max(0.8, WORLD_CHUNK_SIZE * 0.08), 16, 12),
-    new THREE.MeshBasicMaterial({ color: 0xf9e2af }),
-  );
-  scene.add(cullBall);
+  const cullCapMat = createWorldCullCapMaterial();
+  worldMaterials.push(cullCapMat);
+  const cullCapMesh = new THREE.Mesh(new THREE.BufferGeometry(), cullCapMat);
+  cullCapMesh.name = "sv-cull-cap";
+  cullCapMesh.renderOrder = 1;
+  scene.add(cullCapMesh);
+  const updateCullCap = (y: number): void => {
+    cullCapMesh.geometry.dispose();
+    if (y >= worldMaxY - 1e-3) {
+      cullCapMesh.geometry = new THREE.BufferGeometry();
+      cullCapMesh.visible = false;
+      return;
+    }
+    cullCapMesh.geometry = buildWorldCullCapGeometry(worldMeshes, y);
+    cullCapMesh.visible = cullCapMesh.geometry.getAttribute("position")?.count > 0;
+  };
   const setCullY = (y: number): void => {
     const yy = Math.max(worldMinY, Math.min(worldMaxY + WORLD_CHUNK_SIZE * 0.5, y));
     clipPlane.constant = yy;
-    cullBall.position.set(cullCenterX, yy, cullCenterZ);
+    updateCullCap(yy);
   };
   setCullY(worldMaxY + WORLD_CHUNK_SIZE * 0.5);
 
@@ -1519,6 +1534,64 @@ async function createOrRefresh3DWorld(
     jumpSpeed: 8.5,
     gravity: 24,
     radius: 0.34,
+  };
+  const minimapCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 5000);
+  minimapCamera.up.set(0, 0, -1);
+  const renderMinimap = (): void => {
+    const viewW = Math.max(1, renderer.domElement.clientWidth);
+    const viewH = Math.max(1, renderer.domElement.clientHeight);
+    const size = Math.max(128, Math.min(SAVE_VIEWER_MINIMAP_VIEWPORT_SIZE_PX, Math.floor(Math.min(viewW, viewH) * 0.42)));
+    const minimapWorldSize = SAVE_VIEWER_MINIMAP_CHUNKS_ACROSS * WORLD_CHUNK_SIZE;
+    const halfWorld = minimapWorldSize * 0.5;
+    const x = Math.max(0, viewW - size - SAVE_VIEWER_MINIMAP_MARGIN_PX);
+    const y = SAVE_VIEWER_MINIMAP_MARGIN_PX;
+    const playerHeadY = playerFeet.y + physics.eyeHeight;
+    const oldClipConstant = clipPlane.constant;
+    const oldCapVisible = cullCapMesh.visible;
+    const oldClearColor = new THREE.Color();
+    renderer.getClearColor(oldClearColor);
+    const oldClearAlpha = renderer.getClearAlpha();
+    const oldWorldMeshVisibility = worldMeshes.map((mesh) => mesh.visible);
+    const oldLineVisibility = worldBoundaryLines.map((lines) => lines.visible);
+
+    minimapCamera.position.set(playerFeet.x, playerHeadY + 500, playerFeet.z);
+    minimapCamera.left = -halfWorld;
+    minimapCamera.right = halfWorld;
+    minimapCamera.top = halfWorld;
+    minimapCamera.bottom = -halfWorld;
+    minimapCamera.lookAt(playerFeet.x, playerHeadY, playerFeet.z);
+    minimapCamera.updateProjectionMatrix();
+    minimapCamera.updateMatrixWorld();
+
+    clipPlane.constant = playerHeadY;
+    cullCapMesh.visible = false;
+    const halfMap = halfWorld + WORLD_CHUNK_SIZE * 0.5;
+    for (let i = 0; i < chunkVisibilityEntries.length; i += 1) {
+      const entry = chunkVisibilityEntries[i]!;
+      const inMap =
+        Math.abs(entry.center.x - playerFeet.x) <= halfMap &&
+        Math.abs(entry.center.z - playerFeet.z) <= halfMap;
+      entry.mesh.visible = inMap;
+      if (entry.lines) entry.lines.visible = false;
+    }
+    renderer.setRenderTarget(null);
+    renderer.setScissorTest(true);
+    renderer.setViewport(x, y, size, size);
+    renderer.setScissor(x, y, size, size);
+    renderer.setClearColor(0x111827, 0.96);
+    renderer.clear(true, true, true);
+    renderer.render(scene, minimapCamera);
+    renderer.setScissorTest(false);
+    renderer.setViewport(0, 0, viewW, viewH);
+    renderer.setClearColor(oldClearColor, oldClearAlpha);
+    for (let i = 0; i < worldMeshes.length; i += 1) {
+      worldMeshes[i]!.visible = oldWorldMeshVisibility[i] ?? true;
+    }
+    for (let i = 0; i < worldBoundaryLines.length; i += 1) {
+      worldBoundaryLines[i]!.visible = oldLineVisibility[i] ?? true;
+    }
+    cullCapMesh.visible = oldCapVisible;
+    clipPlane.constant = oldClipConstant;
   };
   const applyVertexAoEnabled = (enabled: { blockAo: boolean; hemisphereAo: boolean }): void => {
     applyWorldVertexAo(worldMeshColorSets, {
@@ -1747,10 +1820,14 @@ async function createOrRefresh3DWorld(
       lastPersistMs = nowMs;
     }
     const updateMs = performance.now() - tUpdate;
-    const tRender = performance.now();
+    const tRenderMain = performance.now();
     composer!.render();
-    const renderMs = performance.now() - tRender;
+    const renderMainMs = performance.now() - tRenderMain;
+    const tRenderMinimap = performance.now();
+    renderMinimap();
+    const renderMinimapMs = performance.now() - tRenderMinimap;
     const frameMs = performance.now() - frameStartMs;
+    const renderMs = renderMainMs + renderMinimapMs;
     const otherMs = Math.max(0, frameMs - visibilityMs - simulationMs - updateMs - renderMs);
     perfEma.visibility = perfEma.visibility * (1 - PERF_EMA_ALPHA) + visibilityMs * PERF_EMA_ALPHA;
     perfEma.sim_input = perfEma.sim_input * (1 - PERF_EMA_ALPHA) + simInputMs * PERF_EMA_ALPHA;
@@ -1758,7 +1835,8 @@ async function createOrRefresh3DWorld(
     perfEma.sim_vertical = perfEma.sim_vertical * (1 - PERF_EMA_ALPHA) + simVerticalMs * PERF_EMA_ALPHA;
     perfEma.sim_sync = perfEma.sim_sync * (1 - PERF_EMA_ALPHA) + simSyncMs * PERF_EMA_ALPHA;
     perfEma.update = perfEma.update * (1 - PERF_EMA_ALPHA) + updateMs * PERF_EMA_ALPHA;
-    perfEma.render = perfEma.render * (1 - PERF_EMA_ALPHA) + renderMs * PERF_EMA_ALPHA;
+    perfEma.render_main = perfEma.render_main * (1 - PERF_EMA_ALPHA) + renderMainMs * PERF_EMA_ALPHA;
+    perfEma.render_minimap = perfEma.render_minimap * (1 - PERF_EMA_ALPHA) + renderMinimapMs * PERF_EMA_ALPHA;
     perfEma.other = perfEma.other * (1 - PERF_EMA_ALPHA) + otherMs * PERF_EMA_ALPHA;
     perfFrameEma = perfFrameEma * (1 - PERF_EMA_ALPHA) + frameMs * PERF_EMA_ALPHA;
     if (nowMs - lastPerfUiMs >= PERF_UI_INTERVAL_MS) {
@@ -1777,12 +1855,10 @@ async function createOrRefresh3DWorld(
     controls,
     animationFrame: 0,
     clipPlane,
-    cullBall,
-    cullCenterX,
-    cullCenterZ,
     cullMinY: worldMinY,
     cullMaxY: worldMaxY + WORLD_CHUNK_SIZE * 0.5,
     worldMeshes,
+    cullCapMesh,
     worldBoundaryLines,
     worldMaterials,
     worldMeshWorkers,
@@ -1907,6 +1983,8 @@ async function createOrRefresh3DWorld(
         (mesh.geometry as THREE.BufferGeometry & { disposeBoundsTree?: () => void }).disposeBoundsTree?.();
         mesh.geometry.dispose();
       }
+      scene.remove(state.cullCapMesh);
+      state.cullCapMesh.geometry.dispose();
       for (const lines of state.worldBoundaryLines) {
         scene.remove(lines);
         lines.geometry.dispose();
