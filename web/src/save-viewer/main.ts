@@ -1312,7 +1312,6 @@ async function createOrRefresh3DWorld(
               vertexColors: true,
               transparent: false,
               opacity: 1,
-              side: THREE.DoubleSide,
             });
             mat.clippingPlanes = [clipPlane];
             mat.clipIntersection = false;
@@ -1509,13 +1508,13 @@ async function createOrRefresh3DWorld(
     if (chunkVisibilityEntries.length === 0) return;
     if (nowMs - lastChunkVisibilityUpdateMs < CHUNK_VISIBILITY_UPDATE_MS) return;
     lastChunkVisibilityUpdateMs = nowMs;
+    const useDistanceCulling = firstPersonActive;
     const maxWorldDist = CHUNK_VIEW_DISTANCE * WORLD_CHUNK_SIZE;
     visibilityProjMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     visibilityFrustum.setFromProjectionMatrix(visibilityProjMatrix);
     const visibleCollisionMeshes: THREE.Mesh[] = [];
     for (const entry of chunkVisibilityEntries) {
-      const dist = camera.position.distanceTo(entry.center);
-      if (dist > maxWorldDist) {
+      if (useDistanceCulling && camera.position.distanceTo(entry.center) > maxWorldDist) {
         entry.mesh.visible = false;
         continue;
       }
@@ -2009,6 +2008,11 @@ function main(): void {
   let persisted3DCameraState: CameraPersistState | null = null;
   let persistedPilotCameraState: CameraPersistState | null = null;
   let persistedPilotPosition: PilotPositionPersistState | null = null;
+  const applyAoForCullState = (): void => {
+    if (!world3D?.ssaoPass) return;
+    // When top-cut culling is active, disable AO to avoid ghosted shading from clipped-away geometry.
+    world3D.ssaoPass.enabled = cullHeightT >= 0.999;
+  };
 
   const renderGraphAndPackets = (progress = 1): void => {
     if (use3DView) {
@@ -2067,6 +2071,7 @@ function main(): void {
       const y = world3D.cullMinY + (world3D.cullMaxY - world3D.cullMinY) * cullHeightT;
       world3D.setCullY(y);
       cullHeightValue.textContent = y.toFixed(1);
+      applyAoForCullState();
     }
     hideLoadProgress();
   };
@@ -2337,6 +2342,7 @@ function main(): void {
       const y = world3D.cullMinY + (world3D.cullMaxY - world3D.cullMinY) * cullHeightT;
       world3D.setCullY(y);
       cullHeightValue.textContent = y.toFixed(1);
+      applyAoForCullState();
     } else {
       cullHeightValue.textContent = `${Math.round(t * 100)}%`;
     }
