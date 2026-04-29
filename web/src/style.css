@@ -202,6 +202,54 @@ body {
   font-size: var(--font-size-12);
 }
 
+.sv-sidebar button,
+.sv-file-input::file-selector-button {
+  background: #1d2230;
+  border: 1px solid var(--panel-border);
+  color: var(--text-main);
+  border-radius: 8px;
+  padding: 5px 8px;
+  font-size: var(--font-size-12);
+}
+
+.sv-sidebar button:hover:not(:disabled),
+.sv-file-input::file-selector-button:hover {
+  background: #262d3f;
+  border-color: #4a5a7a;
+}
+
+.sv-sidebar button:active:not(:disabled),
+.sv-file-input::file-selector-button:active {
+  background: #141a26;
+  border-color: #6a80aa;
+  transform: translateY(1px);
+}
+
+.sv-sidebar input[type="text"] {
+  min-width: 0;
+  background: #0f141d;
+  border: 1px solid var(--panel-border);
+  color: var(--text-main);
+  border-radius: 8px;
+  padding: 5px 8px;
+  font-size: var(--font-size-12);
+}
+
+.sv-sidebar input[type="text"]:focus {
+  outline: 1px solid #4a5a7a;
+  border-color: #6a80aa;
+}
+
+.sv-file-input {
+  width: 100%;
+  color: var(--meta-text);
+  font-size: var(--font-size-12);
+}
+
+.sv-inline-action-row input[type="text"] {
+  flex: 1;
+}
+
 .sim-send-rate-block {
   margin-bottom: 10px;
 }

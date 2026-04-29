@@ -272,13 +272,13 @@ function mountLayout(): HTMLDivElement {
         <div class="card">
           <div class="section-title">Load save file</div>
           <div class="hint">Choose a Tunnet save JSON (contains nodes + edges + entities).</div>
-          <input id="sv-file-input" type="file" accept=".json,application/json" />
+          <input id="sv-file-input" class="sv-file-input" type="file" accept=".json,application/json" />
           <label class="sim-send-rate-label" for="sv-slot-index">Bundled slot</label>
           <div class="sim-send-rate-row">
             <input id="sv-slot-index" type="range" min="0" max="3" step="1" value="3" />
             <span id="sv-slot-index-value" class="meta">slot_3.json</span>
           </div>
-          <div class="sv-button-row">
+          <div class="sv-button-row sim-buttons">
             <button id="sv-load-sample" type="button">Load bundled slot_3.json</button>
           </div>
         </div>
@@ -313,6 +313,11 @@ function mountLayout(): HTMLDivElement {
             <button id="sv-block-ao-toggle" type="button">Block AO: on</button>
             <button id="sv-hemi-ao-toggle" type="button">Hemi AO: off</button>
             <button id="sv-reset-camera" type="button">Reset camera</button>
+          </div>
+          <label class="sim-send-rate-label" for="sv-teleport-endpoint">Teleport to endpoint</label>
+          <div class="sim-send-rate-row sv-inline-action-row">
+            <input id="sv-teleport-endpoint" type="text" value="0.3.0.0" spellcheck="false" />
+            <button id="sv-teleport-button" type="button">Teleport</button>
           </div>
           <label class="sim-send-rate-label" for="sv-cull-height">3D cull plane (top cut)</label>
           <div class="sim-send-rate-row">
@@ -910,6 +915,7 @@ type Viewer3DState = {
   setGravityEnabled: (enabled: boolean) => void;
   setVertexAoEnabled: (enabled: { blockAo: boolean; hemisphereAo: boolean }) => void;
   applyCameraState: (state: CameraPersistState) => void;
+  teleportPilotTo: (position: [number, number, number]) => void;
   resetCamera: () => void;
   onKeyDown: (event: KeyboardEvent) => void;
   onKeyUp: (event: KeyboardEvent) => void;
@@ -1188,6 +1194,7 @@ async function createOrRefresh3DWorld(
 
   const entityBoxKinds: VisualNode["type"][] = ["endpoint", "relay", "filter", "hub", "bridge", "antenna"];
   const entityInstancedMeshes: THREE.InstancedMesh[] = [];
+  const entityAoMaterials: THREE.MeshStandardMaterial[] = [];
   const entityAoTexture = createEntityBoxAoTexture();
   const instanceDummy = new THREE.Object3D();
   for (const kind of entityBoxKinds) {
@@ -1199,12 +1206,13 @@ async function createOrRefresh3DWorld(
     const boxMat = new THREE.MeshStandardMaterial({
       color: 0xffffff,
       aoMap: entityAoTexture,
-      aoMapIntensity: 1,
+      aoMapIntensity: blockAoEnabledInitial ? 1 : 0,
       roughness: 0.88,
       metalness: 0.02,
       clippingPlanes: [clipPlane],
       clipIntersection: false,
     });
+    entityAoMaterials.push(boxMat);
     const inst = new THREE.InstancedMesh(boxGeom, boxMat, nodeIndices.length);
     inst.name = `sv-entity-boxes-${kind}`;
     let instance = 0;
@@ -1630,6 +1638,10 @@ async function createOrRefresh3DWorld(
       blockAoEnabled: enabled.blockAo,
       hemisphereAoEnabled: enabled.hemisphereAo,
     });
+    for (const material of entityAoMaterials) {
+      material.aoMapIntensity = enabled.blockAo ? 1 : 0;
+      material.needsUpdate = true;
+    }
   };
   const raycaster = new THREE.Raycaster();
   raycaster.firstHitOnly = true;
@@ -1960,6 +1972,29 @@ async function createOrRefresh3DWorld(
       }
       controls.update();
     },
+    teleportPilotTo: (position: [number, number, number]) => {
+      const feet: [number, number, number] = [
+        Number(position[0] ?? 0),
+        Number(position[1] ?? 0),
+        Number(position[2] ?? 0),
+      ];
+      playerFeet.set(feet[0], feet[1], feet[2]);
+      verticalVelocity = 0;
+      grounded = false;
+      playerMarker.position.set(feet[0], feet[1], feet[2]);
+      if (firstPersonActive && !scene.children.includes(playerMarker)) scene.add(playerMarker);
+      camera.position.set(feet[0], feet[1] + physics.eyeHeight, feet[2]);
+      controls.target.set(feet[0] + 1, feet[1] + physics.eyeHeight, feet[2]);
+      controls.update();
+      onPilotPositionChange(feet);
+      onCameraStateChange(
+        {
+          position: [camera.position.x, camera.position.y, camera.position.z],
+          target: [controls.target.x, controls.target.y, controls.target.z],
+        },
+        firstPersonActive,
+      );
+    },
     resetCamera: () => {
       if (firstPersonActive && canFirstPerson) {
         const spawn = pilotResetSpawn ?? [playerPos[0], playerPos[1], playerPos[2]];
@@ -2090,6 +2125,8 @@ function main(): void {
   const blockAoToggleButton = document.querySelector<HTMLButtonElement>("#sv-block-ao-toggle");
   const hemiAoToggleButton = document.querySelector<HTMLButtonElement>("#sv-hemi-ao-toggle");
   const resetCameraButton = document.querySelector<HTMLButtonElement>("#sv-reset-camera");
+  const teleportEndpointInput = document.querySelector<HTMLInputElement>("#sv-teleport-endpoint");
+  const teleportButton = document.querySelector<HTMLButtonElement>("#sv-teleport-button");
   const cullHeightInput = document.querySelector<HTMLInputElement>("#sv-cull-height");
   const cullHeightValue = document.querySelector<HTMLSpanElement>("#sv-cull-height-value");
   const loadProgressWrap = document.querySelector<HTMLDivElement>("#sv-load-progress-wrap");
@@ -2122,6 +2159,8 @@ function main(): void {
     !blockAoToggleButton ||
     !hemiAoToggleButton ||
     !resetCameraButton ||
+    !teleportEndpointInput ||
+    !teleportButton ||
     !cullHeightInput ||
     !cullHeightValue ||
     !loadProgressWrap ||
@@ -2165,11 +2204,38 @@ function main(): void {
   let persisted3DCameraState: CameraPersistState | null = null;
   let persistedPilotCameraState: CameraPersistState | null = null;
   let persistedPilotPosition: PilotPositionPersistState | null = null;
+  let pendingTeleportPosition: [number, number, number] | null = null;
   const applyAoForCullState = (): void => {
     setWorldSsaoEnabled(world3D?.ssaoPass ?? null, ssaoEnabled, cullHeightT);
   };
   const applyVertexAoState = (): void => {
     world3D?.setVertexAoEnabled({ blockAo: blockAoEnabled, hemisphereAo: hemisphereAoEnabled });
+  };
+
+  const normalizeEndpointAddressInput = (value: string): string | null => {
+    const parts = value.trim().split(".");
+    if (parts.length !== 4) return null;
+    const normalized = parts.map((part) => {
+      const n = Number.parseInt(part.trim(), 10);
+      return Number.isFinite(n) && n >= 0 && n <= 3 ? String(n) : null;
+    });
+    if (normalized.some((part) => part === null)) return null;
+    return normalized.join(".");
+  };
+
+  const findEndpointPosition = (address: string): [number, number, number] | null => {
+    for (const endpoint of currentSave.endpoints) {
+      if (decodeAddress(endpoint.address) !== address) continue;
+      const pos = currentSave.nodes[endpoint.node]?.pos;
+      if (!Array.isArray(pos) || pos.length < 3) return null;
+      return [Number(pos[0] ?? 0), Number(pos[1] ?? 0), Number(pos[2] ?? 0)];
+    }
+    return null;
+  };
+
+  const applyTeleportPosition = (position: [number, number, number]): void => {
+    pendingTeleportPosition = null;
+    world3D?.teleportPilotTo(position);
   };
 
   const renderGraphAndPackets = (progress = 1): void => {
@@ -2232,6 +2298,9 @@ function main(): void {
       world3D.setCullY(y);
       cullHeightValue.textContent = y.toFixed(1);
       applyAoForCullState();
+      if (pendingTeleportPosition) {
+        applyTeleportPosition(pendingTeleportPosition);
+      }
     }
     hideLoadProgress();
   };
@@ -2514,6 +2583,39 @@ function main(): void {
       window.localStorage.removeItem(CAMERA_STATE_3D_STORAGE_KEY);
     }
     world3D.resetCamera();
+  });
+  const teleportToEndpoint = (): void => {
+    const address = normalizeEndpointAddressInput(teleportEndpointInput.value);
+    if (!address) {
+      statsEl.textContent = "teleport error: enter an address like 0.3.0.0";
+      return;
+    }
+    teleportEndpointInput.value = address;
+    const position = findEndpointPosition(address);
+    if (!position) {
+      statsEl.textContent = `teleport error: endpoint ${address} not found`;
+      return;
+    }
+    pendingTeleportPosition = position;
+    if (world3D) {
+      applyTeleportPosition(position);
+      statsEl.textContent = `teleported to endpoint ${address}`;
+      return;
+    }
+    statsEl.textContent = `loading 3D view to teleport to endpoint ${address}`;
+    if (!use3DView) {
+      use3DView = true;
+      window.localStorage.setItem(VIEW_MODE_STORAGE_KEY, "3d");
+      applyViewMode();
+      return;
+    }
+    void refresh3DWorld();
+  };
+  teleportButton.addEventListener("click", teleportToEndpoint);
+  teleportEndpointInput.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    teleportToEndpoint();
   });
   cullHeightInput.addEventListener("input", () => {
     const n = Number.parseInt(cullHeightInput.value, 10);
