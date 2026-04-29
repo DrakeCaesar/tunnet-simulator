@@ -15,6 +15,9 @@ import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { SSAOPass } from "three/examples/jsm/postprocessing/SSAOPass.js";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
+import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
+import { LineSegments2 } from "three/examples/jsm/lines/LineSegments2.js";
+import { LineSegmentsGeometry } from "three/examples/jsm/lines/LineSegmentsGeometry.js";
 import { acceleratedRaycast, computeBoundsTree, disposeBoundsTree } from "three-mesh-bvh";
 
 {
@@ -286,6 +289,7 @@ function mountLayout(): HTMLDivElement {
             <button id="sv-view-toggle" type="button">Switch to 3D</button>
             <button id="sv-fps-toggle" type="button">Pilot mode: off</button>
             <button id="sv-gravity-toggle" type="button">Gravity: on</button>
+            <button id="sv-ao-toggle" type="button">AO: on</button>
             <button id="sv-reset-camera" type="button">Reset camera</button>
           </div>
           <label class="sim-send-rate-label" for="sv-cull-height">3D cull plane (top cut)</label>
@@ -876,6 +880,7 @@ type Viewer3DState = {
   cullMinY: number;
   cullMaxY: number;
   worldMeshes: THREE.Mesh[];
+  worldBoundaryLines: LineSegments2[];
   worldMaterials: THREE.Material[];
   worldMeshWorkers: Worker[];
   isFirstPerson: boolean;
@@ -912,6 +917,7 @@ type WorldMeshWorkerChunkMessage = {
   positions: Float32Array;
   normals: Float32Array;
   colors: Float32Array;
+  edges: Float32Array;
 };
 
 type WorldMeshWorkerDoneMessage = {
@@ -1077,7 +1083,8 @@ async function createOrRefresh3DWorld(
   let ssaoPass: SSAOPass | null = null;
   let outputPass: OutputPass | null = null;
   if (SAVE_VIEWER_ENABLE_SSAO) {
-    composer = new EffectComposer(renderer);
+    const composerTarget = new THREE.WebGLRenderTarget(width, height, { samples: 8 });
+    composer = new EffectComposer(renderer, composerTarget);
     composer.setSize(width, height);
     const renderPass = new RenderPass(scene, camera);
     composer.addPass(renderPass);
@@ -1217,8 +1224,9 @@ async function createOrRefresh3DWorld(
 
   const chunkEntries = Array.isArray(save.chunks) ? save.chunks : [];
   const worldMeshes: THREE.Mesh[] = [];
+  const worldBoundaryLines: LineSegments2[] = [];
   const worldMaterials: THREE.Material[] = [];
-  const chunkVisibilityEntries: Array<{ mesh: THREE.Mesh; center: THREE.Vector3; radius: number }> = [];
+  const chunkVisibilityEntries: Array<{ mesh: THREE.Mesh; lines: LineSegments2 | null; center: THREE.Vector3; radius: number }> = [];
   const CHUNK_VIEW_DISTANCE = 8;
   const CHUNK_VISIBILITY_UPDATE_MS = 80;
   const visibilityFrustum = new THREE.Frustum();
@@ -1312,6 +1320,9 @@ async function createOrRefresh3DWorld(
               vertexColors: true,
               transparent: false,
               opacity: 1,
+              polygonOffset: true,
+              polygonOffsetFactor: 1,
+              polygonOffsetUnits: 1,
             });
             mat.clippingPlanes = [clipPlane];
             mat.clipIntersection = false;
@@ -1320,6 +1331,29 @@ async function createOrRefresh3DWorld(
             mesh.name = `chunk:${msg.key}`;
             worldMeshes.push(mesh);
             scene.add(mesh);
+            let boundaryLines: LineSegments2 | null = null;
+            if (msg.edges.length > 0) {
+              const lineGeom = new LineSegmentsGeometry();
+              lineGeom.setPositions(msg.edges);
+              const lineMat = new LineMaterial({
+                color: 0x000000,
+                linewidth: 1,
+                transparent: true,
+                opacity: 0.5,
+                depthTest: true,
+                depthWrite: false,
+                alphaToCoverage: true,
+              });
+              lineMat.resolution.set(width, height);
+              lineMat.clippingPlanes = [clipPlane];
+              lineMat.clipIntersection = false;
+              worldMaterials.push(lineMat);
+              boundaryLines = new LineSegments2(lineGeom, lineMat);
+              boundaryLines.name = `chunk-grid:${msg.key}`;
+              boundaryLines.renderOrder = 2;
+              worldBoundaryLines.push(boundaryLines);
+              scene.add(boundaryLines);
+            }
             const keyParts = msg.key.split(",");
             const cx = Number(keyParts[0] ?? NaN);
             const cy = Number(keyParts[1] ?? NaN);
@@ -1327,6 +1361,7 @@ async function createOrRefresh3DWorld(
             if (Number.isFinite(cx) && Number.isFinite(cy) && Number.isFinite(cz)) {
               chunkVisibilityEntries.push({
                 mesh,
+                lines: boundaryLines,
                 center: new THREE.Vector3(
                   cx * WORLD_CHUNK_SIZE + WORLD_CHUNK_SIZE * 0.5,
                   cy * WORLD_CHUNK_SIZE * WORLD_CHUNK_Y_SIGN + WORLD_CHUNK_Y_OFFSET + WORLD_CHUNK_SIZE * 0.5,
@@ -1516,13 +1551,16 @@ async function createOrRefresh3DWorld(
     for (const entry of chunkVisibilityEntries) {
       if (useDistanceCulling && camera.position.distanceTo(entry.center) > maxWorldDist) {
         entry.mesh.visible = false;
+        if (entry.lines) entry.lines.visible = false;
         continue;
       }
       if (!visibilityFrustum.intersectsObject(entry.mesh)) {
         entry.mesh.visible = false;
+        if (entry.lines) entry.lines.visible = false;
         continue;
       }
       entry.mesh.visible = true;
+      if (entry.lines) entry.lines.visible = true;
       visibleCollisionMeshes.push(entry.mesh);
     }
     if (visibleCollisionMeshes.length > 0) {
@@ -1754,6 +1792,7 @@ async function createOrRefresh3DWorld(
     cullMinY: worldMinY,
     cullMaxY: worldMaxY + WORLD_CHUNK_SIZE * 0.5,
     worldMeshes,
+    worldBoundaryLines,
     worldMaterials,
     worldMeshWorkers,
     isFirstPerson: firstPersonActive,
@@ -1876,6 +1915,10 @@ async function createOrRefresh3DWorld(
         (mesh.geometry as THREE.BufferGeometry & { disposeBoundsTree?: () => void }).disposeBoundsTree?.();
         mesh.geometry.dispose();
       }
+      for (const lines of state.worldBoundaryLines) {
+        scene.remove(lines);
+        lines.geometry.dispose();
+      }
       for (const material of state.worldMaterials) {
         material.dispose();
       }
@@ -1917,6 +1960,7 @@ function main(): void {
   const SLOT_INDEX_STORAGE_KEY = "tunnet.saveViewer.slotIndex";
   const FIRST_PERSON_MODE_STORAGE_KEY = "tunnet.saveViewer.firstPersonMode";
   const GRAVITY_ENABLED_STORAGE_KEY = "tunnet.saveViewer.gravityEnabled";
+  const AO_ENABLED_STORAGE_KEY = "tunnet.saveViewer.aoEnabled";
   const CAMERA_STATE_3D_STORAGE_KEY = "tunnet.saveViewer.cameraState3d";
   const CAMERA_STATE_PILOT_STORAGE_KEY = "tunnet.saveViewer.cameraStatePilot";
   const PLAYER_POSITION_PILOT_STORAGE_KEY = "tunnet.saveViewer.playerPositionPilot";
@@ -1938,6 +1982,7 @@ function main(): void {
   const viewToggleButton = document.querySelector<HTMLButtonElement>("#sv-view-toggle");
   const fpsToggleButton = document.querySelector<HTMLButtonElement>("#sv-fps-toggle");
   const gravityToggleButton = document.querySelector<HTMLButtonElement>("#sv-gravity-toggle");
+  const aoToggleButton = document.querySelector<HTMLButtonElement>("#sv-ao-toggle");
   const resetCameraButton = document.querySelector<HTMLButtonElement>("#sv-reset-camera");
   const cullHeightInput = document.querySelector<HTMLInputElement>("#sv-cull-height");
   const cullHeightValue = document.querySelector<HTMLSpanElement>("#sv-cull-height-value");
@@ -1967,6 +2012,7 @@ function main(): void {
     !viewToggleButton ||
     !fpsToggleButton ||
     !gravityToggleButton ||
+    !aoToggleButton ||
     !resetCameraButton ||
     !cullHeightInput ||
     !cullHeightValue ||
@@ -2001,6 +2047,7 @@ function main(): void {
   let slotIndex = 3;
   let firstPersonMode = false;
   let gravityEnabled = true;
+  let aoEnabled = true;
   let world3D: Viewer3DState | null = null;
   let world3DResizeHandler: (() => void) | null = null;
   let cullHeightT = 1;
@@ -2011,7 +2058,7 @@ function main(): void {
   const applyAoForCullState = (): void => {
     if (!world3D?.ssaoPass) return;
     // When top-cut culling is active, disable AO to avoid ghosted shading from clipped-away geometry.
-    world3D.ssaoPass.enabled = cullHeightT >= 0.999;
+    world3D.ssaoPass.enabled = aoEnabled && cullHeightT >= 0.999;
   };
 
   const renderGraphAndPackets = (progress = 1): void => {
@@ -2095,6 +2142,12 @@ function main(): void {
           world3D.camera.updateProjectionMatrix();
           world3D.renderer.setSize(w, h);
           world3D.composer?.setSize(w, h);
+          for (const lines of world3D.worldBoundaryLines) {
+            const material = lines.material;
+            if (material instanceof LineMaterial) {
+              material.resolution.set(w, h);
+            }
+          }
         };
         window.addEventListener("resize", world3DResizeHandler);
       }
@@ -2321,6 +2374,12 @@ function main(): void {
       world3D.setGravityEnabled(gravityEnabled);
     }
   });
+  aoToggleButton.addEventListener("click", () => {
+    aoEnabled = !aoEnabled;
+    window.localStorage.setItem(AO_ENABLED_STORAGE_KEY, aoEnabled ? "1" : "0");
+    aoToggleButton.textContent = `AO: ${aoEnabled ? "on" : "off"}`;
+    applyAoForCullState();
+  });
   resetCameraButton.addEventListener("click", () => {
     if (!world3D) return;
     if (world3D.isFirstPerson) {
@@ -2351,6 +2410,8 @@ function main(): void {
   fpsToggleButton.textContent = `Pilot mode: ${firstPersonMode ? "on" : "off"}`;
   gravityEnabled = (window.localStorage.getItem(GRAVITY_ENABLED_STORAGE_KEY) ?? "1").trim() !== "0";
   gravityToggleButton.textContent = `Gravity: ${gravityEnabled ? "on" : "off"}`;
+  aoEnabled = (window.localStorage.getItem(AO_ENABLED_STORAGE_KEY) ?? "1").trim() !== "0";
+  aoToggleButton.textContent = `AO: ${aoEnabled ? "on" : "off"}`;
   const parseCameraState = (raw: string | null): CameraPersistState | null => {
     if (!raw) return null;
     try {
