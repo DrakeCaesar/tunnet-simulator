@@ -138,6 +138,57 @@ const WORLD_CHUNK_RES = 32;
 const WORLD_VOXEL_SIZE = WORLD_CHUNK_SIZE / WORLD_CHUNK_RES;
 const WORLD_CHUNK_Y_SIGN = 1;
 const WORLD_CHUNK_Y_OFFSET = -1;
+/** World-space Y offset for the 3D graph (node points + edge lines) as a group. */
+const SAVE_VIEWER_GRAPH_ENTITY_Y_OFFSET = -1;
+
+/**
+ * 3D entity boxes: width (X), height (Y), depth (Z) in meters. Bottom sits on the node `pos` plane;
+ * `nodes[].angle` (radians) rotates about Y.
+ */
+const SAVE_VIEWER_ENTITY_BOX_SIZE: Record<VisualNode["type"], [number, number, number]> = {
+  endpoint: [1, 1.5, 0.5],
+  relay: [0.25, 0.1, 0.25],
+  filter: [0.25, 0.5, 0.25],
+  hub: [0.5, 0.5, 0.25],
+  bridge: [0.5, 0.1, 0.5],
+  antenna: [0.5, 0.1, 0.5],
+};
+
+const SAVE_VIEWER_ENTITY_BOX_COLOR: Record<VisualNode["type"], number> = {
+  endpoint: 0x89b4fa,
+  relay: 0xcba6f7,
+  filter: 0xf38ba8,
+  hub: 0xf9e2af,
+  bridge: 0x94e2d5,
+  antenna: 0xa6e3a1,
+};
+
+function ensureUv2Attribute(geometry: THREE.BufferGeometry): void {
+  const uv = geometry.getAttribute("uv");
+  if (!uv || geometry.getAttribute("uv2")) return;
+  const uv2Array = new Float32Array(uv.array as ArrayLike<number>);
+  geometry.setAttribute("uv2", new THREE.BufferAttribute(uv2Array, 2));
+}
+
+function createEntityBoxAoTexture(): THREE.CanvasTexture {
+  const size = 64;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    return new THREE.CanvasTexture(canvas);
+  }
+  const grad = ctx.createRadialGradient(size * 0.5, size * 0.5, size * 0.1, size * 0.5, size * 0.5, size * 0.7);
+  grad.addColorStop(0, "#ffffff");
+  grad.addColorStop(0.75, "#d0d0d0");
+  grad.addColorStop(1, "#8a8a8a");
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, size, size);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.NoColorSpace;
+  return tex;
+}
 
 function fitBoxToViewportAspect(box: ViewportBox, viewportWidthPx: number, viewportHeightPx: number): ViewportBox {
   const vw = Math.max(1, viewportWidthPx);
@@ -179,8 +230,13 @@ function mountLayout(): HTMLDivElement {
           <div class="section-title">Load save file</div>
           <div class="hint">Choose a Tunnet save JSON (contains nodes + edges + entities).</div>
           <input id="sv-file-input" type="file" accept=".json,application/json" />
+          <label class="sim-send-rate-label" for="sv-slot-index">Bundled slot</label>
+          <div class="sim-send-rate-row">
+            <input id="sv-slot-index" type="range" min="0" max="3" step="1" value="3" />
+            <span id="sv-slot-index-value" class="meta">slot_3.json</span>
+          </div>
           <div class="sv-button-row">
-            <button id="sv-load-sample" type="button">Load bundled slot_0.json</button>
+            <button id="sv-load-sample" type="button">Load bundled slot_3.json</button>
           </div>
         </div>
         <div class="card">
@@ -209,6 +265,7 @@ function mountLayout(): HTMLDivElement {
             <button id="sv-zoom-fit" type="button">Fit</button>
             <button id="sv-view-toggle" type="button">Switch to 3D</button>
             <button id="sv-fps-toggle" type="button">Pilot mode: off</button>
+            <button id="sv-gravity-toggle" type="button">Gravity: on</button>
             <button id="sv-reset-camera" type="button">Reset camera</button>
           </div>
           <label class="sim-send-rate-label" for="sv-cull-height">3D cull plane (top cut)</label>
@@ -799,7 +856,11 @@ type Viewer3DState = {
   worldMaterials: THREE.Material[];
   worldMeshWorkers: Worker[];
   isFirstPerson: boolean;
+  gravityEnabled: boolean;
   setCullY: (y: number) => void;
+  setFirstPersonMode: (enabled: boolean) => void;
+  setGravityEnabled: (enabled: boolean) => void;
+  applyCameraState: (state: CameraPersistState) => void;
   resetCamera: () => void;
   onKeyDown: (event: KeyboardEvent) => void;
   onKeyUp: (event: KeyboardEvent) => void;
@@ -813,6 +874,7 @@ type CameraPersistState = {
   position: [number, number, number];
   target: [number, number, number];
 };
+type PilotPositionPersistState = [number, number, number];
 
 type WorldMeshWorkerProgressMessage = {
   type: "progress";
@@ -852,8 +914,11 @@ async function createOrRefresh3DWorld(
   container: HTMLDivElement,
   save: SaveData,
   firstPersonMode: boolean,
+  gravityEnabledInitial: boolean,
   initialCameraState: CameraPersistState | null,
-  onCameraStateChange: (state: CameraPersistState) => void,
+  onCameraStateChange: (state: CameraPersistState, isFirstPerson: boolean) => void,
+  initialPilotPosition: PilotPositionPersistState | null,
+  onPilotPositionChange: (position: PilotPositionPersistState) => void,
   previous: Viewer3DState | null,
   reportProgress: LoadProgressReporter,
 ): Promise<Viewer3DState | null> {
@@ -902,10 +967,30 @@ async function createOrRefresh3DWorld(
   grid.position.set(center.x, bounds.min.y, center.z);
   scene.add(grid);
 
-  const pointGeom = new THREE.BufferGeometry().setFromPoints(worldPoints);
-  const pointMat = new THREE.PointsMaterial({ color: 0x89b4fa, size: 0.9, sizeAttenuation: true });
-  const points = new THREE.Points(pointGeom, pointMat);
-  scene.add(points);
+  const deviceNodeIndexSet = new Set<number>();
+  for (const e of save.endpoints) deviceNodeIndexSet.add(e.node);
+  for (const r of save.relays) deviceNodeIndexSet.add(r.node);
+  for (const f of save.filters) deviceNodeIndexSet.add(f.node);
+  for (const h of save.hubs) deviceNodeIndexSet.add(h.node);
+  for (const b of save.bridges) deviceNodeIndexSet.add(b.node);
+  for (const a of save.antennas) deviceNodeIndexSet.add(a.node);
+
+  const graphPointVectors: THREE.Vector3[] = [];
+  for (let i = 0; i < save.nodes.length; i += 1) {
+    if (deviceNodeIndexSet.has(i)) continue;
+    const n = save.nodes[i];
+    if (!n) continue;
+    graphPointVectors.push(new THREE.Vector3(n.pos[0] ?? 0, n.pos[1] ?? 0, n.pos[2] ?? 0));
+  }
+
+  let pointGeom: THREE.BufferGeometry | null = null;
+  let pointMat: THREE.PointsMaterial | null = null;
+  let points: THREE.Points | null = null;
+  if (graphPointVectors.length > 0) {
+    pointGeom = new THREE.BufferGeometry().setFromPoints(graphPointVectors);
+    pointMat = new THREE.PointsMaterial({ color: 0x7f849c, size: 0.65, sizeAttenuation: true });
+    points = new THREE.Points(pointGeom, pointMat);
+  }
 
   const edgeVerts: number[] = [];
   for (const edge of save.edges) {
@@ -920,11 +1005,76 @@ async function createOrRefresh3DWorld(
   edgeGeom.setAttribute("position", new THREE.Float32BufferAttribute(edgeVerts, 3));
   const edgeMat = new THREE.LineBasicMaterial({ color: 0x3f4d68, transparent: true, opacity: 0.9 });
   const edgeLines = new THREE.LineSegments(edgeGeom, edgeMat);
-  scene.add(edgeLines);
+
+  const placementsByKind: Record<VisualNode["type"], number[]> = {
+    endpoint: save.endpoints.map((e) => e.node),
+    relay: save.relays.map((r) => r.node),
+    filter: save.filters.map((f) => f.node),
+    hub: save.hubs.map((h) => h.node),
+    bridge: save.bridges.map((b) => b.node),
+    antenna: save.antennas.map((a) => a.node),
+  };
+
+  const entityBoxKinds: VisualNode["type"][] = ["endpoint", "relay", "filter", "hub", "bridge", "antenna"];
+  const entityInstancedMeshes: THREE.InstancedMesh[] = [];
+  const entityAoTexture = createEntityBoxAoTexture();
+  const instanceDummy = new THREE.Object3D();
+  for (const kind of entityBoxKinds) {
+    const nodeIndices = placementsByKind[kind];
+    if (nodeIndices.length === 0) continue;
+    const [bx, by, bz] = SAVE_VIEWER_ENTITY_BOX_SIZE[kind];
+    const boxGeom = new THREE.BoxGeometry(bx, by, bz);
+    ensureUv2Attribute(boxGeom);
+    const boxMat = new THREE.MeshStandardMaterial({
+      color: SAVE_VIEWER_ENTITY_BOX_COLOR[kind],
+      aoMap: entityAoTexture,
+      aoMapIntensity: 1,
+      roughness: 0.88,
+      metalness: 0.02,
+      clippingPlanes: [clipPlane],
+      clipIntersection: false,
+    });
+    const inst = new THREE.InstancedMesh(boxGeom, boxMat, nodeIndices.length);
+    inst.name = `sv-entity-boxes-${kind}`;
+    let instance = 0;
+    for (const nodeIndex of nodeIndices) {
+      const node = save.nodes[nodeIndex];
+      if (!node?.pos) continue;
+      const px = node.pos[0] ?? 0;
+      const py = node.pos[1] ?? 0;
+      const pz = node.pos[2] ?? 0;
+      const ang = node.angle;
+      const yaw = typeof ang === "number" && Number.isFinite(ang) ? ang : 0;
+      instanceDummy.position.set(px, py + by * 0.5, pz);
+      instanceDummy.rotation.set(0, yaw, 0);
+      instanceDummy.updateMatrix();
+      inst.setMatrixAt(instance, instanceDummy.matrix);
+      instance += 1;
+    }
+    inst.count = instance;
+    inst.instanceMatrix.needsUpdate = true;
+    entityInstancedMeshes.push(inst);
+  }
+
+  const entityGraphGroup = new THREE.Group();
+  entityGraphGroup.name = "sv-entity-graph";
+  entityGraphGroup.position.y = SAVE_VIEWER_GRAPH_ENTITY_Y_OFFSET;
+  if (points) entityGraphGroup.add(points);
+  entityGraphGroup.add(edgeLines);
+  for (const mesh of entityInstancedMeshes) {
+    entityGraphGroup.add(mesh);
+  }
+  scene.add(entityGraphGroup);
 
   const chunkEntries = Array.isArray(save.chunks) ? save.chunks : [];
   const worldMeshes: THREE.Mesh[] = [];
   const worldMaterials: THREE.Material[] = [];
+  const chunkVisibilityEntries: Array<{ mesh: THREE.Mesh; center: THREE.Vector3; radius: number }> = [];
+  const CHUNK_VIEW_DISTANCE = 8;
+  const CHUNK_VISIBILITY_UPDATE_MS = 80;
+  const visibilityFrustum = new THREE.Frustum();
+  const visibilityProjMatrix = new THREE.Matrix4();
+  let lastChunkVisibilityUpdateMs = -Infinity;
   const worldMeshWorkers: Worker[] = [];
   if (chunkEntries.length > 0) {
     await reportProgress("Preparing chunks", 0, Math.max(1, chunkEntries.length));
@@ -1021,6 +1171,21 @@ async function createOrRefresh3DWorld(
             mesh.name = `chunk:${msg.key}`;
             worldMeshes.push(mesh);
             scene.add(mesh);
+            const keyParts = msg.key.split(",");
+            const cx = Number(keyParts[0] ?? NaN);
+            const cy = Number(keyParts[1] ?? NaN);
+            const cz = Number(keyParts[2] ?? NaN);
+            if (Number.isFinite(cx) && Number.isFinite(cy) && Number.isFinite(cz)) {
+              chunkVisibilityEntries.push({
+                mesh,
+                center: new THREE.Vector3(
+                  cx * WORLD_CHUNK_SIZE + WORLD_CHUNK_SIZE * 0.5,
+                  cy * WORLD_CHUNK_SIZE * WORLD_CHUNK_Y_SIGN + WORLD_CHUNK_Y_OFFSET + WORLD_CHUNK_SIZE * 0.5,
+                  cz * WORLD_CHUNK_SIZE + WORLD_CHUNK_SIZE * 0.5,
+                ),
+                radius: (Math.sqrt(3) * WORLD_CHUNK_SIZE) * 0.5,
+              });
+            }
             const posAttr = geom.getAttribute("position");
             if (posAttr) {
               for (let i = 1; i < posAttr.array.length; i += 3) {
@@ -1055,26 +1220,6 @@ async function createOrRefresh3DWorld(
     await Promise.all(workerTasks);
   }
 
-  const chunkTypeEntries = Array.isArray(save.chunk_types) ? save.chunk_types : [];
-  const chunkTypePoints: THREE.Vector3[] = [];
-  for (const raw of chunkTypeEntries) {
-    if (!Array.isArray(raw) || raw.length < 1) continue;
-    const pos = parseChunkPosition(raw[0]);
-    if (!pos) continue;
-    chunkTypePoints.push(
-      new THREE.Vector3(
-        pos.x * WORLD_CHUNK_SIZE + WORLD_CHUNK_SIZE * 0.5,
-        pos.y * WORLD_CHUNK_SIZE * WORLD_CHUNK_Y_SIGN + WORLD_CHUNK_Y_OFFSET + WORLD_CHUNK_SIZE * 0.5,
-        pos.z * WORLD_CHUNK_SIZE + WORLD_CHUNK_SIZE * 0.5,
-      ),
-    );
-  }
-  if (chunkTypePoints.length > 0) {
-    const ctGeom = new THREE.BufferGeometry().setFromPoints(chunkTypePoints);
-    const ctMat = new THREE.PointsMaterial({ color: 0xf9e2af, size: 1.3, sizeAttenuation: true });
-    const ctPoints = new THREE.Points(ctGeom, ctMat);
-    scene.add(ctPoints);
-  }
   const cullCenterX = center.x;
   const cullCenterZ = center.z;
   const cullBall = new THREE.Mesh(
@@ -1090,15 +1235,33 @@ async function createOrRefresh3DWorld(
   setCullY(worldMaxY + WORLD_CHUNK_SIZE * 0.5);
 
   const playerPos = save.player?.pos;
+  const pilotResetSpawn = (() => {
+    for (const ep of save.endpoints) {
+      if (decodeAddress(ep.address) !== "0.0.0.0") continue;
+      const nodePos = save.nodes[ep.node]?.pos;
+      if (Array.isArray(nodePos) && nodePos.length >= 3) {
+        return [Number(nodePos[0] ?? 0), Number(nodePos[1] ?? 0), Number(nodePos[2] ?? 0)] as [number, number, number];
+      }
+    }
+    if (Array.isArray(playerPos) && playerPos.length >= 3) {
+      return [Number(playerPos[0] ?? 0), Number(playerPos[1] ?? 0), Number(playerPos[2] ?? 0)] as [number, number, number];
+    }
+    return null;
+  })();
   const playerMarkerGeom = new THREE.SphereGeometry(Math.max(0.8, WORLD_CHUNK_SIZE * 0.12), 20, 16);
   const playerMarkerMat = new THREE.MeshBasicMaterial({ color: 0x3b82f6 });
   const playerMarker = new THREE.Mesh(playerMarkerGeom, playerMarkerMat);
-  const useFirstPerson = firstPersonMode && Array.isArray(playerPos) && playerPos.length >= 3;
-  if (useFirstPerson) {
-    playerMarker.position.set(playerPos[0], playerPos[1], playerPos[2]);
+  const canFirstPerson = Array.isArray(playerPos) && playerPos.length >= 3;
+  const initialPilotFeetPos: [number, number, number] = initialPilotPosition && canFirstPerson
+    ? [Number(initialPilotPosition[0] ?? 0), Number(initialPilotPosition[1] ?? 0), Number(initialPilotPosition[2] ?? 0)]
+    : [Number(playerPos?.[0] ?? center.x), Number(playerPos?.[1] ?? center.y), Number(playerPos?.[2] ?? center.z)];
+  let firstPersonActive = firstPersonMode && canFirstPerson;
+  let gravityEnabled = gravityEnabledInitial;
+  if (firstPersonActive) {
+    playerMarker.position.set(initialPilotFeetPos[0], initialPilotFeetPos[1], initialPilotFeetPos[2]);
     scene.add(playerMarker);
-    camera.position.set(playerPos[0], playerPos[1] + 1.62, playerPos[2]);
-    controls.target.set(playerPos[0] + 1, playerPos[1] + 1.62, playerPos[2]);
+    camera.position.set(initialPilotFeetPos[0], initialPilotFeetPos[1] + 2.5, initialPilotFeetPos[2]);
+    controls.target.set(initialPilotFeetPos[0] + 1, initialPilotFeetPos[1] + 2.5, initialPilotFeetPos[2]);
   } else {
     camera.position.set(center.x + radius * 0.8, center.y + radius * 0.6, center.z + radius * 0.8);
     controls.target.copy(center);
@@ -1144,7 +1307,7 @@ async function createOrRefresh3DWorld(
   window.addEventListener("keydown", onKeyDown);
   window.addEventListener("keyup", onKeyUp);
   const lookState = { yaw: 0, pitch: 0 };
-  if (useFirstPerson) {
+  if (firstPersonActive) {
     const lookDirInit = controls.target.clone().sub(camera.position);
     if (lookDirInit.lengthSq() > 1e-9) {
       lookDirInit.normalize();
@@ -1153,14 +1316,14 @@ async function createOrRefresh3DWorld(
     }
   }
   const onMouseMove = (event: MouseEvent): void => {
-    if (!useFirstPerson) return;
+    if (!firstPersonActive) return;
     if (document.pointerLockElement !== renderer.domElement) return;
-    lookState.yaw -= event.movementX * 0.0025;
+    lookState.yaw += event.movementX * 0.0025;
     lookState.pitch -= event.movementY * 0.0025;
     lookState.pitch = Math.max(-Math.PI * 0.48, Math.min(Math.PI * 0.48, lookState.pitch));
   };
   const onPointerLockClick = (): void => {
-    if (!useFirstPerson) return;
+    if (!firstPersonActive) return;
     if (document.pointerLockElement !== renderer.domElement) {
       renderer.domElement.requestPointerLock();
     }
@@ -1174,15 +1337,15 @@ async function createOrRefresh3DWorld(
   const moveForward = new THREE.Vector3();
   const moveRight = new THREE.Vector3();
   const playerFeet = new THREE.Vector3(
-    useFirstPerson ? (playerPos?.[0] ?? center.x) : center.x,
-    useFirstPerson ? (playerPos?.[1] ?? center.y) : center.y,
-    useFirstPerson ? (playerPos?.[2] ?? center.z) : center.z,
+    initialPilotFeetPos[0],
+    initialPilotFeetPos[1],
+    initialPilotFeetPos[2],
   );
   let verticalVelocity = 0;
   let grounded = false;
   let lastPersistMs = 0;
   const physics = {
-    eyeHeight: 1.62,
+    eyeHeight: 1,
     moveSpeed: 11,
     jumpSpeed: 8.5,
     gravity: 24,
@@ -1190,6 +1353,52 @@ async function createOrRefresh3DWorld(
   };
   const raycaster = new THREE.Raycaster();
   raycaster.firstHitOnly = true;
+  const updateChunkVisibility = (nowMs: number): void => {
+    if (chunkVisibilityEntries.length === 0) return;
+    if (nowMs - lastChunkVisibilityUpdateMs < CHUNK_VISIBILITY_UPDATE_MS) return;
+    lastChunkVisibilityUpdateMs = nowMs;
+    const maxWorldDist = CHUNK_VIEW_DISTANCE * WORLD_CHUNK_SIZE;
+    visibilityProjMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    visibilityFrustum.setFromProjectionMatrix(visibilityProjMatrix);
+    for (const entry of chunkVisibilityEntries) {
+      const dist = camera.position.distanceTo(entry.center);
+      if (dist > maxWorldDist) {
+        entry.mesh.visible = false;
+        continue;
+      }
+      if (!visibilityFrustum.intersectsObject(entry.mesh)) {
+        entry.mesh.visible = false;
+        continue;
+      }
+      entry.mesh.visible = true;
+    }
+  };
+  const capsuleSampleHeights = (): number[] => {
+    const bottom = playerFeet.y + physics.radius;
+    const mid = playerFeet.y + physics.eyeHeight * 0.5;
+    const top = playerFeet.y + Math.max(physics.radius, physics.eyeHeight - physics.radius);
+    return [bottom, mid, top];
+  };
+  const testWallBlocked = (dx: number, dz: number): boolean => {
+    const len = Math.hypot(dx, dz);
+    if (len < 1e-8) return false;
+    const dir = new THREE.Vector3(dx / len, 0, dz / len);
+    const side = new THREE.Vector3(-dir.z, 0, dir.x);
+    const heights = capsuleSampleHeights();
+    for (const y of heights) {
+      const probeStarts = [
+        new THREE.Vector3(playerFeet.x, y, playerFeet.z),
+        new THREE.Vector3(playerFeet.x + side.x * physics.radius, y, playerFeet.z + side.z * physics.radius),
+        new THREE.Vector3(playerFeet.x - side.x * physics.radius, y, playerFeet.z - side.z * physics.radius),
+      ];
+      for (const start of probeStarts) {
+        raycaster.set(start, dir);
+        raycaster.far = len + physics.radius;
+        if (raycaster.intersectObjects(worldMeshes, false).length > 0) return true;
+      }
+    }
+    return false;
+  };
 
   let stopped = false;
   const animate = (): void => {
@@ -1197,8 +1406,12 @@ async function createOrRefresh3DWorld(
     const now = performance.now();
     const dt = Math.max(0.001, (now - lastFrameMs) / 1000);
     lastFrameMs = now;
+    // Large frame gaps (tab switch, GC, heavy load) cause tunneling through thin collision.
+    const pilotDt = Math.min(dt, 0.05);
+    const PHYS_SUBSTEP = 1 / 120;
+    updateChunkVisibility(now);
     move.set(0, 0, 0);
-    if (useFirstPerson) {
+    if (firstPersonActive) {
       controls.enabled = false;
       const cosPitch = Math.cos(lookState.pitch);
       const lookDir = new THREE.Vector3(
@@ -1213,36 +1426,77 @@ async function createOrRefresh3DWorld(
       if (keyState.d) move.add(moveRight);
       if (keyState.a) move.sub(moveRight);
       if (move.lengthSq() > 0) {
-        move.normalize().multiplyScalar(physics.moveSpeed * dt);
-        const chest = new THREE.Vector3(playerFeet.x, playerFeet.y + physics.eyeHeight * 0.65, playerFeet.z);
-        raycaster.set(chest, move.clone().normalize());
-        raycaster.far = move.length() + physics.radius;
-        const wallHits = raycaster.intersectObjects(worldMeshes, false);
-        if (wallHits.length === 0) {
-          playerFeet.x += move.x;
-          playerFeet.z += move.z;
+        move.normalize().multiplyScalar(physics.moveSpeed * pilotDt);
+        const maxStep = Math.max(0.08, physics.radius * 0.5);
+        const stepCount = Math.max(1, Math.ceil(move.length() / maxStep));
+        const stepDx = move.x / stepCount;
+        const stepDz = move.z / stepCount;
+        for (let step = 0; step < stepCount; step += 1) {
+          // Engine-like tick collision: separate axis resolution prevents corner tunneling.
+          if (!testWallBlocked(stepDx, 0)) {
+            playerFeet.x += stepDx;
+          }
+          if (!testWallBlocked(0, stepDz)) {
+            playerFeet.z += stepDz;
+          }
         }
       }
-      verticalVelocity -= physics.gravity * dt;
-      if (grounded && keyState.jump) {
-        verticalVelocity = physics.jumpSpeed;
-        grounded = false;
-      }
-      playerFeet.y += verticalVelocity * dt;
-      raycaster.set(new THREE.Vector3(playerFeet.x, playerFeet.y + 0.6, playerFeet.z), new THREE.Vector3(0, -1, 0));
-      raycaster.far = 1.4;
-      const groundHits = raycaster.intersectObjects(worldMeshes, false);
-      if (groundHits.length > 0) {
-        const hit = groundHits[0]!;
-        const desiredFeetY = hit.point.y;
-        if (playerFeet.y <= desiredFeetY + 0.08 && verticalVelocity <= 0) {
-          playerFeet.y = desiredFeetY;
-          verticalVelocity = 0;
-          grounded = true;
-        } else {
+      if (gravityEnabled) {
+        if (grounded && keyState.jump) {
+          verticalVelocity = physics.jumpSpeed;
           grounded = false;
         }
+        let subTime = 0;
+        while (subTime < pilotDt - 1e-9) {
+          const h = Math.min(PHYS_SUBSTEP, pilotDt - subTime);
+          subTime += h;
+          verticalVelocity -= physics.gravity * h;
+          const prevFeetY = playerFeet.y;
+          playerFeet.y += verticalVelocity * h;
+          if (verticalVelocity > 0) {
+            const rise = verticalVelocity * h;
+            const headY = playerFeet.y + physics.eyeHeight;
+            const headProbeStarts = [
+              new THREE.Vector3(playerFeet.x, headY, playerFeet.z),
+              new THREE.Vector3(playerFeet.x + physics.radius, headY, playerFeet.z),
+              new THREE.Vector3(playerFeet.x - physics.radius, headY, playerFeet.z),
+              new THREE.Vector3(playerFeet.x, headY, playerFeet.z + physics.radius),
+              new THREE.Vector3(playerFeet.x, headY, playerFeet.z - physics.radius),
+            ];
+            let hitCeiling = false;
+            for (const start of headProbeStarts) {
+              raycaster.set(start, new THREE.Vector3(0, 1, 0));
+              raycaster.far = rise + physics.radius;
+              if (raycaster.intersectObjects(worldMeshes, false).length > 0) {
+                hitCeiling = true;
+                break;
+              }
+            }
+            if (hitCeiling) {
+              verticalVelocity = 0;
+              playerFeet.y -= rise;
+            }
+          }
+          const probeY = Math.max(playerFeet.y + 0.6, prevFeetY + 0.6);
+          raycaster.set(new THREE.Vector3(playerFeet.x, probeY, playerFeet.z), new THREE.Vector3(0, -1, 0));
+          raycaster.far = Math.max(2.5, Math.abs(playerFeet.y - prevFeetY) + Math.abs(verticalVelocity * h) + 1.5);
+          const groundHits = raycaster.intersectObjects(worldMeshes, false);
+          if (groundHits.length > 0) {
+            const hit = groundHits[0]!;
+            const desiredFeetY = hit.point.y;
+            if (playerFeet.y <= desiredFeetY + 0.12 && verticalVelocity <= 0) {
+              playerFeet.y = desiredFeetY;
+              verticalVelocity = 0;
+              grounded = true;
+            } else {
+              grounded = false;
+            }
+          } else {
+            grounded = false;
+          }
+        }
       } else {
+        verticalVelocity = 0;
         grounded = false;
       }
       camera.position.set(playerFeet.x, playerFeet.y + physics.eyeHeight, playerFeet.z);
@@ -1277,10 +1531,16 @@ async function createOrRefresh3DWorld(
     controls.update();
     const nowMs = performance.now();
     if (nowMs - lastPersistMs >= 250) {
-      onCameraStateChange({
-        position: [camera.position.x, camera.position.y, camera.position.z],
-        target: [controls.target.x, controls.target.y, controls.target.z],
-      });
+      if (firstPersonActive) {
+        onPilotPositionChange([playerFeet.x, playerFeet.y, playerFeet.z]);
+      }
+      onCameraStateChange(
+        {
+          position: [camera.position.x, camera.position.y, camera.position.z],
+          target: [controls.target.x, controls.target.y, controls.target.z],
+        },
+        firstPersonActive,
+      );
       lastPersistMs = nowMs;
     }
     renderer.render(scene, camera);
@@ -1301,26 +1561,96 @@ async function createOrRefresh3DWorld(
     worldMeshes,
     worldMaterials,
     worldMeshWorkers,
-    isFirstPerson: useFirstPerson,
+    isFirstPerson: firstPersonActive,
+    gravityEnabled,
     setCullY,
+    setFirstPersonMode: (enabled: boolean) => {
+      if (!canFirstPerson) {
+        firstPersonActive = false;
+        state.isFirstPerson = false;
+        return;
+      }
+      firstPersonActive = enabled;
+      state.isFirstPerson = firstPersonActive;
+      if (!firstPersonActive && document.pointerLockElement === renderer.domElement) {
+        document.exitPointerLock();
+      }
+      if (firstPersonActive) {
+        playerMarker.position.set(playerFeet.x, playerFeet.y, playerFeet.z);
+        if (!scene.children.includes(playerMarker)) scene.add(playerMarker);
+        const lookDir = controls.target.clone().sub(camera.position);
+        if (lookDir.lengthSq() > 1e-9) {
+          lookDir.normalize();
+          lookState.yaw = Math.atan2(lookDir.x, -lookDir.z);
+          lookState.pitch = Math.asin(Math.max(-1, Math.min(1, lookDir.y)));
+        }
+        playerFeet.set(camera.position.x, camera.position.y - physics.eyeHeight, camera.position.z);
+      }
+    },
+    setGravityEnabled: (enabled: boolean) => {
+      gravityEnabled = enabled;
+      state.gravityEnabled = enabled;
+      if (!enabled) {
+        verticalVelocity = 0;
+        grounded = false;
+      }
+    },
+    applyCameraState: (cameraState: CameraPersistState) => {
+      if (
+        !cameraState ||
+        !Array.isArray(cameraState.position) ||
+        cameraState.position.length < 3 ||
+        !Array.isArray(cameraState.target) ||
+        cameraState.target.length < 3
+      ) {
+        return;
+      }
+      camera.position.set(
+        Number(cameraState.position[0] ?? 0),
+        Number(cameraState.position[1] ?? 0),
+        Number(cameraState.position[2] ?? 0),
+      );
+      controls.target.set(
+        Number(cameraState.target[0] ?? 0),
+        Number(cameraState.target[1] ?? 0),
+        Number(cameraState.target[2] ?? 0),
+      );
+      if (firstPersonActive) {
+        const lookDir = controls.target.clone().sub(camera.position);
+        if (lookDir.lengthSq() > 1e-9) {
+          lookDir.normalize();
+          lookState.yaw = Math.atan2(lookDir.x, -lookDir.z);
+          lookState.pitch = Math.asin(Math.max(-1, Math.min(1, lookDir.y)));
+        }
+        playerFeet.set(camera.position.x, camera.position.y - physics.eyeHeight, camera.position.z);
+      }
+      controls.update();
+    },
     resetCamera: () => {
-      if (useFirstPerson && Array.isArray(playerPos) && playerPos.length >= 3) {
-        playerFeet.set(playerPos[0], playerPos[1], playerPos[2]);
+      if (firstPersonActive && canFirstPerson) {
+        const spawn = pilotResetSpawn ?? [playerPos[0], playerPos[1], playerPos[2]];
+        playerFeet.set(spawn[0], spawn[1], spawn[2]);
         verticalVelocity = 0;
         grounded = false;
         lookState.yaw = 0;
         lookState.pitch = 0;
-        camera.position.set(playerPos[0], playerPos[1] + physics.eyeHeight, playerPos[2]);
-        controls.target.set(playerPos[0] + 1, playerPos[1] + physics.eyeHeight, playerPos[2]);
+        camera.position.set(spawn[0], spawn[1] + physics.eyeHeight, spawn[2]);
+        controls.target.set(spawn[0] + 1, spawn[1] + physics.eyeHeight, spawn[2]);
       } else {
         camera.position.set(center.x + radius * 0.8, center.y + radius * 0.6, center.z + radius * 0.8);
         controls.target.copy(center);
       }
       controls.update();
-      onCameraStateChange({
-        position: [camera.position.x, camera.position.y, camera.position.z],
-        target: [controls.target.x, controls.target.y, controls.target.z],
-      });
+      onCameraStateChange(
+        {
+          position: [camera.position.x, camera.position.y, camera.position.z],
+          target: [controls.target.x, controls.target.y, controls.target.z],
+        },
+        firstPersonActive,
+      );
+      if (firstPersonActive) {
+        onPilotPositionChange([playerFeet.x, playerFeet.y, playerFeet.z]);
+      }
     },
     onKeyDown,
     onKeyUp,
@@ -1341,6 +1671,11 @@ async function createOrRefresh3DWorld(
         document.exitPointerLock();
       }
       controls.dispose();
+      for (const mesh of entityInstancedMeshes) {
+        mesh.dispose();
+      }
+      entityAoTexture.dispose();
+      scene.remove(entityGraphGroup);
       for (const mesh of state.worldMeshes) {
         scene.remove(mesh);
         mesh.geometry.dispose();
@@ -1350,8 +1685,8 @@ async function createOrRefresh3DWorld(
       }
       playerMarkerGeom.dispose();
       playerMarkerMat.dispose();
-      pointGeom.dispose();
-      pointMat.dispose();
+      if (pointGeom) pointGeom.dispose();
+      if (pointMat) pointMat.dispose();
       edgeGeom.dispose();
       edgeMat.dispose();
       renderer.dispose();
@@ -1368,14 +1703,6 @@ async function readJsonFile(file: File): Promise<unknown> {
   return JSON.parse(text);
 }
 
-async function fetchBundledSave(): Promise<unknown> {
-  const res = await fetch("/saves/slot_0.json");
-  if (!res.ok) {
-    throw new Error("slot_0.json not found. Use file picker.");
-  }
-  return res.json();
-}
-
 async function fetchBundledSlot(index: number): Promise<unknown> {
   const safe = Math.max(0, Math.min(9, Math.floor(index)));
   const res = await fetch(`/saves/slot_${safe}.json`);
@@ -1387,10 +1714,16 @@ async function fetchBundledSlot(index: number): Promise<unknown> {
 
 function main(): void {
   const VIEW_MODE_STORAGE_KEY = "tunnet.saveViewer.viewMode";
+  const SLOT_INDEX_STORAGE_KEY = "tunnet.saveViewer.slotIndex";
   const FIRST_PERSON_MODE_STORAGE_KEY = "tunnet.saveViewer.firstPersonMode";
-  const CAMERA_STATE_STORAGE_KEY = "tunnet.saveViewer.cameraState";
+  const GRAVITY_ENABLED_STORAGE_KEY = "tunnet.saveViewer.gravityEnabled";
+  const CAMERA_STATE_3D_STORAGE_KEY = "tunnet.saveViewer.cameraState3d";
+  const CAMERA_STATE_PILOT_STORAGE_KEY = "tunnet.saveViewer.cameraStatePilot";
+  const PLAYER_POSITION_PILOT_STORAGE_KEY = "tunnet.saveViewer.playerPositionPilot";
   mountLayout();
   const fileInput = document.querySelector<HTMLInputElement>("#sv-file-input");
+  const slotIndexInput = document.querySelector<HTMLInputElement>("#sv-slot-index");
+  const slotIndexValue = document.querySelector<HTMLSpanElement>("#sv-slot-index-value");
   const loadSampleButton = document.querySelector<HTMLButtonElement>("#sv-load-sample");
   const stepButton = document.querySelector<HTMLButtonElement>("#sv-step");
   const runButton = document.querySelector<HTMLButtonElement>("#sv-run");
@@ -1404,6 +1737,7 @@ function main(): void {
   const zoomFitButton = document.querySelector<HTMLButtonElement>("#sv-zoom-fit");
   const viewToggleButton = document.querySelector<HTMLButtonElement>("#sv-view-toggle");
   const fpsToggleButton = document.querySelector<HTMLButtonElement>("#sv-fps-toggle");
+  const gravityToggleButton = document.querySelector<HTMLButtonElement>("#sv-gravity-toggle");
   const resetCameraButton = document.querySelector<HTMLButtonElement>("#sv-reset-camera");
   const cullHeightInput = document.querySelector<HTMLInputElement>("#sv-cull-height");
   const cullHeightValue = document.querySelector<HTMLSpanElement>("#sv-cull-height-value");
@@ -1417,6 +1751,8 @@ function main(): void {
   const statsEl = document.querySelector<HTMLDivElement>("#sv-stats");
   if (
     !fileInput ||
+    !slotIndexInput ||
+    !slotIndexValue ||
     !loadSampleButton ||
     !stepButton ||
     !runButton ||
@@ -1430,6 +1766,7 @@ function main(): void {
     !zoomFitButton ||
     !viewToggleButton ||
     !fpsToggleButton ||
+    !gravityToggleButton ||
     !resetCameraButton ||
     !cullHeightInput ||
     !cullHeightValue ||
@@ -1461,12 +1798,16 @@ function main(): void {
   let panLastY = 0;
   let packetAnimRaf: number | null = null;
   let use3DView = false;
+  let slotIndex = 3;
   let firstPersonMode = false;
+  let gravityEnabled = true;
   let world3D: Viewer3DState | null = null;
   let world3DResizeHandler: (() => void) | null = null;
   let cullHeightT = 1;
   let worldBuildToken = 0;
-  let persistedCameraState: CameraPersistState | null = null;
+  let persisted3DCameraState: CameraPersistState | null = null;
+  let persistedPilotCameraState: CameraPersistState | null = null;
+  let persistedPilotPosition: PilotPositionPersistState | null = null;
 
   const renderGraphAndPackets = (progress = 1): void => {
     if (use3DView) {
@@ -1497,10 +1838,21 @@ function main(): void {
       view3DEl,
       currentSave,
       firstPersonMode,
-      persistedCameraState,
-      (state) => {
-        persistedCameraState = state;
-        window.localStorage.setItem(CAMERA_STATE_STORAGE_KEY, JSON.stringify(state));
+      gravityEnabled,
+      firstPersonMode ? persistedPilotCameraState : persisted3DCameraState,
+      (state, isFirstPerson) => {
+        if (isFirstPerson) {
+          persistedPilotCameraState = state;
+          window.localStorage.setItem(CAMERA_STATE_PILOT_STORAGE_KEY, JSON.stringify(state));
+        } else {
+          persisted3DCameraState = state;
+          window.localStorage.setItem(CAMERA_STATE_3D_STORAGE_KEY, JSON.stringify(state));
+        }
+      },
+      persistedPilotPosition,
+      (position) => {
+        persistedPilotPosition = position;
+        window.localStorage.setItem(PLAYER_POSITION_PILOT_STORAGE_KEY, JSON.stringify(position));
       },
       world3D,
       updateLoadProgress,
@@ -1525,6 +1877,7 @@ function main(): void {
     view3DEl.classList.toggle("hidden", !show3D);
     viewToggleButton.textContent = show3D ? "Switch to 2D" : "Switch to 3D";
     fpsToggleButton.textContent = `Pilot mode: ${firstPersonMode ? "on" : "off"}`;
+    gravityToggleButton.textContent = `Gravity: ${gravityEnabled ? "on" : "off"}`;
     if (show3D) {
       refresh3DWorld();
       if (!world3DResizeHandler) {
@@ -1641,6 +1994,14 @@ function main(): void {
     resetSimulator();
   };
 
+  const updateBundledSlotUi = (): void => {
+    slotIndex = Math.max(0, Math.min(3, Math.floor(slotIndex)));
+    slotIndexInput.value = String(slotIndex);
+    const label = `slot_${slotIndex}.json`;
+    slotIndexValue.textContent = label;
+    loadSampleButton.textContent = `Load bundled ${label}`;
+  };
+
   fileInput.addEventListener("change", async () => {
     const file = fileInput.files?.[0];
     if (!file) return;
@@ -1654,11 +2015,17 @@ function main(): void {
 
   loadSampleButton.addEventListener("click", async () => {
     try {
-      const parsed = await fetchBundledSave();
+      const parsed = await fetchBundledSlot(slotIndex);
       renderAndReset(parsed);
     } catch (err) {
       statsEl.textContent = `sample load error: ${String(err)}`;
     }
+  });
+  slotIndexInput.addEventListener("input", () => {
+    const n = Number.parseInt(slotIndexInput.value, 10);
+    slotIndex = Number.isFinite(n) ? Math.max(0, Math.min(3, n)) : 3;
+    window.localStorage.setItem(SLOT_INDEX_STORAGE_KEY, String(slotIndex));
+    updateBundledSlotUi();
   });
 
   stepButton.addEventListener("click", () => {
@@ -1731,14 +2098,33 @@ function main(): void {
     firstPersonMode = !firstPersonMode;
     window.localStorage.setItem(FIRST_PERSON_MODE_STORAGE_KEY, firstPersonMode ? "1" : "0");
     fpsToggleButton.textContent = `Pilot mode: ${firstPersonMode ? "on" : "off"}`;
-    if (use3DView) {
-      void refresh3DWorld();
+    if (use3DView && world3D) {
+      world3D.setFirstPersonMode(firstPersonMode);
+      const restore = firstPersonMode ? persistedPilotCameraState : persisted3DCameraState;
+      if (restore) {
+        world3D.applyCameraState(restore);
+      }
+    }
+  });
+  gravityToggleButton.addEventListener("click", () => {
+    gravityEnabled = !gravityEnabled;
+    window.localStorage.setItem(GRAVITY_ENABLED_STORAGE_KEY, gravityEnabled ? "1" : "0");
+    gravityToggleButton.textContent = `Gravity: ${gravityEnabled ? "on" : "off"}`;
+    if (use3DView && world3D) {
+      world3D.setGravityEnabled(gravityEnabled);
     }
   });
   resetCameraButton.addEventListener("click", () => {
     if (!world3D) return;
-    persistedCameraState = null;
-    window.localStorage.removeItem(CAMERA_STATE_STORAGE_KEY);
+    if (world3D.isFirstPerson) {
+      persistedPilotCameraState = null;
+      window.localStorage.removeItem(CAMERA_STATE_PILOT_STORAGE_KEY);
+      persistedPilotPosition = null;
+      window.localStorage.removeItem(PLAYER_POSITION_PILOT_STORAGE_KEY);
+    } else {
+      persisted3DCameraState = null;
+      window.localStorage.removeItem(CAMERA_STATE_3D_STORAGE_KEY);
+    }
     world3D.resetCamera();
   });
   cullHeightInput.addEventListener("input", () => {
@@ -1755,10 +2141,12 @@ function main(): void {
   });
   firstPersonMode = (window.localStorage.getItem(FIRST_PERSON_MODE_STORAGE_KEY) ?? "").trim() === "1";
   fpsToggleButton.textContent = `Pilot mode: ${firstPersonMode ? "on" : "off"}`;
-  const savedCameraStateRaw = window.localStorage.getItem(CAMERA_STATE_STORAGE_KEY);
-  if (savedCameraStateRaw) {
+  gravityEnabled = (window.localStorage.getItem(GRAVITY_ENABLED_STORAGE_KEY) ?? "1").trim() !== "0";
+  gravityToggleButton.textContent = `Gravity: ${gravityEnabled ? "on" : "off"}`;
+  const parseCameraState = (raw: string | null): CameraPersistState | null => {
+    if (!raw) return null;
     try {
-      const parsed = JSON.parse(savedCameraStateRaw) as CameraPersistState;
+      const parsed = JSON.parse(raw) as CameraPersistState;
       if (
         parsed &&
         Array.isArray(parsed.position) &&
@@ -1766,15 +2154,37 @@ function main(): void {
         Array.isArray(parsed.target) &&
         parsed.target.length >= 3
       ) {
-        persistedCameraState = {
+        return {
           position: [Number(parsed.position[0]), Number(parsed.position[1]), Number(parsed.position[2])],
           target: [Number(parsed.target[0]), Number(parsed.target[1]), Number(parsed.target[2])],
         };
       }
     } catch {
-      persistedCameraState = null;
+      return null;
     }
-  }
+    return null;
+  };
+  const parsePilotPosition = (raw: string | null): PilotPositionPersistState | null => {
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (
+        Array.isArray(parsed) &&
+        parsed.length >= 3 &&
+        Number.isFinite(Number(parsed[0])) &&
+        Number.isFinite(Number(parsed[1])) &&
+        Number.isFinite(Number(parsed[2]))
+      ) {
+        return [Number(parsed[0]), Number(parsed[1]), Number(parsed[2])];
+      }
+    } catch {
+      return null;
+    }
+    return null;
+  };
+  persisted3DCameraState = parseCameraState(window.localStorage.getItem(CAMERA_STATE_3D_STORAGE_KEY));
+  persistedPilotCameraState = parseCameraState(window.localStorage.getItem(CAMERA_STATE_PILOT_STORAGE_KEY));
+  persistedPilotPosition = parsePilotPosition(window.localStorage.getItem(PLAYER_POSITION_PILOT_STORAGE_KEY));
   cullHeightInput.value = String(Math.round(cullHeightT * 1000));
   cullHeightValue.textContent = "max";
 
@@ -1819,13 +2229,18 @@ function main(): void {
   if (savedViewMode === "3d") {
     use3DView = true;
   }
+  const savedSlotIndex = Number.parseInt(window.localStorage.getItem(SLOT_INDEX_STORAGE_KEY) ?? "", 10);
+  if (Number.isFinite(savedSlotIndex)) {
+    slotIndex = Math.max(0, Math.min(3, savedSlotIndex));
+  }
+  updateBundledSlotUi();
   statsEl.textContent = "Load a save file to start.";
   applyViewMode();
   void (async () => {
     try {
-      const parsed = await fetchBundledSlot(3);
+      const parsed = await fetchBundledSlot(slotIndex);
       renderAndReset(parsed);
-      statsEl.textContent = "Loaded /saves/slot_3.json";
+      statsEl.textContent = `Loaded /saves/slot_${slotIndex}.json`;
     } catch {
       // Ignore startup auto-load errors; user can still load from picker.
     }
