@@ -2245,11 +2245,6 @@ textarea {
   vector-effect: non-scaling-stroke;
 }
 
-.sv-node-preplaced .sv-node-dot {
-  opacity: 0.82;
-  stroke-dasharray: 0.22 0.16;
-}
-
 .sv-node-hit {
   fill: transparent;
   stroke: transparent;

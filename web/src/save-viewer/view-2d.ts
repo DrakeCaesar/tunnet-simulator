@@ -41,7 +41,7 @@ function fitBoxToViewportAspect(box: ViewportBox, viewportWidthPx: number, viewp
 }
 
 function nodeClass(node: VisualNode): string {
-  return `sv-node sv-node-${node.type}${node.isPreplaced ? " sv-node-preplaced" : ""}`;
+  return `sv-node sv-node-${node.type}`;
 }
 
 function gridStepPowerOfTwo(unitsPerPixel: number): number {
@@ -154,7 +154,6 @@ export function renderGraph(model: GraphModel, camera: ViewportBox): ViewportBox
     group.setAttribute("data-device-id", node.id);
     group.setAttribute("data-device-type", node.type);
     group.setAttribute("data-device-label", node.label);
-    if (node.isPreplaced) group.setAttribute("data-device-preplaced", "true");
     const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
     circle.setAttribute("class", "sv-node-dot");
     circle.setAttribute("cx", String(node.x));

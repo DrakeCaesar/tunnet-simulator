@@ -632,7 +632,6 @@ export function startSaveViewerController(): void {
           <div class="kv"><span>ID</span><strong>${node.id}</strong></div>
           <div class="kv"><span>Label</span><strong>${node.label}</strong></div>
           <div class="kv"><span>Position</span><strong>[${node.x.toFixed(2)}, ${node.y.toFixed(2)}]</strong></div>
-          <div class="kv"><span>Pre-placed</span><strong>${node.isPreplaced ? "yes" : "no"}</strong></div>
         `;
       }
     }

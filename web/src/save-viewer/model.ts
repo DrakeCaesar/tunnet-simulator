@@ -81,7 +81,6 @@ export interface VisualNode {
   y: number;
   portCount: number;
   label: string;
-  isPreplaced: boolean;
 }
 
 export interface GraphModel {
@@ -287,7 +286,6 @@ export function buildGraphModel(save: SaveData): GraphModel {
       y: p[2] ?? 0,
       portCount: portCountFor(type),
       label,
-      isPreplaced: true,
     };
     visuals.push(node);
     nodeToDevice.set(nodeIndex, node);
