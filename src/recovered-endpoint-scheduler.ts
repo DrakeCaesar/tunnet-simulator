@@ -5,9 +5,28 @@ export type EndpointAddress = {
   d: number;
 };
 
+/**
+ * Values of `*(node + 0x1c4)` seen in the binary (not exhaustive).
+ * - `5`–`7`: `sub_1402f5840` status-family path (also modeled in {@link applyRecoveredStateTransitions}).
+ * - `0xc`–`0xe`, `0x13`: `sub_140165cb0` zone/map graph (HLIL); not yet driven by the tick exporter.
+ */
+export const BinaryObservedPhaseA = {
+  statusAfterSend5: 5,
+  statusAfterSend6: 6,
+  statusAfterSend7: 7,
+  /** Branch compares `*(node+0x1c4) == 0xc` before other work. */
+  zoneCompare12: 0x0c,
+  /** Written when advancing certain cave / route branches. */
+  zoneForce13: 0x0d,
+  /** Written when `*(node+0x1c5) != 0xb` on the “new zone” path (with event `0x2c`). */
+  zoneForce14: 0x0e,
+  /** Written from `sub_140165cb0` when `*(node+0x1c4) != 0x13` on another branch. */
+  zoneForce19: 0x13,
+} as const;
+
 /** Game `NetNode`/endpoint blob fields used by the recovered scheduler (offsets from sub_1402f5840 / sub_1402f9a40). */
 export type RecoveredSchedulerState = {
-  /** Mirrors `*(node + 0x1c4)` — story/status progression (e.g. transitions 5→6→7 observed in the driver). */
+  /** Mirrors `*(node + 0x1c4)` — use {@link BinaryObservedPhaseA} for known binary-backed constants. */
   phaseA: number;
   /**
    * Mirrors `*(node + 0x1c5)`: sub-phase index for mainframe-style endpoints.
@@ -219,7 +238,11 @@ export function advanceNetTick(current: number): number {
 }
 
 export function shouldForcePhaseTransition(state: RecoveredSchedulerState, decision: RecoveredDecision): boolean {
-  return decision.shouldSend && decision.profile === "status-family" && state.phaseA === 5;
+  return (
+    decision.shouldSend &&
+    decision.profile === "status-family" &&
+    state.phaseA === BinaryObservedPhaseA.statusAfterSend5
+  );
 }
 
 function normalizeWildcardOctet(value: number): number {
@@ -230,6 +253,10 @@ function normalizeWildcardOctet(value: number): number {
   return value;
 }
 
+/**
+ * Applies only transitions recovered from **`sub_1402f5840`** (status-family `0x1c4` ladder).
+ * Story/zone systems (**`sub_140165cb0`**, **`sub_1401f5660`**, …) write **`0x1c4` / `0x1c5`** as well; hook those here once the exporter models their triggers.
+ */
 export function applyRecoveredStateTransitions(
   state: RecoveredSchedulerState,
   addr: EndpointAddress,
@@ -242,18 +269,18 @@ export function applyRecoveredStateTransitions(
     return { phaseAChanged, phaseBChanged };
   }
 
-  if (decision.profile === "status-family" && state.phaseA === 5) {
-    state.phaseA = 6;
+  if (decision.profile === "status-family" && state.phaseA === BinaryObservedPhaseA.statusAfterSend5) {
+    state.phaseA = BinaryObservedPhaseA.statusAfterSend6;
     phaseAChanged = true;
   }
 
   // Confirmed in sub_1402f5840: once phaseA is 6, an additional
   // send-gated branch can advance it to 7 when normalized c < 2.
   // (The decompiler shows this as var_318:2.b < 2 after normalization.)
-  if (state.phaseA === 6) {
+  if (state.phaseA === BinaryObservedPhaseA.statusAfterSend6) {
     const normalizedC = normalizeWildcardOctet(addr.c);
     if (normalizedC < 2) {
-      state.phaseA = 7;
+      state.phaseA = BinaryObservedPhaseA.statusAfterSend7;
       phaseAChanged = true;
     }
   }
