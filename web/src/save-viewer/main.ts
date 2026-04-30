@@ -1034,8 +1034,13 @@ async function createOrRefresh3DWorld(
     { key: "sim_vertical", label: "sim vertical", color: "#fab387" },
     { key: "sim_sync", label: "sim sync", color: "#f9e2af" },
     { key: "update", label: "update", color: "#94e2d5" },
-    { key: "render_main", label: "render main", color: "#a6e3a1" },
-    { key: "render_minimap", label: "render map", color: "#74c7ec" },
+    { key: "render_pass", label: "render pass", color: "#a6e3a1" },
+    { key: "render_ssao", label: "render ssao", color: "#74c7ec" },
+    { key: "render_output", label: "render output", color: "#89dceb" },
+    { key: "render_other", label: "render other", color: "#6cb8d1" },
+    { key: "render_map_prep", label: "map prep", color: "#b4befe" },
+    { key: "render_map_draw", label: "map draw", color: "#cba6f7" },
+    { key: "render_map_restore", label: "map restore", color: "#f5c2e7" },
     { key: "other", label: "other", color: "#7f849c" },
   ] as const;
   type PerfSliceKey = (typeof perfSlices)[number]["key"];
@@ -1046,8 +1051,13 @@ async function createOrRefresh3DWorld(
     sim_vertical: 0,
     sim_sync: 0,
     update: 0,
-    render_main: 0,
-    render_minimap: 0,
+    render_pass: 0,
+    render_ssao: 0,
+    render_output: 0,
+    render_other: 0,
+    render_map_prep: 0,
+    render_map_draw: 0,
+    render_map_restore: 0,
     other: 0,
   };
   let perfFrameEma = 0;
@@ -1118,6 +1128,26 @@ async function createOrRefresh3DWorld(
   composer = ssao.composer;
   ssaoPass = ssao.ssaoPass;
   outputPass = ssao.outputPass;
+  type RenderStepKey = "render_pass" | "render_ssao" | "render_output" | "render_other";
+  const renderStepFrameMs: Record<RenderStepKey, number> = {
+    render_pass: 0,
+    render_ssao: 0,
+    render_output: 0,
+    render_other: 0,
+  };
+  if (composer) {
+    const passList = (composer as unknown as { passes?: Array<{ render?: (...args: unknown[]) => void }> }).passes ?? [];
+    for (const pass of passList) {
+      const originalRender = pass.render;
+      if (!originalRender) continue;
+      const passName = pass === ssaoPass ? "render_ssao" : pass === outputPass ? "render_output" : "render_pass";
+      pass.render = (...args: unknown[]): void => {
+        const t = performance.now();
+        originalRender.apply(pass, args);
+        renderStepFrameMs[passName] += performance.now() - t;
+      };
+    }
+  }
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
   controls.dampingFactor = 0.08;
@@ -1577,7 +1607,8 @@ async function createOrRefresh3DWorld(
   };
   const minimapCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 5000);
   minimapCamera.up.set(0, 0, -1);
-  const renderMinimap = (): void => {
+  const renderMinimap = (): { prepMs: number; drawMs: number; restoreMs: number } => {
+    const prepStart = performance.now();
     const viewW = Math.max(1, renderer.domElement.clientWidth);
     const viewH = Math.max(1, renderer.domElement.clientHeight);
     const size = Math.max(128, Math.min(SAVE_VIEWER_MINIMAP_VIEWPORT_SIZE_PX, Math.floor(Math.min(viewW, viewH) * 0.42)));
@@ -1614,6 +1645,8 @@ async function createOrRefresh3DWorld(
       entry.mesh.visible = inMap;
       if (entry.lines) entry.lines.visible = false;
     }
+    const prepMs = performance.now() - prepStart;
+    const drawStart = performance.now();
     renderer.setRenderTarget(null);
     renderer.setScissorTest(true);
     renderer.setViewport(x, y, size, size);
@@ -1621,6 +1654,8 @@ async function createOrRefresh3DWorld(
     renderer.setClearColor(0x111827, 0.96);
     renderer.clear(true, true, true);
     renderer.render(scene, minimapCamera);
+    const drawMs = performance.now() - drawStart;
+    const restoreStart = performance.now();
     renderer.setScissorTest(false);
     renderer.setViewport(0, 0, viewW, viewH);
     renderer.setClearColor(oldClearColor, oldClearAlpha);
@@ -1632,6 +1667,8 @@ async function createOrRefresh3DWorld(
     }
     cullCapMesh.visible = oldCapVisible;
     clipPlane.constant = oldClipConstant;
+    const restoreMs = performance.now() - restoreStart;
+    return { prepMs, drawMs, restoreMs };
   };
   const applyVertexAoEnabled = (enabled: { blockAo: boolean; hemisphereAo: boolean }): void => {
     applyWorldVertexAo(worldMeshColorSets, {
@@ -1864,12 +1901,17 @@ async function createOrRefresh3DWorld(
       lastPersistMs = nowMs;
     }
     const updateMs = performance.now() - tUpdate;
+    renderStepFrameMs.render_pass = 0;
+    renderStepFrameMs.render_ssao = 0;
+    renderStepFrameMs.render_output = 0;
+    renderStepFrameMs.render_other = 0;
     const tRenderMain = performance.now();
     composer!.render();
     const renderMainMs = performance.now() - tRenderMain;
-    const tRenderMinimap = performance.now();
-    renderMinimap();
-    const renderMinimapMs = performance.now() - tRenderMinimap;
+    const { prepMs: renderMapPrepMs, drawMs: renderMapDrawMs, restoreMs: renderMapRestoreMs } = renderMinimap();
+    const renderMinimapMs = renderMapPrepMs + renderMapDrawMs + renderMapRestoreMs;
+    const renderPassTotalMs = renderStepFrameMs.render_pass + renderStepFrameMs.render_ssao + renderStepFrameMs.render_output;
+    const renderOtherMs = Math.max(0, renderMainMs - renderPassTotalMs);
     const frameMs = performance.now() - frameStartMs;
     const renderMs = renderMainMs + renderMinimapMs;
     const otherMs = Math.max(0, frameMs - visibilityMs - simulationMs - updateMs - renderMs);
@@ -1879,8 +1921,13 @@ async function createOrRefresh3DWorld(
     perfEma.sim_vertical = perfEma.sim_vertical * (1 - PERF_EMA_ALPHA) + simVerticalMs * PERF_EMA_ALPHA;
     perfEma.sim_sync = perfEma.sim_sync * (1 - PERF_EMA_ALPHA) + simSyncMs * PERF_EMA_ALPHA;
     perfEma.update = perfEma.update * (1 - PERF_EMA_ALPHA) + updateMs * PERF_EMA_ALPHA;
-    perfEma.render_main = perfEma.render_main * (1 - PERF_EMA_ALPHA) + renderMainMs * PERF_EMA_ALPHA;
-    perfEma.render_minimap = perfEma.render_minimap * (1 - PERF_EMA_ALPHA) + renderMinimapMs * PERF_EMA_ALPHA;
+    perfEma.render_pass = perfEma.render_pass * (1 - PERF_EMA_ALPHA) + renderStepFrameMs.render_pass * PERF_EMA_ALPHA;
+    perfEma.render_ssao = perfEma.render_ssao * (1 - PERF_EMA_ALPHA) + renderStepFrameMs.render_ssao * PERF_EMA_ALPHA;
+    perfEma.render_output = perfEma.render_output * (1 - PERF_EMA_ALPHA) + renderStepFrameMs.render_output * PERF_EMA_ALPHA;
+    perfEma.render_other = perfEma.render_other * (1 - PERF_EMA_ALPHA) + renderOtherMs * PERF_EMA_ALPHA;
+    perfEma.render_map_prep = perfEma.render_map_prep * (1 - PERF_EMA_ALPHA) + renderMapPrepMs * PERF_EMA_ALPHA;
+    perfEma.render_map_draw = perfEma.render_map_draw * (1 - PERF_EMA_ALPHA) + renderMapDrawMs * PERF_EMA_ALPHA;
+    perfEma.render_map_restore = perfEma.render_map_restore * (1 - PERF_EMA_ALPHA) + renderMapRestoreMs * PERF_EMA_ALPHA;
     perfEma.other = perfEma.other * (1 - PERF_EMA_ALPHA) + otherMs * PERF_EMA_ALPHA;
     perfFrameEma = perfFrameEma * (1 - PERF_EMA_ALPHA) + frameMs * PERF_EMA_ALPHA;
     if (nowMs - lastPerfUiMs >= PERF_UI_INTERVAL_MS) {
