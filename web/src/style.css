@@ -2159,6 +2159,8 @@ textarea {
   overflow: hidden;
   background: #0d1018;
   font-size: var(--font-size-11);
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .sv-wires {
@@ -2166,8 +2168,10 @@ textarea {
   inset: 0;
   width: 100%;
   height: 100%;
-  cursor: grab;
+  cursor: default;
   touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .sv-3d-view {
@@ -2179,31 +2183,39 @@ textarea {
 }
 
 .sv-wires.is-panning {
-  cursor: grabbing;
+  cursor: default;
 }
 
 .sv-wire {
   stroke: #3f4d68;
   stroke-width: 0.6;
   opacity: 0.8;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
 }
 
 .sv-grid-line {
   stroke: #202838;
   stroke-width: 0.2;
   opacity: 0.9;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
 }
 
 .sv-grid-line-minor {
   stroke: #1a2130;
   stroke-width: 0.14;
   opacity: 0.8;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
 }
 
 .sv-grid-axis {
   stroke: #395175;
   stroke-width: 0.35;
   opacity: 0.95;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
 }
 
 .sv-grid-label {
@@ -2212,6 +2224,7 @@ textarea {
   stroke: #0d1018;
   stroke-width: 0.35;
   dominant-baseline: hanging;
+  vector-effect: non-scaling-stroke;
   pointer-events: none;
 }
 
@@ -2221,34 +2234,54 @@ textarea {
   stroke: #0d1018;
   stroke-width: 0.35;
   dominant-baseline: hanging;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
-.sv-node circle {
+.sv-node .sv-node-dot {
   stroke: #0f1115;
   stroke-width: 0.18;
+  vector-effect: non-scaling-stroke;
 }
 
-.sv-node-endpoint circle {
+.sv-node-preplaced .sv-node-dot {
+  opacity: 0.82;
+  stroke-dasharray: 0.22 0.16;
+}
+
+.sv-node-hit {
+  fill: transparent;
+  stroke: transparent;
+  pointer-events: all;
+}
+
+.sv-selected-device {
+  margin-top: 10px;
+  line-height: 1.2;
+}
+
+.sv-node-endpoint .sv-node-dot {
   fill: #89b4fa;
 }
 
-.sv-node-relay circle {
+.sv-node-relay .sv-node-dot {
   fill: #cdd6f4;
 }
 
-.sv-node-filter circle {
+.sv-node-filter .sv-node-dot {
   fill: #f5c2e7;
 }
 
-.sv-node-hub circle {
+.sv-node-hub .sv-node-dot {
   fill: #f9e2af;
 }
 
-.sv-node-bridge circle {
+.sv-node-bridge .sv-node-dot {
   fill: #a6e3a1;
 }
 
-.sv-node-antenna circle {
+.sv-node-antenna .sv-node-dot {
   fill: #fab387;
 }
 

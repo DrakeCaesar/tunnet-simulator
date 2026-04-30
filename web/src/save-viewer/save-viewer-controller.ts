@@ -29,6 +29,34 @@ import {
 } from "./view-3d";
 import { STORAGE_KEYS, parseCameraState, parsePilotPosition } from "./save-viewer-storage";
 
+function fitBoxToViewportAspect(box: ViewportBox, viewportWidthPx: number, viewportHeightPx: number): ViewportBox {
+  const vw = Math.max(1, viewportWidthPx);
+  const vh = Math.max(1, viewportHeightPx);
+  const target = vw / vh;
+  const w = Math.max(1e-9, box.maxX - box.minX);
+  const h = Math.max(1e-9, box.maxY - box.minY);
+  const current = w / h;
+  const cx = (box.minX + box.maxX) * 0.5;
+  const cy = (box.minY + box.maxY) * 0.5;
+  if (Math.abs(current - target) < 1e-9) return box;
+  if (current < target) {
+    const nextW = h * target;
+    return {
+      minX: cx - nextW * 0.5,
+      maxX: cx + nextW * 0.5,
+      minY: box.minY,
+      maxY: box.maxY,
+    };
+  }
+  const nextH = w / target;
+  return {
+    minX: box.minX,
+    maxX: box.maxX,
+    minY: cy - nextH * 0.5,
+    maxY: cy + nextH * 0.5,
+  };
+}
+
 async function readJsonFile(file: File): Promise<unknown> {
   const text = await file.text();
   return JSON.parse(text);
@@ -77,13 +105,14 @@ export function startSaveViewerController(): void {
   const packetOverlayEl = document.querySelector<SVGSVGElement>("#sv-packet-overlay");
   const view3DEl = document.querySelector<HTMLDivElement>("#sv-3d-view");
   const statsEl = document.querySelector<HTMLDivElement>("#sv-stats");
+  const selectedDeviceEl = document.querySelector<HTMLDivElement>("#sv-selected-device");
   if (
     !fileInput || !slotIndexInput || !slotIndexValue || !loadSampleButton || !stepButton || !runButton || !stopButton ||
     !resetButton || !tickRateInput || !tickRateValue || !togglePacketIpsButton || !zoomInButton || !zoomOutButton ||
     !zoomFitButton || !viewToggleButton || !fpsToggleButton || !gravityToggleButton || !ssaoToggleButton ||
     !blockAoToggleButton || !hemiAoToggleButton || !resetCameraButton || !teleportEndpointInput || !teleportButton ||
     !cullHeightInput || !cullHeightValue || !loadProgressWrap || !loadProgress || !loadProgressValue || !loadProgressText ||
-    !wiresEl || !packetOverlayEl || !view3DEl || !statsEl
+    !wiresEl || !packetOverlayEl || !view3DEl || !statsEl || !selectedDeviceEl
   ) {
     throw new Error("Missing save viewer controls");
   }
@@ -100,6 +129,7 @@ export function startSaveViewerController(): void {
   let showPacketIps = true;
   let tickIntervalMs = 200;
   let isPanning = false;
+  let panMoved = false;
   let panLastX = 0;
   let panLastY = 0;
   let packetAnimRaf: number | null = null;
@@ -163,6 +193,19 @@ export function startSaveViewerController(): void {
     if (use3DView) return;
     const drawBox = renderGraph(currentModel, cameraBox);
     renderPacketOverlay(currentModel, previousOccupancy, currentOccupancy, simAdj, progress, showPacketIps, drawBox);
+  };
+
+  const worldFromClientPoint = (clientX: number, clientY: number): { x: number; y: number } => {
+    const rect = wiresEl.getBoundingClientRect();
+    const tX = rect.width > 0 ? (clientX - rect.left) / rect.width : 0.5;
+    const tY = rect.height > 0 ? (clientY - rect.top) / rect.height : 0.5;
+    const drawBox = fitBoxToViewportAspect(cameraBox, rect.width, rect.height);
+    const width = Math.max(1, drawBox.maxX - drawBox.minX);
+    const height = Math.max(1, drawBox.maxY - drawBox.minY);
+    return {
+      x: drawBox.minX + width * Math.max(0, Math.min(1, tX)),
+      y: drawBox.minY + height * Math.max(0, Math.min(1, tY)),
+    };
   };
 
   const updateLoadProgress = (phase: string, current: number, total: number): Promise<void> => {
@@ -272,9 +315,10 @@ export function startSaveViewerController(): void {
     packetAnimRaf = window.requestAnimationFrame(animate);
   };
 
-  const applyZoom = (factor: number): void => {
+  const applyZoom = (factor: number, anchor?: { x: number; y: number }): void => {
     const centerX = (cameraBox.minX + cameraBox.maxX) / 2;
     const centerY = (cameraBox.minY + cameraBox.maxY) / 2;
+    const pivot = anchor ?? { x: centerX, y: centerY };
     const baseWidth = Math.max(1, baseBox.maxX - baseBox.minX);
     const baseHeight = Math.max(1, baseBox.maxY - baseBox.minY);
     const curWidth = Math.max(1, cameraBox.maxX - cameraBox.minX);
@@ -283,7 +327,17 @@ export function startSaveViewerController(): void {
     const targetZoom = clampZoom(currentZoom * factor);
     const nextWidth = baseWidth / targetZoom;
     const nextHeight = baseHeight / targetZoom;
-    cameraBox = { minX: centerX - nextWidth / 2, maxX: centerX + nextWidth / 2, minY: centerY - nextHeight / 2, maxY: centerY + nextHeight / 2 };
+    const relXRaw = curWidth > 0 ? (pivot.x - cameraBox.minX) / curWidth : 0.5;
+    const relYRaw = curHeight > 0 ? (pivot.y - cameraBox.minY) / curHeight : 0.5;
+    const relX = Math.max(0, Math.min(1, relXRaw));
+    const relY = Math.max(0, Math.min(1, relYRaw));
+    const minX = pivot.x - relX * nextWidth;
+    const minY = pivot.y - relY * nextHeight;
+    cameraBox = fitBoxToViewportAspect(
+      { minX, maxX: minX + nextWidth, minY, maxY: minY + nextHeight },
+      wiresEl.clientWidth,
+      wiresEl.clientHeight,
+    );
     renderGraphAndPackets();
   };
 
@@ -321,7 +375,7 @@ export function startSaveViewerController(): void {
     currentSave = save;
     currentModel = buildGraphModel(save);
     renderWorldSummary(buildWorldSummary(save));
-    baseBox = viewBoxFor(currentModel.nodes);
+    baseBox = fitBoxToViewportAspect(viewBoxFor(currentModel.nodes), wiresEl.clientWidth, wiresEl.clientHeight);
     cameraBox = { ...baseBox };
     previousOccupancy = [];
     currentOccupancy = [];
@@ -413,10 +467,16 @@ export function startSaveViewerController(): void {
     }
   });
 
-  zoomInButton.addEventListener("click", () => applyZoom(1.25));
-  zoomOutButton.addEventListener("click", () => applyZoom(1 / 1.25));
+  zoomInButton.addEventListener("click", () => {
+    const rect = wiresEl.getBoundingClientRect();
+    applyZoom(1.25, worldFromClientPoint(rect.left + rect.width / 2, rect.top + rect.height / 2));
+  });
+  zoomOutButton.addEventListener("click", () => {
+    const rect = wiresEl.getBoundingClientRect();
+    applyZoom(1 / 1.25, worldFromClientPoint(rect.left + rect.width / 2, rect.top + rect.height / 2));
+  });
   zoomFitButton.addEventListener("click", () => {
-    cameraBox = { ...baseBox };
+    cameraBox = fitBoxToViewportAspect(baseBox, wiresEl.clientWidth, wiresEl.clientHeight);
     renderGraphAndPackets();
   });
   viewToggleButton.addEventListener("click", () => {
@@ -534,13 +594,18 @@ export function startSaveViewerController(): void {
   cullHeightInput.value = String(Math.round(cullHeightT * 1000));
   cullHeightValue.textContent = "max";
 
-  wiresEl.addEventListener("wheel", (evt) => {
-    evt.preventDefault();
-    applyZoom(evt.deltaY < 0 ? 1.15 : 1 / 1.15);
-  }, { passive: false });
+  wiresEl.addEventListener(
+    "wheel",
+    (evt) => {
+      evt.preventDefault();
+      applyZoom(evt.deltaY < 0 ? 1.15 : 1 / 1.15, worldFromClientPoint(evt.clientX, evt.clientY));
+    },
+    { passive: false },
+  );
   wiresEl.addEventListener("pointerdown", (evt) => {
     if (evt.button !== 0) return;
     isPanning = true;
+    panMoved = false;
     panLastX = evt.clientX;
     panLastY = evt.clientY;
     wiresEl.classList.add("is-panning");
@@ -550,12 +615,27 @@ export function startSaveViewerController(): void {
     if (!isPanning) return;
     const dx = evt.clientX - panLastX;
     const dy = evt.clientY - panLastY;
+    if (Math.abs(dx) + Math.abs(dy) > 1) panMoved = true;
     panLastX = evt.clientX;
     panLastY = evt.clientY;
     panByPixels(dx, dy);
   });
   wiresEl.addEventListener("pointerup", (evt) => {
     if (!isPanning) return;
+    const target = evt.target instanceof Element ? evt.target.closest<SVGGElement>("g.sv-node") : null;
+    if (!panMoved && target) {
+      const deviceId = target.dataset.deviceId ?? "";
+      const node = currentModel.nodes.find((n) => n.id === deviceId);
+      if (node) {
+        selectedDeviceEl.innerHTML = `
+          <div class="kv"><span>Type</span><strong>${node.type}</strong></div>
+          <div class="kv"><span>ID</span><strong>${node.id}</strong></div>
+          <div class="kv"><span>Label</span><strong>${node.label}</strong></div>
+          <div class="kv"><span>Position</span><strong>[${node.x.toFixed(2)}, ${node.y.toFixed(2)}]</strong></div>
+          <div class="kv"><span>Pre-placed</span><strong>${node.isPreplaced ? "yes" : "no"}</strong></div>
+        `;
+      }
+    }
     isPanning = false;
     wiresEl.classList.remove("is-panning");
     wiresEl.releasePointerCapture(evt.pointerId);

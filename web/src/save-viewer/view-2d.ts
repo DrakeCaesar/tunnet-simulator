@@ -40,8 +40,8 @@ function fitBoxToViewportAspect(box: ViewportBox, viewportWidthPx: number, viewp
   };
 }
 
-function nodeClass(type: VisualNode["type"]): string {
-  return `sv-node sv-node-${type}`;
+function nodeClass(node: VisualNode): string {
+  return `sv-node sv-node-${node.type}${node.isPreplaced ? " sv-node-preplaced" : ""}`;
 }
 
 function gridStepPowerOfTwo(unitsPerPixel: number): number {
@@ -150,19 +150,31 @@ export function renderGraph(model: GraphModel, camera: ViewportBox): ViewportBox
 
   for (const node of model.nodes) {
     const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
-    group.setAttribute("class", nodeClass(node.type));
+    group.setAttribute("class", nodeClass(node));
     group.setAttribute("data-device-id", node.id);
+    group.setAttribute("data-device-type", node.type);
+    group.setAttribute("data-device-label", node.label);
+    if (node.isPreplaced) group.setAttribute("data-device-preplaced", "true");
     const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    circle.setAttribute("class", "sv-node-dot");
     circle.setAttribute("cx", String(node.x));
     circle.setAttribute("cy", String(node.y));
     circle.setAttribute("r", "0.6");
-    const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
-    text.setAttribute("x", String(node.x + textDx));
-    text.setAttribute("y", String(node.y + textDy));
-    text.setAttribute("font-size", String(textFontSize));
-    text.textContent = node.label;
     group.appendChild(circle);
-    group.appendChild(text);
+    if (node.type === "endpoint") {
+      const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      text.setAttribute("x", String(node.x + textDx));
+      text.setAttribute("y", String(node.y + textDy));
+      text.setAttribute("font-size", String(textFontSize));
+      text.textContent = node.label;
+      group.appendChild(text);
+    }
+    const hit = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    hit.setAttribute("class", "sv-node-hit");
+    hit.setAttribute("cx", String(node.x));
+    hit.setAttribute("cy", String(node.y));
+    hit.setAttribute("r", "1.35");
+    group.appendChild(hit);
     wiresEl.appendChild(group);
   }
 

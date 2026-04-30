@@ -72,6 +72,7 @@ export function mountLayout(): HTMLDivElement {
         <div class="card">
           <div class="section-title">Legend</div>
           <div class="sv-legend"></div>
+          <div id="sv-selected-device" class="meta sv-selected-device">Click a device in 2D view to inspect it.</div>
           <div class="hint">Bridge and antenna are placeholders and currently behave like relay in simulation.</div>
         </div>
         <div class="card">
