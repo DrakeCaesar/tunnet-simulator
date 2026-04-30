@@ -582,13 +582,15 @@ export async function createOrRefresh3DWorld(
         if (!Array.isArray(raw) || raw.length < 1) continue;
         const pos = parseChunkPosition(raw[0]);
         if (!pos) continue;
-        requiredKeys.add(`${pos.x},${pos.y},${pos.z}`);
-        requiredKeys.add(`${pos.x + 1},${pos.y},${pos.z}`);
-        requiredKeys.add(`${pos.x - 1},${pos.y},${pos.z}`);
-        requiredKeys.add(`${pos.x},${pos.y + 1},${pos.z}`);
-        requiredKeys.add(`${pos.x},${pos.y - 1},${pos.z}`);
-        requiredKeys.add(`${pos.x},${pos.y},${pos.z + 1}`);
-        requiredKeys.add(`${pos.x},${pos.y},${pos.z - 1}`);
+        // Block AO samples edge/corner occupancy, so meshing needs the full 26-neighbor
+        // chunk neighborhood around each chunk (not only +/- axis neighbors).
+        for (let dx = -1; dx <= 1; dx += 1) {
+          for (let dy = -1; dy <= 1; dy += 1) {
+            for (let dz = -1; dz <= 1; dz += 1) {
+              requiredKeys.add(`${pos.x + dx},${pos.y + dy},${pos.z + dz}`);
+            }
+          }
+        }
       }
       const requiredChunks: unknown[] = [];
       for (const key of Array.from(requiredKeys)) {
