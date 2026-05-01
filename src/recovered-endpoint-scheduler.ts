@@ -132,8 +132,84 @@ export const BinarySub1402f5840CallSites = {
   queryWrapperC: "0x1405b87bc",
 } as const;
 
+/**
+ * **`sub_1402f5840`** loads **`var_300.d`** from **`dword [[rsp+0x298]+8]`** (**`0x1402f5ccf`**). **`BINARY_NINJA_MCP_WORKFLOW.md`** **J.3.2**.
+ */
+export const BinarySub1402f5840LoadVar300FromTapeRow = "0x1402f5ccf" as const;
+
+/** Builds **`0x30`**-byte per-destination tape rows; **`BINARY_NINJA_MCP_WORKFLOW.md`** **J.3.2**. */
+export const BinarySub1404628b0 = "0x1404628b0" as const;
+
+/**
+ * **`sub_1404628b0`** tailcalls this with **`(arg1, 6, arg2, …)`**; HLIL is **ChaCha20-style** mixing on **`arg1`** (**`BINARY_NINJA_MCP_WORKFLOW.md`** **J.3.2**).
+ */
+export const BinarySub14204f0e0 = "0x14204f0e0" as const;
+
+/** Second ChaCha site: **`call sub_14204f0e0`** after **`[rdi+0x158]`** / **`[rdi+0x160]`** guard (**`BINARY_NINJA_MCP_WORKFLOW.md`** **J.3.2**). */
+export const BinarySub1402f5840CallSub14204f0e0Refill = "0x1402f5d79" as const;
+
+/** **`mov qword [rsp+0x298], rax`** — tape row pointer for **`0x1402f5ccf`** (**`BINARY_NINJA_MCP_WORKFLOW.md`** **J.3.2**). */
+export const BinarySub1402f5840StoreTapeRowPtrRsp298 = "0x1402f5bad" as const;
+
+/** Fills a buffer via **`BCryptGenRandom` / `SystemFunction036`** (**`sub_142052f70`** → **`BINARY_NINJA_MCP_WORKFLOW.md`** **J.3.2**). */
+export const BinarySub142313210 = "0x142313210" as const;
+
+/** Wraps **`sub_142313210`** for **`sub_1404628b0`**’s **`0x20`**-byte scratch (**`BINARY_NINJA_MCP_WORKFLOW.md`** **J.3.2**). */
+export const BinarySub142052f70 = "0x142052f70" as const;
+
+/** Blends **`arg2`** with **`arg3[..]`** into **`arg1`** (**`sub_1404628b0`** seed; **`BINARY_NINJA_MCP_WORKFLOW.md`** **J.3.2**). */
+export const BinarySub1420519a0 = "0x1420519a0" as const;
+
+/** **`call sub_1404628b0`** from **`sub_1402f5840`** (three sites). */
+export const BinarySub1402f5840CallSub1404628b0Sites = {
+  tapeLoopPrimary: "0x1402f5d09",
+  tapeLoopAltA: "0x1402f6f53",
+  tapeLoopAltB: "0x1402f8c99",
+} as const;
+
+/** Static seed passed into **`sub_1420519a0`** from **`sub_1404628b0`** (`arg3`); **`*(arg3+8)`** feeds **`var_78+0x2c`** (**`BINARY_NINJA_MCP_WORKFLOW.md`** **J.3.2**). */
+export const BinaryData142428768 = "0x142428768" as const;
+
+/**
+ * VA of **`dword *(data_142428768+8)`** — use this (with **`length: 4`**) for **`get_data_decl`**; the **symbol base** **`0x142428768`** can hang BN (**`BINARY_NINJA_MCP_WORKFLOW.md`** §6).
+ */
+export const BinaryData142428768Plus8Va = "0x142428770" as const;
+
+/** **`*(uint32_t*)(0x142428770)`** in stock **`tunnet.exe.bndb`** (LE bytes **`e0 86 42 42`**). */
+export const BinaryData142428768DwordAtPlus8 = 0x4242_86e0 as const;
+
+/** **`sub_1402f5840` → `sub_1402f9a40`** only (**`0x1402f5c26`**). */
+export const BinarySub1402f9a40 = "0x1402f9a40" as const;
+
+/** Compose tail: **`*(arg1+0x18) = var_130:8.q`** (**`BINARY_NINJA_MCP_WORKFLOW.md`** **J.3.3**). */
+export const BinarySub1402f9a40StoreArg1Plus18 = "0x1402fbd3b" as const;
+
+/** Tailcalls **`sub_1423af220`** — **`String` / UTF-8 reserve path** (**`BINARY_NINJA_MCP_WORKFLOW.md`** **J.3.3**). */
+export const BinarySub1423b0fc0 = "0x1423b0fc0" as const;
+
+/** **`sub_1423b0fc0`** target; vtable **`+0x18`/`+0x20`** on **`arg1[1]`** (**`BINARY_NINJA_MCP_WORKFLOW.md`** **J.3.3**). */
+export const BinarySub1423af220 = "0x1423af220" as const;
+
 /** Appends **`0x58`** table rows; **`+0x40` ← `arg2[4]`** (see **`BINARY_NINJA_MCP_WORKFLOW.md`** §E.2–E.6, callers §E.8). */
 export const BinarySub140516d40 = "0x140516d40" as const;
+
+/**
+ * **`get_xrefs_to(0x140516d40)`** — every code ref (BN MCP); **§E.6** table in **`BINARY_NINJA_MCP_WORKFLOW.md`**.
+ */
+export const BinarySub140516d40CallSites = {
+  netSchedulerA: "0x1402f66ea",
+  netSchedulerB: "0x1402f6808",
+  graphPropagate: "0x1403a8e7d",
+  relayA: "0x14044f13a",
+  relayB: "0x14044f758",
+  relayC: "0x14044fd7f",
+  dummyPacket: "0x1404f0b1b",
+  multiEndpointA: "0x1404f4513",
+  multiEndpointB: "0x1404f48ef",
+  multiEndpointC: "0x1404f4a13",
+  multiEndpointD: "0x1404f4d3d",
+  pathfindingNav: "0x14074b501",
+} as const;
 
 /**
  * Same dual-**`Vec`** / **`0x58`** row write as **`{@link BinarySub140516d40}`** (HLIL field order differs). **Only** called from **`{@link BinarySub140380650}`** (§E.10–E.11).
@@ -211,6 +287,17 @@ export const BinarySub14044eae0CallSites = {
   relayWrapperA: "0x140444b73",
   relayWrapperB: "0x1405e53a6",
   thinPacker: "0x14058489a",
+} as const;
+
+/**
+ * **`sub_140516d40`** call sites **inside** **`{@link BinarySub14044eae0}`** (relay loop). **`0x14044fd7f`**
+ * is **`label_14044f160`** only — **`slot[1].q -= 1`** runs on the **narrow** fall-through before that call
+ * (**`BINARY_NINJA_MCP_WORKFLOW.md`** §E.3a).
+ */
+export const BinarySub140516d40FromRelayCallSites = {
+  caseEf8a: "0x14044f13a",
+  caseF160: "0x14044fd7f",
+  caseF5a2: "0x14044f758",
 } as const;
 
 /** Graph / distance search that forwards **`+0x40`** from neighbor **`0x58`** rows into **`sub_140516d40`** @ **`0x1403a8e7d`**. */
