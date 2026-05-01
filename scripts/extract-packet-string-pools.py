@@ -7,10 +7,10 @@ each call (same codegen family as Binary Ninja disassembly for ``sub_1402f9a40``
 
 **Limitations (still useful “all pools in this pattern”):**
 
-- On the stock Steam build this targets **25** ``call`` sites; **22** decode to full
-  string lists. **3** remain ``fail`` (linear scan cannot see the slot table: XMM spill /
-  duplicate-site tail / ``jmp`` to a distant builder): call RVAs ``0x2fb46a``,
-  ``0x2fb782``, ``0x2fb82c``. Use Binary Ninja / a CFG-aware disassembler for those.
+- On the stock Steam build this targets **25** ``call`` sites; **22** decode with
+  **``decodeStatus: ok``**. **3** remain **``fail``** (linear scan cannot reach the slot
+  table: **``0x2fb46a``**, **``0x2fb782``**, **``0x2fb82c``**) — use Binary Ninja / CFG or
+  extend the decoder. Re-run after patches; RVAs can shift.
 - Only resolves **RIP-relative ``lea rax, [rip+disp]``** rows plus the matching
   ``mov [rsi|rbx|rdi+r],`` / ``mov qword [rsp+disp],`` noise we recognize.
 - **Does not** map a pool to HLIL / “packet profile” — you get **RVA of the call site**
@@ -353,6 +353,7 @@ def main() -> int:
 
     hits = find_calls_to(text, text_va, img, callee_rva)
     rows = [decode_call_site(text, text_va, img, p, secs, j) for j in hits]
+
     ok_n = sum(1 for r in rows if r["decodeStatus"] == "ok")
     partial_n = sum(1 for r in rows if r["decodeStatus"] == "partial")
     fail_n = sum(1 for r in rows if r["decodeStatus"] == "fail")

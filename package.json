@@ -18,7 +18,8 @@
     "sched:compare": "tsx src/compare-scheduler.ts",
     "sched:sequence": "tsx src/export-message-sequence.ts",
     "extract:exe-strings": "python scripts/extract-tunnet-rdata-strings.py",
-    "extract:packet-pools": "python scripts/extract-packet-string-pools.py"
+    "extract:packet-pools": "python scripts/extract-packet-string-pools.py",
+    "sort:rdata-strings": "python scripts/sort-tunnet-rdata-jsonl.py"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
