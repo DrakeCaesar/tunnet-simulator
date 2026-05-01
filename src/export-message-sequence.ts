@@ -2,18 +2,17 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { formatHeaderExact } from "./packet-header-format.js";
 import {
+  type AddressEncodingStrategy,
+  encodeEndpointAddressForStrategy,
+  parseEndpointAddressString,
+} from "./endpoint-address-encoding.js";
+import {
   applyRecoveredStateTransitions,
-  EndpointAddress,
   RecoveredSchedulerState,
   advanceNetTick,
   evaluateEndpointSend,
   initialRecoveredSchedulerState,
 } from "./recovered-endpoint-scheduler.js";
-
-type AddressEncodingStrategy =
-  | "identity"
-  | "plus_one_all_octets"
-  | "plus_one_first_octet";
 
 type EndpointRow = {
   address: string;
@@ -57,32 +56,6 @@ type OutputJson = {
   };
   events: MessageEvent[];
 };
-
-function parseAddress(address: string): EndpointAddress {
-  const parts = address.split(".").map((v) => Number(v));
-  if (parts.length !== 4 || parts.some((v) => Number.isNaN(v))) {
-    throw new Error(`Invalid endpoint address: ${address}`);
-  }
-  return { a: parts[0], b: parts[1], c: parts[2], d: parts[3] };
-}
-
-function encodeAddress(address: EndpointAddress, strategy: AddressEncodingStrategy): EndpointAddress {
-  switch (strategy) {
-    case "identity":
-      return address;
-    case "plus_one_first_octet":
-      return { ...address, a: address.a + 1 };
-    case "plus_one_all_octets":
-      return {
-        a: address.a + 1,
-        b: address.b + 1,
-        c: address.c + 1,
-        d: address.d + 1,
-      };
-    default:
-      return address;
-  }
-}
 
 function matchMask(mask: string, candidate: string): boolean {
   const m = mask.split(".");
@@ -217,7 +190,7 @@ function main(): void {
   for (let tick = 0; tick < analyzedTicks; tick += 1) {
     netTick = advanceNetTick(netTick);
     for (const endpoint of endpoints) {
-      const encoded = encodeAddress(parseAddress(endpoint.address), strategy);
+      const encoded = encodeEndpointAddressForStrategy(parseEndpointAddressString(endpoint.address), strategy);
       const decision = evaluateEndpointSend(state, encoded, netTick);
       if (!decision.shouldSend || decision.header === null || decision.profile === null) {
         continue;

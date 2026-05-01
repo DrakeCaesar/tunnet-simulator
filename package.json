@@ -17,6 +17,8 @@
     "bench:layout-url": "tsx src/benchmark-layout-url-encodings.ts",
     "sched:compare": "tsx src/compare-scheduler.ts",
     "sched:sequence": "tsx src/export-message-sequence.ts",
+    "compare:edges": "tsx src/compare-endpoint-edges.ts",
+    "compare:edges:scan": "tsx src/compare-endpoint-edges.ts scan 1000 0 8 0 8",
     "extract:exe-strings": "python scripts/extract-tunnet-rdata-strings.py",
     "extract:packet-pools": "python scripts/extract-packet-string-pools.py",
     "sort:rdata-strings": "python scripts/sort-tunnet-rdata-jsonl.py"

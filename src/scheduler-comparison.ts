@@ -1,10 +1,10 @@
 import { readFileSync } from "node:fs";
 import {
-  EndpointAddress,
-  RecoveredSchedulerState,
-  advanceNetTick,
-  evaluateEndpointSend,
-} from "./recovered-endpoint-scheduler.js";
+  type AddressEncodingStrategy,
+  encodeEndpointAddressForStrategy,
+  parseEndpointAddressString,
+} from "./endpoint-address-encoding.js";
+import { RecoveredSchedulerState, advanceNetTick, evaluateEndpointSend } from "./recovered-endpoint-scheduler.js";
 
 type EndpointRow = {
   address: string;
@@ -32,36 +32,7 @@ type ComparisonSummary = {
   byEndpoint: EndpointComparison[];
 };
 
-export type AddressEncodingStrategy =
-  | "identity"
-  | "plus_one_all_octets"
-  | "plus_one_first_octet";
-
-function parseAddress(address: string): EndpointAddress {
-  const parts = address.split(".").map((v) => Number(v));
-  if (parts.length !== 4 || parts.some((v) => Number.isNaN(v))) {
-    throw new Error(`Invalid endpoint address: ${address}`);
-  }
-  return { a: parts[0], b: parts[1], c: parts[2], d: parts[3] };
-}
-
-function encodeAddress(address: EndpointAddress, strategy: AddressEncodingStrategy): EndpointAddress {
-  switch (strategy) {
-    case "identity":
-      return address;
-    case "plus_one_first_octet":
-      return { ...address, a: address.a + 1 };
-    case "plus_one_all_octets":
-      return {
-        a: address.a + 1,
-        b: address.b + 1,
-        c: address.c + 1,
-        d: address.d + 1,
-      };
-    default:
-      return address;
-  }
-}
+export type { AddressEncodingStrategy } from "./endpoint-address-encoding.js";
 
 function loadEndpointRows(path = "data.json"): EndpointRow[] {
   const raw = readFileSync(path, "utf8");
@@ -142,7 +113,10 @@ function simulateRecoveredModel(
   for (let i = 0; i < ticks; i += 1) {
     netTick = advanceNetTick(netTick);
     for (const endpoint of endpoints) {
-      const addr = encodeAddress(parseAddress(endpoint.address), encodingStrategy);
+      const addr = encodeEndpointAddressForStrategy(
+        parseEndpointAddressString(endpoint.address),
+        encodingStrategy,
+      );
       const decision = evaluateEndpointSend(state, addr, netTick);
       if (decision.shouldSend) {
         emitted.set(endpoint.address, (emitted.get(endpoint.address) ?? 0) + 1);

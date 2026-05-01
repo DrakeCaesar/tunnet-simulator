@@ -64,6 +64,17 @@ export const STATUS_FAMILY_THREE_SUBJECT_POOL = [
   "Mainframe update",
 ] as const;
 
+/**
+ * Before **`sub_140673b40`** at **`0x1402fb46a`** (firmware branch when **`(floor(tick/2)&0xf)!=0`** in **`sub_1402f9a40`**).
+ * Matches **`MANUAL_SUB_140673B40_POOLS[0x2FB46A]`** in **`scripts/extract-packet-string-pools.py`**.
+ */
+export const FIRMWARE_UPDATE_FOUR_SUBJECT_POOL = [
+  "Firmware update",
+  "Test",
+  "Contribute to science",
+  "[PATCH] Fix netcode",
+] as const;
+
 /** Before **`sub_140673b40`** at **`0x1402fa5bd`** (ad-style branch in same function). */
 export const AD_FAMILY_THREE_SUBJECT_POOL = [
   "SALES",
@@ -259,11 +270,21 @@ export function pickSearchInvestmentSubjectPlaceholder(tick: number): string {
 
 /**
  * Deterministic placeholder — **not** yet `sub_140673b40`.
- * Status-family sends only fire on **even** `tick`; we step the index on `(tick >> 1)`.
+ * Status-family **mainframe-update** sends only fire on **even** `tick`; we step the index on `(tick >> 1)`.
  */
 export function pickStatusFamilySubjectPlaceholder(tick: number): string {
   const idx = (tick >>> 1) % 3;
   return STATUS_FAMILY_THREE_SUBJECT_POOL[idx];
+}
+
+export function firmwareUpdateSubjectCandidates(): readonly string[] {
+  return FIRMWARE_UPDATE_FOUR_SUBJECT_POOL;
+}
+
+/** Row order matches **`FIRMWARE_UPDATE_FOUR_SUBJECT_POOL`** (RNG stand-in). */
+export function pickFirmwareUpdateSubjectPlaceholder(tick: number): string {
+  const idx = (tick >>> 1) & 3;
+  return FIRMWARE_UPDATE_FOUR_SUBJECT_POOL[idx];
 }
 
 /** Ad-family uses an 8-tick gate; step index on `tick >> 3` so sends do not all alias. */

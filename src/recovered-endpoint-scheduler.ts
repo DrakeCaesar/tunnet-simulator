@@ -7,7 +7,9 @@ import {
   pickSchoolCasualSubjectPlaceholder,
   pickSchoolHomeworkSubjectPlaceholder,
   pickSchoolSupplySubjectPlaceholder,
+  pickFirmwareUpdateSubjectPlaceholder,
   pickStatusFamilySubjectPlaceholder,
+  firmwareUpdateSubjectCandidates,
   adFamilySubjectCandidates,
   confidentialSubjectCandidates,
   meetingMinutesSubjectCandidates,
@@ -98,6 +100,18 @@ export type PhaseTransitionResult = {
   phaseBChanged: boolean;
 };
 
+function i32(n: number): number {
+  return n | 0;
+}
+
+/**
+ * `((arg4 u>> 0x1f) + arg4) s>> 1` in **`sub_1402f9a40`** — half-tick / floor-two counter (**`rbp_4`** / **`rbp_14`**).
+ */
+function signedHalfTickFloor(tick: number): number {
+  const t = i32(tick);
+  return i32((t + (t >> 31)) >> 1);
+}
+
 function mod4FromFloorDivPow2(value: number, shift: number): number {
   const div = Math.floor(value / (1 << shift));
   return div & 3;
@@ -109,9 +123,80 @@ function dynamicAdHeader(b: number, tick: number): number {
   return (hi24 | hi16) + (b << 8) + 1;
 }
 
-function dynamicStatusHeader(tick: number): number {
-  const bucket = (((Math.floor((tick + 31) / 32) % 3) + 1) & 3) >>> 0;
-  return ((bucket & 0xff) << 8) + 0x1010001;
+/** HLIL `test_bit(0x16, rcx_1)` @ **`0x1402fa4c6`** (`sub_1402f9a40`, **`c==4`**, **`d==2`**). Excludes **`b==3`**. */
+function case4D2TestBitGatePasses(b: number): boolean {
+  if (b < 1 || b > 4) {
+    return false;
+  }
+  return ((0x16 >>> (b & 31)) & 1) !== 0;
+}
+
+/** `rax_76` mod-16 residue from **`rax_75 = (arg4>=0?arg4:arg4+7)>>3`** — HLIL **`0x1402fa4dd`–`0x1402fa4f3`**. */
+function case4D2Rax76Mod16(tick: number): number {
+  const rax74 = tick >= 0 ? i32(tick) : i32(tick + 7);
+  const rax75 = i32(rax74 >> 3);
+  const rcx61 = rax75 >= 0 ? rax75 : i32(rax75 + 0xf);
+  return i32(rax75 - (rcx61 & 0xfffffff0)) & 0xf;
+}
+
+/**
+ * **`var_10b`** on the **mainframe-update** path (**`0x1402fb069`**–**`0x1402fb0b9`**) when **`(rbp_4&0xf)==0`**.
+ * Mirrors **`rax_157`…`rax_162`** (including **`0x55555556`** quotient trick for **`floor(tick/32) % 3`**).
+ */
+function statusMainframeUpdateHeaderU32(tick: number): number {
+  const rax157 = tick >= 0 ? i32(tick) : i32(tick + 0x1f);
+  const rax159 = i32(rax157 >> 5);
+  const rcx128 = BigInt.asIntN(64, BigInt(rax159) * 0x55555556n);
+  const rcx128u = BigInt.asUintN(64, rcx128);
+  const hi = Number((rcx128u >> 32n) & 0xffffffffn) >>> 0;
+  const b63 = Number((rcx128u >> 63n) & 1n);
+  const rcx130 = (hi + b63) >>> 0;
+  const rax159b = rax159 & 0xff;
+  const rcx130b3 = (rcx130 * 3) & 0xff;
+  const t = (rax159b - rcx130b3 + 1) & 0xff;
+  const tSigned = (t << 24) >> 24;
+  const inner = ((tSigned >> 7) >>> 6) + t;
+  const rax160 = (t - (inner & 0xfc)) & 0xff;
+  const rax161 = (rax160 << 24) >> 24;
+  let rax162 = 0x1010001 >>> 0;
+  if ((rax161 & 0xff) < 4) {
+    rax162 = (((rax161 << 8) >>> 0) + 0x1010101) >>> 0;
+  }
+  return rax162 >>> 0;
+}
+
+/**
+ * First byte at **`data_142423e77`** passed to **`sub_1406b60c0`** (Steam build): **`0x03`**.
+ * That helper returns **0** iff **`rdi_3 != 0`** and **`rdi_3 != 3`** (see BN HLIL @ **`0x1406b60c0`**).
+ */
+const STATUS_FIRMWARE_SELECTOR_BYTE = 3;
+
+/**
+ * **`var_10b`** on the **firmware-update** path (**`0x1402f9c87`**–**`0x1402f9cff`**) when **`(rbp_4&0xf)!=0`**.
+ */
+function statusFirmwareUpdateHeaderU32(tick: number): number {
+  const rbp4 = signedHalfTickFloor(tick);
+  const rax14 = tick >= 0 ? i32(tick) : i32(tick + 7);
+  const rax15 = i32(rax14 >> 3);
+  const rcx10 = rax15 >= 0 ? rax15 : i32(rax15 + 3);
+  const rax16 = i32(rax15 - (rcx10 & 0xfffffffc));
+  let rdi3 = (rax16 & 0xff) + 1;
+  if ((rax16 >>> 0) >= 4) {
+    rdi3 = 0;
+  }
+  const rcx = rdi3 & 0xff;
+  const rax17 = rcx === 0 || rcx === STATUS_FIRMWARE_SELECTOR_BYTE ? 1 : 0;
+  let rax18 = 0x10000;
+  if (rax17 === 0) {
+    rax18 = ((rdi3 & 0xff) << 16) >>> 0;
+  }
+  const rcx14 = rbp4 >= 0 ? rbp4 : i32(rbp4 + 3);
+  const rbp5 = i32(rbp4 - (rcx14 & 0xfffffffc));
+  let rcx18 = 0;
+  if ((rbp5 >>> 0) < 4) {
+    rcx18 = i32((rbp5 << 24) + 0x1000000);
+  }
+  return (rax18 + rcx18 + 0x101) >>> 0;
 }
 
 function dynamicJoinUsHeader(tick: number): number {
@@ -278,25 +363,26 @@ export function evaluateEndpointSend(
 
       if (d === 1 && b === 1) {
         if ((tick & 1) !== 0) {
-          return { shouldSend: false, header: null, profile: null, reason: "status-family even tick gate" };
+          return { shouldSend: false, header: null, profile: null, reason: "status-family odd tick skip (arg4&1)" };
         }
-        if (((tick >> 1) & 0x0f) === 0) {
+        const half = signedHalfTickFloor(tick);
+        if ((half & 0x0f) === 0) {
           return {
             shouldSend: true,
-            header: dynamicStatusHeader(tick),
+            header: statusMainframeUpdateHeaderU32(tick),
             profile: "status-family",
-            reason: "status-family periodic branch",
+            reason: "status-family mainframe-update ((floor(tick/2))&0xf)==0",
             packetSubject: pickStatusFamilySubjectPlaceholder(tick),
             packetSubjectCandidates: statusFamilySubjectCandidates(),
           };
         }
         return {
           shouldSend: true,
-          header: dynamicStatusHeader(tick),
+          header: statusFirmwareUpdateHeaderU32(tick),
           profile: "status-family",
-          reason: "status-family default branch",
-          packetSubject: pickStatusFamilySubjectPlaceholder(tick),
-          packetSubjectCandidates: statusFamilySubjectCandidates(),
+          reason: "status-family firmware-update ((floor(tick/2))&0xf)!=0",
+          packetSubject: pickFirmwareUpdateSubjectPlaceholder(tick),
+          packetSubjectCandidates: firmwareUpdateSubjectCandidates(),
         };
       }
 
@@ -467,8 +553,39 @@ export function evaluateEndpointSend(
         };
       }
 
+      if (d === 2) {
+        if (!case4D2TestBitGatePasses(b)) {
+          return { shouldSend: false, header: null, profile: null, reason: "c=4 d=2 HLIL test_bit(0x16,b) gate" };
+        }
+        if ((tick & 7) !== 0) {
+          return { shouldSend: false, header: null, profile: null, reason: "c=4 d=2 (arg4&7)==0 gate" };
+        }
+        const rax76 = case4D2Rax76Mod16(tick);
+        if (rax76 !== 0 && rax76 !== 1) {
+          return { shouldSend: false, header: null, profile: null, reason: "c=4 d=2 rax_76 mod16 not 0 or 1" };
+        }
+        if (rax76 === 1) {
+          return {
+            shouldSend: true,
+            header: (b << 8) | 0x2020001,
+            profile: "ad-family",
+            reason: "c=4 d=2 Purchase Order branch (HLIL 0x1402fbc2b)",
+            packetSubject: "Purchase Order",
+            packetSubjectCandidates: adFamilySubjectCandidates(),
+          };
+        }
+        return {
+          shouldSend: true,
+          header: dynamicAdHeader(b, tick),
+          profile: "ad-family",
+          reason: "c=4 d=2 BEST PRICES branch (HLIL 0x1402fa56a, same hi16/hi24 as dynamicAdHeader)",
+          packetSubject: pickAdFamilySubjectPlaceholder(tick),
+          packetSubjectCandidates: adFamilySubjectCandidates(),
+        };
+      }
+
       if (d !== 1) {
-        return { shouldSend: false, header: null, profile: null, reason: "c=4 requires d=1 (token) or d=4 (meeting/status)" };
+        return { shouldSend: false, header: null, profile: null, reason: "c=4 requires d=1 (token), d=2, or d=4 (meeting/status)" };
       }
       if ((tick & 3) !== 0) {
         return { shouldSend: false, header: null, profile: null, reason: "c=4 every-4-ticks gate" };
