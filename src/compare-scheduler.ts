@@ -11,6 +11,7 @@ function pct(value: number): string {
 const ENCODING_STRATEGIES: readonly AddressEncodingStrategy[] = [
   "identity",
   "plus_one_all_octets",
+  "plus_one_all_octets_regional_mainframe",
   "plus_one_first_octet",
 ];
 
@@ -26,7 +27,7 @@ function main(): void {
     throw new Error(`Invalid ticks value: ${ticksArg}`);
   }
 
-  let strategy: AddressEncodingStrategy = "plus_one_all_octets";
+  let strategy: AddressEncodingStrategy = "plus_one_all_octets_regional_mainframe";
   let phaseArgOffset = 1;
   if (args[1] !== undefined && isEncodingStrategy(args[1])) {
     strategy = args[1];

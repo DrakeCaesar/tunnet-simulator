@@ -4,7 +4,7 @@
  *
  * **`data.json` is not ground truth** — it is a convenience baseline and may disagree with the game or BN.
  * Recovered behavior follows **`sub_1402f9a40` / `sub_1402f5840`** modeling in `recovered-endpoint-scheduler.ts`
- * plus numeric {@link encodeEndpointAddressForStrategy} only (no wiki topology overrides).
+ * plus numeric {@link encodeEndpointAddressForStrategy} only (no wiki topology overrides beyond encoding).
  *
  * Only **(sender, receiver)** edges are compared — not headers, subjects, or RNG pools.
  *
@@ -18,18 +18,18 @@
  * per-tick grouping are ignored).
  *
  * **Why sets often disagree:** the wiki side assumes **every** expanded `sends_to` target on each fire;
- * the recovered side emits **one header-derived mask per tick**, so receivers are a **subset** of
- * `sends_to`. That alone can explain a large gap without any phase bug.
+ * the recovered side usually emits **one header-derived mask per tick**, so receivers are a **subset** of
+ * `sends_to` (regional mainframe sends use the full expanded list to match wiki table semantics). That alone can explain gaps without a phase bug.
  *
  * **Phases:** `phaseB` is consulted only for **`a === 4` / `(1,1,1)`** in {@link evaluateEndpointSend} when the
  * encoded tuple hits that path. `phaseA` is **not** read there — it only advances via
- * {@link applyRecoveredStateTransitions} after status-family sends. With naive **`plus_one_all_octets`** on
- * wiki strings, **no** row may encode to **`(4,1,1,1)`** until a BN-backed address map exists.
+ * {@link applyRecoveredStateTransitions} after status-family sends. Use **`plus_one_all_octets_regional_mainframe`**
+ * so wiki **`0.{1,2,3}.0.0`** maps to **`(4,1,1,1)`** (`sub_1402f9a40` **`r13 == 4`** gate @ **`0x1402f9ba7`**).
  *
  * CLI: `tsx src/compare-endpoint-edges.ts [ticks] [strategy] [phaseA] [phaseB]`
  * Scan: `tsx src/compare-endpoint-edges.ts scan [ticks] [aMin] [aMax] [bMin] [bMax] [encoding...|all]`
- * - Multiple trailing encodings (`identity`, `plus_one_all_octets`, `plus_one_first_octet`) or **`all`**.
- * - Omit encodings → defaults to **`identity` + `plus_one_all_octets`**; combined union vs wiki is printed.
+ * - Trailing encodings: `identity`, `plus_one_all_octets`, `plus_one_all_octets_regional_mainframe`, `plus_one_first_octet`, or **`all`**.
+ * - Omit encodings → defaults to **`identity` + `plus_one_all_octets` + `plus_one_all_octets_regional_mainframe`**; combined union vs wiki is printed.
  * - Omit phase bounds → ticks=10000, a 0..20, b 0..11.
  */
 
@@ -39,6 +39,7 @@ import {
   encodeEndpointAddressForStrategy,
   parseEndpointAddressString,
 } from "./endpoint-address-encoding.js";
+import { dstWikiMaskForRecoveredSend } from "./packet-header-format.js";
 import {
   BinaryObservedPhaseA,
   MAINFRAME_SUBPHASE_MAX,
@@ -85,15 +86,6 @@ function buildDestinationList(src: string, masks: string[], allAddresses: string
   return [...dests].sort();
 }
 
-function headerToMask(header: number): string {
-  const a = header & 0xff;
-  const b = (header >>> 8) & 0xff;
-  const c = (header >>> 16) & 0xff;
-  const d = (header >>> 24) & 0xff;
-  const part = (v: number): string => (v === 0 ? "*" : String(v - 1));
-  return `${part(a)}.${part(b)}.${part(c)}.${part(d)}`;
-}
-
 function collectWikiEdgesForTick(
   tick: number,
   endpoints: EndpointRow[],
@@ -128,14 +120,18 @@ function collectRecoveredEdgesForTick(
     if (!decision.shouldSend || decision.header === null || decision.profile === null) {
       continue;
     }
-    const dstMask = headerToMask(decision.header);
+    const header = decision.header;
+    const profile = decision.profile;
     const sourceAllowed = destinationsBySource.get(endpoint.address) ?? [];
-    const matched = allAddresses.filter(
-      (candidate) =>
-        candidate !== endpoint.address &&
-        matchMask(dstMask, candidate) &&
-        sourceAllowed.includes(candidate),
-    );
+    const matched =
+      profile === "mainframe-phase-sequence"
+        ? sourceAllowed.filter((candidate) => candidate !== endpoint.address)
+        : allAddresses.filter(
+            (candidate) =>
+              candidate !== endpoint.address &&
+              matchMask(dstWikiMaskForRecoveredSend(endpoint.address, header, profile), candidate) &&
+              sourceAllowed.includes(candidate),
+          );
     for (const dst of matched) {
       edges.push(`${endpoint.address}>${dst}`);
     }
@@ -221,6 +217,7 @@ function simulateRecoveredPairs(params: {
 const ENCODING_STRATEGIES: readonly AddressEncodingStrategy[] = [
   "identity",
   "plus_one_all_octets",
+  "plus_one_all_octets_regional_mainframe",
   "plus_one_first_octet",
 ];
 
@@ -246,7 +243,7 @@ function parseScanArgs(rest: string[]): {
     strategies.push(...ENCODING_STRATEGIES);
   }
   if (strategies.length === 0) {
-    strategies.push("identity", "plus_one_all_octets");
+    strategies.push("identity", "plus_one_all_octets", "plus_one_all_octets_regional_mainframe");
   }
 
   const dedupStrategies: AddressEncodingStrategy[] = [];
@@ -477,7 +474,7 @@ function main(): void {
     throw new Error(`Invalid ticks: ${ticksArg}`);
   }
 
-  let strategy: AddressEncodingStrategy = "plus_one_all_octets";
+  let strategy: AddressEncodingStrategy = "plus_one_all_octets_regional_mainframe";
   let phaseArgOffset = 1;
   if (args[1] !== undefined && isEncodingStrategy(args[1])) {
     strategy = args[1];
@@ -523,7 +520,7 @@ function main(): void {
     `[edge-compare] wiki model: send_rate>0, tick%send_rate==0, edges = full expanded sends_to (broadcast).`,
   );
   console.log(
-    `[edge-compare] mismatch note: wiki baseline may be wrong or incomplete. Recovered uses one header mask × sends_to (subset). phaseA advances only after status sends (${BinaryObservedPhaseA.statusAfterSend5}→${BinaryObservedPhaseA.statusAfterSend6}→${BinaryObservedPhaseA.statusAfterSend7}).`,
+    `[edge-compare] mismatch note: wiki baseline may be wrong or incomplete. Recovered uses header mask × sends_to (subset), except mainframe-phase-sequence sends which use the full expanded sends_to list. phaseA advances only after status sends (${BinaryObservedPhaseA.statusAfterSend5}→${BinaryObservedPhaseA.statusAfterSend6}→${BinaryObservedPhaseA.statusAfterSend7}).`,
   );
 
   console.log("[edge-compare] over full run (multiset edge counts + unique src>dst sets):");

@@ -234,6 +234,7 @@ export function evaluateEndpointSend(
 ): RecoveredDecision {
   const { a, b, c, d } = addr;
 
+  /* `sub_1402f9a40` @ 0x1402f9ba7: r13==4; @ 0x1402f9e46 bytes 1..3 must be 1 — wiki 0.{1,2,3}.0.0 → encodeEndpointAddressForStrategy(..., "plus_one_all_octets_regional_mainframe"). */
   if (a === 4) {
     if (!(b === 1 && c === 1 && d === 1)) {
       return { shouldSend: false, header: null, profile: null, reason: "a=4 requires tuple (1,1,1)" };

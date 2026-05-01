@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { formatHeaderExact } from "./packet-header-format.js";
+import { dstWikiMaskForRecoveredSend, formatHeaderExact } from "./packet-header-format.js";
 import {
   type AddressEncodingStrategy,
   encodeEndpointAddressForStrategy,
@@ -87,15 +87,6 @@ function buildDestinationList(src: string, masks: string[], allAddresses: string
   return [...dests].sort();
 }
 
-function headerToMask(header: number): string {
-  const a = header & 0xff;
-  const b = (header >>> 8) & 0xff;
-  const c = (header >>> 16) & 0xff;
-  const d = (header >>> 24) & 0xff;
-  const part = (v: number): string => (v === 0 ? "*" : String(v - 1));
-  return `${part(a)}.${part(b)}.${part(c)}.${part(d)}`;
-}
-
 function signaturesByTick(events: MessageEvent[], ticks: number): string[] {
   const byTick = new Map<number, MessageEvent[]>();
   for (const ev of events) {
@@ -119,6 +110,7 @@ function signaturesByTick(events: MessageEvent[], ticks: number): string[] {
 const ENCODING_STRATEGIES: readonly AddressEncodingStrategy[] = [
   "identity",
   "plus_one_all_octets",
+  "plus_one_all_octets_regional_mainframe",
   "plus_one_first_octet",
 ];
 
@@ -149,7 +141,7 @@ function main(): void {
     throw new Error(`Invalid analyzed tick count: ${ticksArg}`);
   }
 
-  let strategy: AddressEncodingStrategy = "plus_one_all_octets";
+  let strategy: AddressEncodingStrategy = "plus_one_all_octets_regional_mainframe";
   let phaseArgOffset = 1;
   if (args[1] !== undefined && isEncodingStrategy(args[1])) {
     strategy = args[1];
@@ -195,14 +187,17 @@ function main(): void {
       if (!decision.shouldSend || decision.header === null || decision.profile === null) {
         continue;
       }
-      const dstMask = headerToMask(decision.header);
+      const dstMask = dstWikiMaskForRecoveredSend(endpoint.address, decision.header, decision.profile);
       const sourceAllowed = destinationsBySource.get(endpoint.address) ?? [];
-      const matchedDestinations = allAddresses.filter(
-        (candidate) =>
-          candidate !== endpoint.address &&
-          matchMask(dstMask, candidate) &&
-          sourceAllowed.includes(candidate),
-      );
+      const matchedDestinations =
+        decision.profile === "mainframe-phase-sequence"
+          ? sourceAllowed.filter((candidate) => candidate !== endpoint.address)
+          : allAddresses.filter(
+              (candidate) =>
+                candidate !== endpoint.address &&
+                matchMask(dstMask, candidate) &&
+                sourceAllowed.includes(candidate),
+            );
       const exact = formatHeaderExact(decision.header);
       events.push({
         tick,

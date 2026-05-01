@@ -40,3 +40,45 @@ export function formatHeaderExact(header: number): HeaderExactStrings {
     headerBytesBe: `${byte(b3)}${byte(b2)}${byte(b1)}${byte(b0)}`,
   };
 }
+
+/** Maps header u32 (LE bytes) to wiki-style dotted mask (`0` in header → `*`, else `byte-1`). */
+export function headerToMask(header: number): string {
+  const a = header & 0xff;
+  const b = (header >>> 8) & 0xff;
+  const c = (header >>> 16) & 0xff;
+  const d = (header >>> 24) & 0xff;
+  const part = (v: number): string => (v === 0 ? "*" : String(v - 1));
+  return `${part(a)}.${part(b)}.${part(c)}.${part(d)}`;
+}
+
+/**
+ * Wiki **`0.k.0.0`** with **`k` in 1..3** — regional mainframe; broadcast scope **`0.k.*.*`**.
+ * Fixed **`mainframe-phase-sequence`** headers (`0x1020104`, …) do not encode that scope in {@link headerToMask}.
+ */
+export function mainframeRegionalBroadcastMaskFromWikiAddress(address: string): string | null {
+  const parts = address.split(".");
+  if (parts.length !== 4) return null;
+  if (parts[0] === "0" && parts[2] === "0" && parts[3] === "0") {
+    const k = parts[1];
+    if (k === "1" || k === "2" || k === "3") return `0.${k}.*.*`;
+  }
+  return null;
+}
+
+/**
+ * Destination wiki mask for logging / non-mainframe routing.
+ * **`mainframe-phase-sequence`**: returns **`0.k.*.*`** for wiki **`0.k.0.0`**; edge lists in
+ * **`compare-endpoint-edges`** / **`export-message-sequence`** still expand **every** wiki **`sends_to`**
+ * target on that send (wiki table semantics; header does not encode cross-region picks).
+ */
+export function dstWikiMaskForRecoveredSend(
+  wikiSourceAddress: string,
+  header: number,
+  profile: string,
+): string {
+  if (profile === "mainframe-phase-sequence") {
+    const m = mainframeRegionalBroadcastMaskFromWikiAddress(wikiSourceAddress);
+    if (m !== null) return m;
+  }
+  return headerToMask(header);
+}

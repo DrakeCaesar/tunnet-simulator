@@ -130,7 +130,7 @@ function simulateRecoveredModel(
 export function compareRecoveredAgainstCurrentImplementation(
   ticks = 4096,
   dataPath = "data.json",
-  encodingStrategy: AddressEncodingStrategy = "plus_one_all_octets",
+  encodingStrategy: AddressEncodingStrategy = "plus_one_all_octets_regional_mainframe",
   initialRecoveredState: RecoveredSchedulerState = { phaseA: 0, phaseB: 0 },
 ): ComparisonSummary {
   const endpoints = loadEndpointRows(dataPath);
