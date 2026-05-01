@@ -1,5 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { formatHeaderExact } from "./packet-header-format.js";
 import {
   applyRecoveredStateTransitions,
   EndpointAddress,
@@ -25,7 +26,18 @@ type MessageEvent = {
   dstMask: string;
   matchedDestinations: string[];
   header: number;
+  /** Canonical `0x` + lowercase unsigned hex (same numeric sense as `header`). */
+  headerHexU32: string;
+  /** Little-endian byte order, 8 hex nybbles (low byte first). */
+  headerBytesLe: string;
+  /** Big-endian byte order, 8 hex nybbles (high byte first). */
+  headerBytesBe: string;
   profile: string;
+  /** Game `.rdata` subject when modeled (`status-family` pool today). */
+  packetSubject: string | null;
+  packetSubjectCandidates: readonly string[] | null;
+  /** `true` until `sub_140673b40` / RNG is replicated; then `false`. */
+  packetSubjectPickIsPlaceholder: boolean;
 };
 
 type OutputJson = {
@@ -40,6 +52,8 @@ type OutputJson = {
     analyzedTicks: number;
     repeatPeriodTicks: number;
     eventsInPeriod: number;
+    /** `placeholder` = subject index from tick; `matched` when game RNG is ported. */
+    packetSubjectPickMode: "placeholder" | "matched";
   };
   events: MessageEvent[];
 };
@@ -118,7 +132,10 @@ function signaturesByTick(events: MessageEvent[], ticks: number): string[] {
   const out: string[] = [];
   for (let t = 0; t < ticks; t += 1) {
     const list = (byTick.get(t) ?? [])
-      .map((e) => `${e.src}>${e.dstMask}>${e.matchedDestinations.join(",")}|${e.header}|${e.profile}`)
+      .map(
+        (e) =>
+          `${e.src}>${e.dstMask}>${e.matchedDestinations.join(",")}|${e.header}|${e.profile}|${e.packetSubject ?? ""}`,
+      )
       .sort()
       .join(";");
     out.push(list);
@@ -213,13 +230,20 @@ function main(): void {
           matchMask(dstMask, candidate) &&
           sourceAllowed.includes(candidate),
       );
+      const exact = formatHeaderExact(decision.header);
       events.push({
         tick,
         src: endpoint.address,
         dstMask,
         matchedDestinations,
         header: decision.header,
+        headerHexU32: exact.headerHexU32,
+        headerBytesLe: exact.headerBytesLe,
+        headerBytesBe: exact.headerBytesBe,
         profile: decision.profile,
+        packetSubject: decision.packetSubject ?? null,
+        packetSubjectCandidates: decision.packetSubjectCandidates ?? null,
+        packetSubjectPickIsPlaceholder: decision.profile === "status-family",
       });
       applyRecoveredStateTransitions(state, encoded, decision);
     }
@@ -239,6 +263,7 @@ function main(): void {
       analyzedTicks,
       repeatPeriodTicks,
       eventsInPeriod: periodEvents.length,
+      packetSubjectPickMode: "placeholder",
     },
     events: periodEvents,
   };

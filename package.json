@@ -16,7 +16,9 @@
     "web:preview": "vite preview --config web/vite.config.ts",
     "bench:layout-url": "tsx src/benchmark-layout-url-encodings.ts",
     "sched:compare": "tsx src/compare-scheduler.ts",
-    "sched:sequence": "tsx src/export-message-sequence.ts"
+    "sched:sequence": "tsx src/export-message-sequence.ts",
+    "extract:exe-strings": "python scripts/extract-tunnet-rdata-strings.py",
+    "extract:packet-pools": "python scripts/extract-packet-string-pools.py"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",

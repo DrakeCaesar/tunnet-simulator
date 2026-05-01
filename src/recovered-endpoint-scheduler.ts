@@ -1,3 +1,12 @@
+import {
+  pickAdFamilySubjectPlaceholder,
+  pickSearchInvestmentSubjectPlaceholder,
+  pickStatusFamilySubjectPlaceholder,
+  adFamilySubjectCandidates,
+  searchInvestmentSubjectCandidates,
+  statusFamilySubjectCandidates,
+} from "./game-packet-strings.js";
+
 export type EndpointAddress = {
   a: number;
   b: number;
@@ -54,6 +63,12 @@ export type RecoveredDecision = {
   header: number | null;
   profile: PacketProfile | null;
   reason: string;
+  /**
+   * Game **`.rdata`** subject line for this send when recovered (see `game-packet-strings.ts`).
+   * **`packetSubjectCandidates`**: pool before in-game RNG; selection may still be a placeholder.
+   */
+  packetSubject?: string | null;
+  packetSubjectCandidates?: readonly string[] | null;
 };
 
 export type PhaseTransitionResult = {
@@ -170,7 +185,14 @@ export function evaluateEndpointSend(
         if ((tick & 7) !== 0) {
           return { shouldSend: false, header: null, profile: null, reason: "ad-family 8-tick gate" };
         }
-        return { shouldSend: true, header: dynamicAdHeader(b, tick), profile: "ad-family", reason: "ad-family dynamic header" };
+        return {
+          shouldSend: true,
+          header: dynamicAdHeader(b, tick),
+          profile: "ad-family",
+          reason: "ad-family dynamic header",
+          packetSubject: pickAdFamilySubjectPlaceholder(tick),
+          packetSubjectCandidates: adFamilySubjectCandidates(),
+        };
       }
 
       if (d === 1 && b === 1) {
@@ -178,9 +200,23 @@ export function evaluateEndpointSend(
           return { shouldSend: false, header: null, profile: null, reason: "status-family even tick gate" };
         }
         if (((tick >> 1) & 0x0f) === 0) {
-          return { shouldSend: true, header: dynamicStatusHeader(tick), profile: "status-family", reason: "status-family periodic branch" };
+          return {
+            shouldSend: true,
+            header: dynamicStatusHeader(tick),
+            profile: "status-family",
+            reason: "status-family periodic branch",
+            packetSubject: pickStatusFamilySubjectPlaceholder(tick),
+            packetSubjectCandidates: statusFamilySubjectCandidates(),
+          };
         }
-        return { shouldSend: true, header: dynamicStatusHeader(tick), profile: "status-family", reason: "status-family default branch" };
+        return {
+          shouldSend: true,
+          header: dynamicStatusHeader(tick),
+          profile: "status-family",
+          reason: "status-family default branch",
+          packetSubject: pickStatusFamilySubjectPlaceholder(tick),
+          packetSubjectCandidates: statusFamilySubjectCandidates(),
+        };
       }
 
       return { shouldSend: false, header: null, profile: null, reason: "c=1 unmatched tuple" };
@@ -209,7 +245,14 @@ export function evaluateEndpointSend(
         const k = (tick >> 1) & 3;
         const base = b << 8;
         const header = k === 0 ? 0x1010301 : k === 1 ? base | 0x1030001 : k === 2 ? base | 0x1020001 : base | 0x2020001;
-        return { shouldSend: true, header, profile: "search-family", reason: "search-family rotation" };
+        return {
+          shouldSend: true,
+          header,
+          profile: "search-family",
+          reason: "search-family rotation",
+          packetSubject: pickSearchInvestmentSubjectPlaceholder(tick),
+          packetSubjectCandidates: searchInvestmentSubjectCandidates(),
+        };
       }
 
       if ((tick & 0b10) === 0) {

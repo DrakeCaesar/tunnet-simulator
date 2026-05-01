@@ -171,21 +171,26 @@ Filtered hits include the ECS system name **`tunnet::net::endpoint::update`** in
 
 ---
 
-## 6) What is still required for full exact parity
+## 6) Goals: simulator vs “full game” parity
 
-To replicate game behavior exactly, you must finish all three:
+### Simulator scope (what this repo is aiming for)
 
-1. Exact public-address -> internal tuple encoding map
-2. Exact candidate destination set construction per endpoint/state branch
-3. Remaining phase/state progression (`0x1c4`, `0x1c5`, and related fields) over time
+The **target** is a **reasonable replica** of Tunnet’s endpoint traffic in the tools (`recovered-endpoint-scheduler`, message export, comparisons): right cadence, right branches for the tuples you care about, and **headers that match the game’s chosen values** where we have recovered them (today mostly as **32-bit integers** in code / JSON—the same bits the game packs into headers).
 
-Until these are complete, outputs are high-fidelity approximations, not guaranteed exact parity.
+**Automatic phase progression** (story/zone systems writing `0x1c4` / `0x1c5` over time) is **out of scope**: treat saves as a **line-in** with **`pnpm sched:sequence`** / **`pnpm sched:compare`** (see **§9**), not something the simulator must replay from world state.
 
-Notes:
+**“Exact strings of the headers”** here means: **bit-exact header values** plus stable renderings: see **`src/packet-header-format.ts`** (`formatHeaderExact`, **`MainframeHeaderU32`**) and **`out/message-sequence.json`** per-event **`headerHexU32` / `headerBytesLe` / `headerBytesBe`**. If the on-wire layout includes **extra bytes** beyond the 32-bit word, that framing is a **separate** capture task.
 
-- `0x1c4` is now partially recovered (`5->6->7` known).
-- `0x1c5` **read** role for the mainframe branch is confirmed (phase index `0..5` in `sub_1402f9a40`); **writes** are driven by **`sub_1401f5660`** (state machine through at least **`0xa`**, plus **`0xb`**), not the scheduler.
-- For tooling parity without simulating story/zone systems, set **`phaseA` / `phaseB`** at run start via **`pnpm sched:sequence`** / **`pnpm sched:compare`** (see **§9**).
+### Still in scope to improve the replica
+
+1. **Public address → internal tuple** encoding: match the game for every tuple class the driver actually uses.
+2. **Who can receive a send**: candidate construction and RNG sampling (**`sub_140673740` / `sub_140673b40`**) aligned with **`sub_1400af880`** / neighbor tables—not random placeholders.
+3. **Same-tick ordering** where it changes who sends or what is seen first (receive vs scheduled send).
+
+### Binary notes (background, not all required for the simulator)
+
+- `0x1c4` / `0x1c5` **writers** outside the scheduler (**`sub_1401f5660`**, **`sub_140165cb0`**, …) matter for **full** game fidelity; for the **simulator**, seeding initial **`phaseA` / `phaseB`** is enough.
+- Scheduler-only **`0x1c4`** ladder **`5→6→7`** remains documented in **`applyRecoveredStateTransitions`**; **`BinaryObservedPhaseA`** lists other values seen in the binary for reference.
 
 ### MCP timeouts (`read timed out` / `Not connected`)
 
@@ -272,7 +277,17 @@ If you see `Connection closed` / `Not connected`:
   - **`compareRecoveredAgainstCurrentImplementation(ticks, dataPath, encodingStrategy, initialRecoveredState?)`** — fourth argument is initial **`RecoveredSchedulerState`** (default **`{ phaseA: 0, phaseB: 0 }`**).
 
 - **`src/export-message-sequence.ts`**
-  - Writes **`out/message-sequence.json`**.
+  - Writes **`out/message-sequence.json`**. Each event includes **`header`** (number) plus **`headerHexU32`**, **`headerBytesLe`**, **`headerBytesBe`** from **`formatHeaderExact`** (see below).
+
+- **`src/packet-header-format.ts`**
+  - **`formatHeaderExact(header)`** — exact string forms of the 32-bit header: literal-style **`0x…`**, little-endian byte hex, big-endian byte hex.
+  - **`MainframeHeaderU32`** — fixed mainframe phase header words (`a === 4`, `phaseB` **0..5**) for cross-checks against BN.
+
+- **`src/game-packet-strings.ts`**
+  - **`STATUS_FAMILY_THREE_SUBJECT_POOL`** — the three literal subjects read from **`.rdata`** at the RVAs used before **`sub_140673b40`** in **`sub_1402f9a40`** (~**`0x1402fb0cf`**). The exporter attaches them to **`status-family`** sends; **`pickStatusFamilySubjectPlaceholder`** is a **tick-based stand-in** until **`sub_140673b40`** / RNG state is ported (then **`packetSubjectPickMode`** can move from **`placeholder`** to **`matched`** in **`out/message-sequence.json`**).
+
+- **`scripts/extract-tunnet-rdata-strings.py`** (+ **`pnpm extract:exe-strings`**)
+  - Dumps **every** contiguous printable-ASCII run in the chosen PE section(s) (default **`.rdata`**, default **`--min-len 0`** = length **≥ 1**) to **`out/tunnet-rdata-strings.jsonl`**—**no content filter**, no second output file. There is **no VA range** beyond full section bounds. Use **`rg`** / **`grep`** on that JSONL to narrow (file is huge at **`--min-len 0`**). **`--min-len N`** (N ≥ 1) shortens runs; **`--sections .rdata,.text`** adds sections; **`--exe`** sets the binary path.
 
 ### CLI: set initial phase (save line-in)
 
@@ -294,7 +309,7 @@ pnpm sched:sequence 4096 5 3
 pnpm sched:compare 4096 plus_one_all_octets 5 0
 ```
 
-**`out/message-sequence.json`** `metadata` includes **`initialPhaseA`**, **`initialPhaseB`** (start) and **`phaseA`**, **`phaseB`** (end of run after any modeled transitions).
+**`out/message-sequence.json`** `metadata` includes **`initialPhaseA`**, **`initialPhaseB`** (start) and **`phaseA`**, **`phaseB`** (end of run after any modeled transitions). Each **`events[]`** item includes **`headerHexU32`**, **`headerBytesLe`**, **`headerBytesBe`** alongside numeric **`header`**.
 
 ### MCP / BN quirk
 
