@@ -8,7 +8,8 @@
  *
  * Only **(sender, receiver)** edges are compared — not headers or RNG pools. Optional
  * **`--edge-subjects-file=`** writes recovered **`packetSubject` / `packetSubjectCandidates`** (union over
- * the run) per unique **`src>dst`** pair for the same simulation as edge-compare.
+ * the run), grouped so every **`src>dst`** with the **same** sorted **`possibleSubjects`** list appears under
+ * one **`subjectGroups[]`** entry for the same simulation as edge-compare.
  *
  * Wiki **edge-compare** baseline (not `simulator.ts`, which uses **one random** destination from the list):
  * - Emit when `send_rate > 0`, expanded `sends_to` is non-empty, and `tick % send_rate === 0`.
@@ -540,14 +541,45 @@ function writeEdgeSubjectsReport(params: {
   finalPhaseB: number;
   edgeSubjectsByPair: Map<string, EdgeSubjectAgg>;
 }): void {
-  const pairs = [...params.edgeSubjectsByPair.entries()]
-    .map(([pair, agg]) => ({
-      pair,
-      profiles: [...agg.profiles].sort(),
-      // Union of packetSubjectCandidates + packetSubject over ticks where this edge fired.
-      possibleSubjects: [...agg.subjects].sort(),
+  type Row = { pair: string; profiles: string[]; possibleSubjects: string[] };
+  const rows: Row[] = [...params.edgeSubjectsByPair.entries()].map(([pair, agg]) => ({
+    pair,
+    profiles: [...agg.profiles].sort(),
+    // Union of packetSubjectCandidates + packetSubject over ticks where this edge fired.
+    possibleSubjects: [...agg.subjects].sort(),
+  }));
+
+  const subjectKey = (subjects: readonly string[]): string => JSON.stringify([...subjects]);
+  const bucket = new Map<
+    string,
+    { possibleSubjects: string[]; profiles: Set<string>; pairs: string[] }
+  >();
+  for (const row of rows) {
+    const key = subjectKey(row.possibleSubjects);
+    let g = bucket.get(key);
+    if (!g) {
+      g = { possibleSubjects: row.possibleSubjects, profiles: new Set(), pairs: [] };
+      bucket.set(key, g);
+    }
+    g.pairs.push(row.pair);
+    for (const p of row.profiles) {
+      g.profiles.add(p);
+    }
+  }
+
+  const subjectGroups = [...bucket.values()]
+    .map((g) => ({
+      possibleSubjects: g.possibleSubjects,
+      profiles: [...g.profiles].sort(),
+      pairCount: g.pairs.length,
+      pairs: g.pairs.sort((a, b) => a.localeCompare(b)),
     }))
-    .sort((a, b) => a.pair.localeCompare(b.pair));
+    .sort((a, b) => {
+      const byCount = b.pairCount - a.pairCount;
+      if (byCount !== 0) return byCount;
+      return subjectKey(a.possibleSubjects).localeCompare(subjectKey(b.possibleSubjects));
+    });
+
   const doc = {
     meta: {
       ticks: params.ticks,
@@ -557,7 +589,7 @@ function writeEdgeSubjectsReport(params: {
       finalPhaseA: params.finalPhaseA,
       finalPhaseB: params.finalPhaseB,
     },
-    pairs,
+    subjectGroups,
   };
   const dir = path.dirname(params.outPath);
   if (dir !== "." && dir !== "") {

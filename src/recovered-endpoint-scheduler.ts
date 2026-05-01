@@ -29,6 +29,7 @@ import {
   supplyFieldRationsSubjectCandidates,
   trackBroadcastSubjectForTick,
   REPLY_CHAIN_PACKET_SUBJECT,
+  mainframePhaseSequenceSubjectFromBlob,
 } from "./game-packet-strings.js";
 
 export type EndpointAddress = {
@@ -462,19 +463,56 @@ export function evaluateEndpointSend(
     if ((tick & 3) !== mod4FromFloorDivPow2(tick, 2)) {
       return { shouldSend: false, header: null, profile: null, reason: "a=4 tick gate failed" };
     }
+    const mfSubject = mainframePhaseSequenceSubjectFromBlob(state.phaseB);
     switch (state.phaseB) {
       case 0:
-        return { shouldSend: true, header: 0x1020104, profile: "mainframe-phase-sequence", reason: "a=4 phase 0" };
+        return {
+          shouldSend: true,
+          header: 0x1020104,
+          profile: "mainframe-phase-sequence",
+          reason: "a=4 phase 0",
+          ...mfSubject,
+        };
       case 1:
-        return { shouldSend: true, header: 0x4020104, profile: "mainframe-phase-sequence", reason: "a=4 phase 1" };
+        return {
+          shouldSend: true,
+          header: 0x4020104,
+          profile: "mainframe-phase-sequence",
+          reason: "a=4 phase 1",
+          ...mfSubject,
+        };
       case 2:
-        return { shouldSend: true, header: 0x1020104, profile: "mainframe-phase-sequence", reason: "a=4 phase 2" };
+        return {
+          shouldSend: true,
+          header: 0x1020104,
+          profile: "mainframe-phase-sequence",
+          reason: "a=4 phase 2",
+          ...mfSubject,
+        };
       case 3:
-        return { shouldSend: true, header: 0x2020104, profile: "mainframe-phase-sequence", reason: "a=4 phase 3" };
+        return {
+          shouldSend: true,
+          header: 0x2020104,
+          profile: "mainframe-phase-sequence",
+          reason: "a=4 phase 3",
+          ...mfSubject,
+        };
       case 4:
-        return { shouldSend: true, header: 0x3020104, profile: "mainframe-phase-sequence", reason: "a=4 phase 4" };
+        return {
+          shouldSend: true,
+          header: 0x3020104,
+          profile: "mainframe-phase-sequence",
+          reason: "a=4 phase 4",
+          ...mfSubject,
+        };
       case 5:
-        return { shouldSend: true, header: 0x4020104, profile: "mainframe-phase-sequence", reason: "a=4 phase 5" };
+        return {
+          shouldSend: true,
+          header: 0x4020104,
+          profile: "mainframe-phase-sequence",
+          reason: "a=4 phase 5",
+          ...mfSubject,
+        };
       default:
         return { shouldSend: false, header: null, profile: null, reason: "a=4 unknown phaseB" };
     }

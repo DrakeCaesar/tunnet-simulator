@@ -49,6 +49,39 @@ export const HACKED_ENDPOINT_SUBJECT_POOL = [HACKED_ENDPOINT_SUBJECT_RDATA_BLOB]
 export const KILLSWITCH_REPLY_TOKEN_RDATA_BLOB =
   "Killswitch (4/4)Killswitch (3/4)Killswitch (2/4)Killswitch (1/4)Re: Re: Re: Re: ...Token" as const;
 
+/**
+ * Subject line material for **`sub_1402f9a40`** **`a == 4`** / **`(1,1,1)`** mainframe path: **`switch (*(arg2+0x1c5))`**
+ * cases **0..5** (same range as **`MAINFRAME_SUBPHASE_MAX`** in `recovered-endpoint-scheduler.ts`). The game copies out of
+ * **`data_1424246e0`** with **`sub_14067a670`** (not **`sub_140673b40`** row pools).
+ *
+ * **Inferred layout** (same 88-byte `.rdata` row as {@link KILLSWITCH_REPLY_TOKEN_RDATA_BLOB}):
+ * - **0..3:** four contiguous **`Killswitch (n/4)`** literals, **16** ASCII bytes each (offsets **`0x00`**, **`0x10`**, **`0x20`**, **`0x30`**).
+ * - **4:** first **`0x13`** bytes at **`0x40`** — matches **`a == 2`** reply **`strncpy`** width @ **`0x1402f9d8f`** and equals {@link REPLY_CHAIN_PACKET_SUBJECT} in this blob.
+ * - **5:** **`Token`** at **`0x53`**, length **5**.
+ *
+ * **BN:** `BINARY_NINJA_MCP_WORKFLOW.md` §G cites **`&data_1424246e0[0x30]`** on one HLIL **case 2** arm — that address is the start of **`Killswitch (1/4)`** here (**`phaseB === 3`** in this linear table). Reconcile per-case RVAs in BN if your switch order differs.
+ */
+export function mainframePhaseSequenceSubjectFromBlob(phaseB: number): {
+  packetSubject: string;
+  packetSubjectCandidates: readonly string[];
+} {
+  const blob = KILLSWITCH_REPLY_TOKEN_RDATA_BLOB;
+  const slices: readonly { off: number; len: number }[] = [
+    { off: 0x00, len: 16 },
+    { off: 0x10, len: 16 },
+    { off: 0x20, len: 16 },
+    { off: 0x30, len: 16 },
+    { off: 0x40, len: 0x13 },
+    { off: 0x53, len: 5 },
+  ];
+  if (phaseB < 0 || phaseB > slices.length - 1) {
+    return { packetSubject: "", packetSubjectCandidates: [] };
+  }
+  const { off, len } = slices[phaseB]!;
+  const packetSubject = blob.slice(off, off + len);
+  return { packetSubject, packetSubjectCandidates: [packetSubject] };
+}
+
 /** `sub_140673b40` @ `0x1402fb97c/0x1402fb91a/0x1402fa3b1/0x1402fb9db`. */
 export const TRACK_BROADCAST_SUBJECTS_BY_HALF_TICK_MOD4 = [
   "Track #1",
