@@ -238,41 +238,23 @@ export function createBuilderWireOverlay(opts: BuilderWireOverlayOptions): {
       endEntityWireDrag();
     }
     endEntityWireDrag();
-    const state = getState();
-    const viewLinks = expandLinks(state.links, state.entities);
-    const internalIndices: number[] = [];
-    const externalIndices: number[] = [];
-    for (let i = 0; i < viewLinks.length; i += 1) {
-      const cat = linkEntityDragWireCategory(viewLinks[i]!, next);
-      if (cat === "internal") internalIndices.push(i);
-      else if (cat === "external") externalIndices.push(i);
-    }
     const anchor =
       anchorRootId && next.has(anchorRootId) ? anchorRootId : (Array.from(next)[0] as string);
     entityWireDrag = {
       movingRootIds: next,
-      internalIndices,
-      externalIndices,
-      viewLinks,
+      internalIndices: [],
+      externalIndices: [],
+      viewLinks: [],
       anchorRootId: anchor,
       anchorStartX: 0,
       anchorStartY: 0,
     };
-    renderWireOverlay({ mode: "entityDragPartitionBuild" });
     const wrap = wireOverlayEl.parentElement;
-    if (wrap && entityWireDrag) {
-      let p = readAnchorEntityCenterOverlay(entityWireDrag.anchorRootId, wrap);
-      if (!p && entityWireDrag.internalIndices.length > 0) {
-        entityWireDrag.externalIndices.push(...entityWireDrag.internalIndices);
-        entityWireDrag.internalIndices = [];
-        renderWireOverlay({ mode: "entityDragPartitionBuild" });
-        p = readAnchorEntityCenterOverlay(entityWireDrag.anchorRootId, wrap);
-      }
-      if (p) {
-        entityWireDrag.anchorStartX = p.x;
-        entityWireDrag.anchorStartY = p.y;
-      }
+    if (!wrap) {
+      endEntityWireDrag();
+      return;
     }
+    refreshEntityWireDragPartitionFromCurrentState(wrap);
   }
 
   /** Incremental entity-wire drag paint ok; full_rebuild when innerHTML fallback ran; none when skipped. */
@@ -720,6 +702,50 @@ export function createBuilderWireOverlay(opts: BuilderWireOverlayOptions): {
     afterWireOverlayPaint(t0, skipPackets ? { skipPacketRefresh: true } : undefined);
   }
 
+  /**
+   * Recompute internal vs external link indices from current state, rebuild partition SVG,
+   * and reset anchor baseline. Required after entity DOM host changes (layer/segment hop):
+   * expanded instance ids and link row order can change while `movingRootIds` stay the same.
+   */
+  function refreshEntityWireDragPartitionFromCurrentState(
+    wrap: HTMLElement,
+    wrapRect?: DOMRectReadOnly,
+    opts?: { skipPacketRefresh?: boolean },
+  ): void {
+    const part = entityWireDrag;
+    if (!part) return;
+    const state = getState();
+    const next = part.movingRootIds;
+    const viewLinks = expandLinks(state.links, state.entities);
+    const internalIndices: number[] = [];
+    const externalIndices: number[] = [];
+    for (let i = 0; i < viewLinks.length; i += 1) {
+      const cat = linkEntityDragWireCategory(viewLinks[i]!, next);
+      if (cat === "internal") internalIndices.push(i);
+      else if (cat === "external") externalIndices.push(i);
+    }
+    part.internalIndices = internalIndices;
+    part.externalIndices = externalIndices;
+    renderWireOverlay({
+      mode: "entityDragPartitionBuild",
+      ...(opts?.skipPacketRefresh ? { skipPacketRefresh: true } : {}),
+    });
+    let p = readAnchorEntityCenterOverlay(part.anchorRootId, wrap, wrapRect);
+    if (!p && part.internalIndices.length > 0) {
+      part.externalIndices.push(...part.internalIndices);
+      part.internalIndices = [];
+      renderWireOverlay({
+        mode: "entityDragPartitionBuild",
+        ...(opts?.skipPacketRefresh ? { skipPacketRefresh: true } : {}),
+      });
+      p = readAnchorEntityCenterOverlay(part.anchorRootId, wrap, wrapRect);
+    }
+    if (p) {
+      part.anchorStartX = p.x;
+      part.anchorStartY = p.y;
+    }
+  }
+
   function scheduleWireOverlayRender(schedOpts?: { scrollOnly?: boolean }): void {
     const scrollOnly = !!schedOpts?.scrollOnly;
     pendingWireSkipPackets =
@@ -843,6 +869,7 @@ export function createBuilderWireOverlay(opts: BuilderWireOverlayOptions): {
         const tWrap0 = performance.now();
         const wrapRect = wrap.getBoundingClientRect();
         recordPerf("wire.overlayWrapRect", performance.now() - tWrap0);
+        refreshEntityWireDragPartitionFromCurrentState(wrap, wrapRect, { skipPacketRefresh: true });
         const outcome = paintEntityWireDragPartial(wrapRect);
         if (outcome === "incremental_ok") {
           if (opts?.entityWireBakeAfterPartial !== false) {
