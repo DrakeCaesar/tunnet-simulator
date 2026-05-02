@@ -28,7 +28,7 @@ import {
   Topology,
 } from "./types.js";
 
-/** Optional tuning for {@link TunnetSimulator} recovered scheduler (wiki send masks still apply). */
+/** Optional tuning for {@link TunnetSimulator} recovered scheduler (destination expansion uses wiki-derived `endpointData`). */
 export type TunnetSimulatorOptions = {
   recoveredEncoding?: AddressEncodingStrategy;
   recoveredPhase?: { phaseA: number; phaseB: number };
@@ -155,11 +155,16 @@ export class TunnetSimulator {
   private readonly recoveredState: RecoveredSchedulerState;
   private readonly recoveredStrategy: AddressEncodingStrategy;
   private readonly destinationsBySource: Map<string, string[]>;
-  private readonly allWikiAddresses: readonly string[];
-  private readonly wikiSensitiveByAddress: Map<string, boolean>;
-  /** Wiki row order, restricted to endpoint addresses present in this topology. */
-  private readonly wikiOrderedEndpoints: EndpointDevice[];
-  private readonly nonWikiEndpoints: EndpointDevice[];
+  /** Sorted addresses from `endpointData` (wiki-derived catalog). */
+  private readonly endpointCatalogAddresses: readonly string[];
+  private readonly catalogSensitiveByAddress: Map<string, boolean>;
+  /**
+   * Endpoints that appear in `endpointData`, iterated in catalog row order for recovered primaries
+   * (`evaluateEndpointSend`). Scheduling is reverse-engineered; the catalog only supplies masks / `sends_to`.
+   */
+  private readonly recoveredDatasetEndpoints: EndpointDevice[];
+  /** Topology endpoints with no `endpointData` row — no recovered primary sends, receive/bounce only. */
+  private readonly nonCatalogEndpoints: EndpointDevice[];
   private readonly scheduleEndpointSends: boolean;
 
   constructor(topology: Topology, seed = 1337, options?: TunnetSimulatorOptions) {
@@ -170,26 +175,26 @@ export class TunnetSimulator {
     const phase = options?.recoveredPhase ?? { phaseA: 0, phaseB: 0 };
     this.recoveredState = initialRecoveredSchedulerState(phase.phaseA, phase.phaseB);
     this.recoveredStrategy = options?.recoveredEncoding ?? "plus_one_all_octets_regional_mainframe";
-    const { allWikiAddresses, destinationsBySource } = buildWikiDestinationMaps(endpointData);
-    this.allWikiAddresses = allWikiAddresses;
+    const { allWikiAddresses: endpointCatalogAddresses, destinationsBySource } = buildWikiDestinationMaps(endpointData);
+    this.endpointCatalogAddresses = endpointCatalogAddresses;
     this.destinationsBySource = destinationsBySource;
-    this.wikiSensitiveByAddress = new Map(endpointData.map((r) => [r.address, r.sensitive]));
+    this.catalogSensitiveByAddress = new Map(endpointData.map((r) => [r.address, r.sensitive]));
 
-    const wikiAddrToDevice = new Map<string, EndpointDevice>();
+    const catalogAddrToDevice = new Map<string, EndpointDevice>();
     for (const d of Object.values(topology.devices)) {
       if (d.type === "endpoint" && destinationsBySource.has(d.address)) {
-        wikiAddrToDevice.set(d.address, d);
+        catalogAddrToDevice.set(d.address, d);
       }
     }
-    const wikiOrdered: EndpointDevice[] = [];
+    const recoveredDatasetEndpoints: EndpointDevice[] = [];
     for (const row of endpointData) {
-      const dev = wikiAddrToDevice.get(row.address);
-      if (dev) wikiOrdered.push(dev);
+      const dev = catalogAddrToDevice.get(row.address);
+      if (dev) recoveredDatasetEndpoints.push(dev);
     }
-    this.wikiOrderedEndpoints = wikiOrdered;
-    const inWiki = new Set(wikiOrdered.map((e) => e.address));
-    this.nonWikiEndpoints = Object.values(topology.devices)
-      .filter((d): d is EndpointDevice => d.type === "endpoint" && !inWiki.has(d.address))
+    this.recoveredDatasetEndpoints = recoveredDatasetEndpoints;
+    const catalogAddressSet = new Set(recoveredDatasetEndpoints.map((e) => e.address));
+    this.nonCatalogEndpoints = Object.values(topology.devices)
+      .filter((d): d is EndpointDevice => d.type === "endpoint" && !catalogAddressSet.has(d.address))
       .sort((a, b) => a.address.localeCompare(b.address, undefined, { numeric: true }));
 
     this.scheduleEndpointSends = options?.scheduleEndpointSends !== false;
@@ -219,28 +224,31 @@ export class TunnetSimulator {
     return this.currentPortPackets.get(makePortKey(port)) ?? null;
   }
 
-  private emitMove(ctx: StepContext, move: PacketMove): void {
+  /** @returns true if the packet was placed on the target wire port for this tick. */
+  private emitMove(ctx: StepContext, move: PacketMove): boolean {
     const targetKey = makePortKey(move.to);
     if (ctx.nextPortPackets.has(targetKey)) {
       // Multiple packets trying to arrive at same port in same tick -> collision.
       // Keep the first packet that already claimed this target; drop the later one.
       ctx.stats.collisions += 1;
       ctx.stats.dropped += 1;
-      return;
+      return false;
     }
     ctx.nextPortPackets.set(targetKey, move.packet);
+    return true;
   }
 
+  /** @returns true if the packet entered the network (adjacent link exists and no collision on that wire). */
   private enqueueOutbound(
     ctx: StepContext,
     sourceDeviceId: string,
     sourcePort: number,
     packet: Packet | null,
-  ): void {
+  ): boolean {
     if (!packet) {
       ctx.stats.ttlExpired += 1;
       ctx.stats.dropped += 1;
-      return;
+      return false;
     }
 
     const from: PortRef = { deviceId: sourceDeviceId, port: sourcePort };
@@ -248,9 +256,9 @@ export class TunnetSimulator {
     if (!to) {
       // Unconnected port = packet fizzles.
       ctx.stats.dropped += 1;
-      return;
+      return false;
     }
-    this.emitMove(ctx, { from, to, packet });
+    return this.emitMove(ctx, { from, to, packet });
   }
 
   private processEndpoint(device: EndpointDevice, ctx: StepContext): void {
@@ -269,8 +277,9 @@ export class TunnetSimulator {
             sensitive: false,
             subject: undefined,
           };
-          this.enqueueOutbound(ctx, device.id, 0, reply);
-          ctx.stats.emitted += 1;
+          if (this.enqueueOutbound(ctx, device.id, 0, reply)) {
+            ctx.stats.emitted += 1;
+          }
           repliedThisTick = true;
         }
       } else if (inbound.sensitive) {
@@ -312,12 +321,16 @@ export class TunnetSimulator {
       device.address,
       decision,
       this.destinationsBySource,
-      this.allWikiAddresses,
+      this.endpointCatalogAddresses,
     );
-    const sensitive = this.wikiSensitiveByAddress.get(device.address) ?? false;
+    const sensitive = this.catalogSensitiveByAddress.get(device.address) ?? false;
     const ttl = device.generator?.ttl ?? INFINITE_PACKET_TTL;
 
-    for (const dest of dests) {
+    // One packet per endpoint per tick on its single uplink — matches physical port semantics.
+    // `destinationsForRecoveredDecision` may list many candidates (edge-compare fan-out); the sim picks one.
+    // See `packetProfileUsesWikiSendsToFanOut` note in `recovered-endpoint-scheduler.ts`.
+    if (dests.length > 0) {
+      const dest = dests[Math.floor(ctx.rnd() * dests.length)]!;
       const packet: Packet = {
         id: ctx.packetIdCounter++,
         src: device.address,
@@ -326,8 +339,9 @@ export class TunnetSimulator {
         sensitive,
         subject: decision.packetSubject ?? undefined,
       };
-      this.enqueueOutbound(ctx, device.id, 0, packet);
-      ctx.stats.emitted += 1;
+      if (this.enqueueOutbound(ctx, device.id, 0, packet)) {
+        ctx.stats.emitted += 1;
+      }
     }
 
     applyRecoveredStateTransitions(this.recoveredState, encoded, decision);
@@ -494,10 +508,10 @@ export class TunnetSimulator {
       stats: this.stats,
     };
 
-    for (const device of this.wikiOrderedEndpoints) {
+    for (const device of this.recoveredDatasetEndpoints) {
       this.processEndpoint(device, ctx);
     }
-    for (const device of this.nonWikiEndpoints) {
+    for (const device of this.nonCatalogEndpoints) {
       this.processEndpoint(device, ctx);
     }
     for (const device of Object.values(this.topology.devices)) {
