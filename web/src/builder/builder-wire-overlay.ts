@@ -92,7 +92,7 @@ export function createBuilderWireOverlay(opts: BuilderWireOverlayOptions): {
   endEntityWireDrag: () => void;
   notifyCanvasDomRebuilt: () => void;
   /** After incremental entity DOM replace: refresh ports; partial wire drag or skip or full overlay. */
-  refreshWireOverlayAfterEntityPatch: (patchedRootIds: ReadonlySet<string>) => void;
+  refreshWireOverlayAfterEntityPatch: (patchedRootIds: ReadonlySet<string>) => boolean;
   /** Rebuild port cache; redraw all wire segments only if link geometry changed (e.g. a link was removed). */
   refreshWireOverlayAfterEntityRemoval: (wireGeometryChanged?: boolean) => void;
 } {
@@ -657,8 +657,8 @@ export function createBuilderWireOverlay(opts: BuilderWireOverlayOptions): {
       const toPort = builderPortFromClientPoint(e.clientX, e.clientY);
       root.classList.remove("builder-wire-dragging");
       linkDrag = null;
-      renderWireOverlay();
       commitLinkDragResult({ from, toPort, startedFromPacket });
+      renderWireOverlay();
     };
     window.addEventListener("pointermove", onMove, { passive: false });
     window.addEventListener("pointerup", onEnd);
@@ -680,16 +680,17 @@ export function createBuilderWireOverlay(opts: BuilderWireOverlayOptions): {
     return false;
   }
 
-  function refreshWireOverlayAfterEntityPatch(patchedRootIds: ReadonlySet<string>): void {
+  function refreshWireOverlayAfterEntityPatch(patchedRootIds: ReadonlySet<string>): boolean {
     rebuildPortElementCache();
     if (entityWireDrag !== null) {
       scheduleEntityWireDragPartial();
-      return;
+      return false;
     }
     if (!patchedRootsTouchAnyLink(patchedRootIds)) {
-      return;
+      return false;
     }
     renderWireOverlay({ skipPacketRefresh: true });
+    return true;
   }
 
   function refreshWireOverlayAfterEntityRemoval(wireGeometryChanged = true): void {

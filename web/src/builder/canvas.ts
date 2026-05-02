@@ -1141,7 +1141,6 @@ export function mountBuilderView(options: BuilderMountOptions): void {
               setSelection(null);
             }
           }
-          wireBag.w!.renderWireOverlay();
         }
         return;
       }
@@ -3257,8 +3256,8 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     return false;
   }
 
-  function syncEntityDomForRoots(rootIds: ReadonlySet<string>): void {
-    if (rootIds.size === 0) return;
+  function syncEntityDomForRoots(rootIds: ReadonlySet<string>): boolean {
+    if (rootIds.size === 0) return false;
     const expanded = expandBuilderState(state, { builderView: true });
     const staticRootIds = new Set(
       state.entities.filter((e) => isStaticOuterLeafEndpoint(e)).map((e) => e.id),
@@ -3314,7 +3313,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     });
     applySelectionToCanvas();
     applySimTickHighlightsToCanvas();
-    wireBag.w!.refreshWireOverlayAfterEntityPatch(rootIds);
+    return wireBag.w!.refreshWireOverlayAfterEntityPatch(rootIds);
   }
 
   function removeEntityDomForIds(removedRootIds: ReadonlySet<string>, wireGeometryChanged = true): void {
@@ -3637,11 +3636,14 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       return;
     }
     hideDragGroupBounds();
+    let wireGeometryRedrawnFromSync = false;
     if (entityPatchFlushIds && entityPatchFlushIds.size > 0) {
-      syncEntityDomForRoots(entityPatchFlushIds);
+      wireGeometryRedrawnFromSync = syncEntityDomForRoots(entityPatchFlushIds);
     }
     if (ctx.shouldUpdateWiresDuringDrag) {
-      wireBag.w!.renderWireOverlay();
+      if (!wireGeometryRedrawnFromSync) {
+        wireBag.w!.renderWireOverlay();
+      }
     } else {
       wireBag.w!.scheduleWireOverlayRender({ scrollOnly: true });
     }
