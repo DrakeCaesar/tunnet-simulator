@@ -8,15 +8,11 @@ export function mountLayout(): HTMLDivElement {
       <div class="sv-sidebar">
         <div class="card">
           <div class="section-title">Load save file</div>
-          <div class="hint">Choose a Tunnet save JSON (contains nodes + edges + entities).</div>
+          <div class="hint">Choose a Tunnet save JSON (nodes + edges + entities). This browser remembers it for the next visit. Full paths appear only when the host exposes them (otherwise just the file name).</div>
           <input id="sv-file-input" class="sv-file-input" type="file" accept=".json,application/json" />
-          <label class="sim-send-rate-label" for="sv-slot-index">Bundled slot</label>
-          <div class="sim-send-rate-row">
-            <input id="sv-slot-index" type="range" min="0" max="3" step="1" value="3" />
-            <span id="sv-slot-index-value" class="meta">slot_3.json</span>
-          </div>
+          <div id="sv-last-save-path" class="meta sv-last-save-path">—</div>
           <div class="sv-button-row sim-buttons">
-            <button id="sv-load-sample" type="button">Load bundled slot_3.json</button>
+            <button id="sv-reload-save" type="button" disabled title="Reload the last picked save from browser storage">Reload</button>
           </div>
         </div>
         <div class="card">

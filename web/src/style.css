@@ -246,6 +246,15 @@ body {
   font-size: var(--font-size-12);
 }
 
+.sv-last-save-path {
+  margin-top: 8px;
+  word-break: break-word;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: var(--font-size-12);
+  color: var(--meta-text);
+  line-height: 1.35;
+}
+
 .sv-inline-action-row input[type="text"] {
   flex: 1;
 }

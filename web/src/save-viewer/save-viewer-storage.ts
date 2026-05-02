@@ -2,7 +2,6 @@ import type { CameraPersistState, PilotPositionPersistState } from "./view-3d";
 
 export const STORAGE_KEYS = {
   viewMode: "tunnet.saveViewer.viewMode",
-  slotIndex: "tunnet.saveViewer.slotIndex",
   firstPersonMode: "tunnet.saveViewer.firstPersonMode",
   gravityEnabled: "tunnet.saveViewer.gravityEnabled",
   ssaoEnabled: "tunnet.saveViewer.aoEnabled",

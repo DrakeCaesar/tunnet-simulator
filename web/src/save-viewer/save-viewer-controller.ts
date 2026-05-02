@@ -33,6 +33,8 @@ import {
   parsePacketLabelModeFromStorage,
   type PacketLabelMode,
 } from "../packet-label-mode";
+import { absolutePathFromFile, displaySaveLocation } from "./save-file-display-path";
+import { idbGetLastPickedSave, idbPutLastPickedSave, type LastPickedSaveRecord } from "./last-save-idb";
 import { STORAGE_KEYS, parseCameraState, parsePilotPosition } from "./save-viewer-storage";
 
 function fitBoxToViewportAspect(box: ViewportBox, viewportWidthPx: number, viewportHeightPx: number): ViewportBox {
@@ -63,25 +65,9 @@ function fitBoxToViewportAspect(box: ViewportBox, viewportWidthPx: number, viewp
   };
 }
 
-async function readJsonFile(file: File): Promise<unknown> {
-  const text = await file.text();
-  return JSON.parse(text);
-}
-
-async function fetchBundledSlot(index: number): Promise<unknown> {
-  const safe = Math.max(0, Math.min(9, Math.floor(index)));
-  const res = await fetch(`/saves/slot_${safe}.json`);
-  if (!res.ok) {
-    throw new Error(`slot_${safe}.json not found`);
-  }
-  return res.json();
-}
-
 export function startSaveViewerController(): void {
   const fileInput = document.querySelector<HTMLInputElement>("#sv-file-input");
-  const slotIndexInput = document.querySelector<HTMLInputElement>("#sv-slot-index");
-  const slotIndexValue = document.querySelector<HTMLSpanElement>("#sv-slot-index-value");
-  const loadSampleButton = document.querySelector<HTMLButtonElement>("#sv-load-sample");
+  const reloadSaveButton = document.querySelector<HTMLButtonElement>("#sv-reload-save");
   const stepButton = document.querySelector<HTMLButtonElement>("#sv-step");
   const runButton = document.querySelector<HTMLButtonElement>("#sv-run");
   const stopButton = document.querySelector<HTMLButtonElement>("#sv-stop");
@@ -112,8 +98,9 @@ export function startSaveViewerController(): void {
   const view3DEl = document.querySelector<HTMLDivElement>("#sv-3d-view");
   const statsEl = document.querySelector<HTMLDivElement>("#sv-stats");
   const selectedDeviceEl = document.querySelector<HTMLDivElement>("#sv-selected-device");
+  const lastSavePathEl = document.querySelector<HTMLDivElement>("#sv-last-save-path");
   if (
-    !fileInput || !slotIndexInput || !slotIndexValue || !loadSampleButton || !stepButton || !runButton || !stopButton ||
+    !fileInput || !reloadSaveButton || !lastSavePathEl || !stepButton || !runButton || !stopButton ||
     !resetButton || !tickRateInput || !tickRateValue || !togglePacketIpsButton || !zoomInButton || !zoomOutButton ||
     !zoomFitButton || !viewToggleButton || !fpsToggleButton || !gravityToggleButton || !ssaoToggleButton ||
     !blockAoToggleButton || !hemiAoToggleButton || !resetCameraButton || !teleportEndpointInput || !teleportButton ||
@@ -142,7 +129,6 @@ export function startSaveViewerController(): void {
   let panLastY = 0;
   let packetAnimRaf: number | null = null;
   let use3DView = false;
-  let slotIndex = 3;
   let firstPersonMode = false;
   let gravityEnabled = true;
   let ssaoEnabled = true;
@@ -393,38 +379,60 @@ export function startSaveViewerController(): void {
     resetSimulator();
   };
 
-  const updateBundledSlotUi = (): void => {
-    slotIndex = Math.max(0, Math.min(3, Math.floor(slotIndex)));
-    slotIndexInput.value = String(slotIndex);
-    const label = `slot_${slotIndex}.json`;
-    slotIndexValue.textContent = label;
-    loadSampleButton.textContent = `Load bundled ${label}`;
+  const clearLastSavePathUi = (): void => {
+    lastSavePathEl.textContent = "—";
+    lastSavePathEl.title = "";
+  };
+
+  const applyLastSavePathUi = (rec: Pick<LastPickedSaveRecord, "fileName" | "absolutePath">): void => {
+    const { label, title } = displaySaveLocation(rec);
+    lastSavePathEl.textContent = label;
+    lastSavePathEl.title = title;
   };
 
   fileInput.addEventListener("change", async () => {
     const file = fileInput.files?.[0];
     if (!file) return;
     try {
-      const parsed = await readJsonFile(file);
+      const text = await file.text();
+      const parsed: unknown = JSON.parse(text);
+      const abs = absolutePathFromFile(file);
       renderAndReset(parsed);
+      applyLastSavePathUi({ fileName: file.name, absolutePath: abs });
+      try {
+        await idbPutLastPickedSave({
+          jsonText: text,
+          fileName: file.name,
+          ...(abs ? { absolutePath: abs } : {}),
+        });
+      } catch (persistErr) {
+        statsEl.textContent = `Loaded ${file.name} (could not remember for next visit: ${String(persistErr)})`;
+        reloadSaveButton.disabled = true;
+        return;
+      }
+      reloadSaveButton.disabled = false;
+      statsEl.textContent = `Loaded ${file.name}`;
     } catch (err) {
       statsEl.textContent = `load error: ${String(err)}`;
+    } finally {
+      // Allow choosing the same path again (disk contents may have changed); inputs only fire `change` when the value differs.
+      fileInput.value = "";
     }
   });
 
-  loadSampleButton.addEventListener("click", async () => {
+  reloadSaveButton.addEventListener("click", async () => {
     try {
-      const parsed = await fetchBundledSlot(slotIndex);
-      renderAndReset(parsed);
+      const rec = await idbGetLastPickedSave();
+      if (!rec) {
+        statsEl.textContent = "Nothing to reload — pick a save file first.";
+        return;
+      }
+      renderAndReset(JSON.parse(rec.jsonText));
+      applyLastSavePathUi(rec);
+      statsEl.textContent = `Reloaded ${rec.fileName}`;
     } catch (err) {
-      statsEl.textContent = `sample load error: ${String(err)}`;
+      statsEl.textContent = `reload error: ${String(err)}`;
     }
-  });
-  slotIndexInput.addEventListener("input", () => {
-    const n = Number.parseInt(slotIndexInput.value, 10);
-    slotIndex = Number.isFinite(n) ? Math.max(0, Math.min(3, n)) : 3;
-    window.localStorage.setItem(STORAGE_KEYS.slotIndex, String(slotIndex));
-    updateBundledSlotUi();
   });
 
   stepButton.addEventListener("click", () => {
@@ -658,18 +666,23 @@ export function startSaveViewerController(): void {
 
   const savedViewMode = (window.localStorage.getItem(STORAGE_KEYS.viewMode) ?? "").trim().toLowerCase();
   if (savedViewMode === "3d") use3DView = true;
-  const savedSlotIndex = Number.parseInt(window.localStorage.getItem(STORAGE_KEYS.slotIndex) ?? "", 10);
-  if (Number.isFinite(savedSlotIndex)) slotIndex = Math.max(0, Math.min(3, savedSlotIndex));
-  updateBundledSlotUi();
-  statsEl.textContent = "Load a save file to start.";
+  statsEl.textContent = "Restoring last save…";
   applyViewMode();
   void (async () => {
     try {
-      const parsed = await fetchBundledSlot(slotIndex);
-      renderAndReset(parsed);
-      statsEl.textContent = `Loaded /saves/slot_${slotIndex}.json`;
-    } catch {
-      // Ignore startup auto-load errors; user can still load from picker.
+      const rec = await idbGetLastPickedSave();
+      if (!rec) {
+        statsEl.textContent = "Choose a save JSON file to start.";
+        clearLastSavePathUi();
+        return;
+      }
+      renderAndReset(JSON.parse(rec.jsonText));
+      applyLastSavePathUi(rec);
+      reloadSaveButton.disabled = false;
+      statsEl.textContent = `Restored ${rec.fileName}`;
+    } catch (err) {
+      statsEl.textContent = `Could not restore last save: ${String(err)}`;
+      clearLastSavePathUi();
     }
   })();
 }
