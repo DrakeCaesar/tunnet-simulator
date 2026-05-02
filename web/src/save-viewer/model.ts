@@ -349,7 +349,7 @@ export function buildGraphModel(save: SaveData): GraphModel {
     }),
   );
   save.hubs.forEach((item) =>
-    pushDevice("hub", item.node, "hub", { rotation: item.dir === false ? "counterclockwise" : "clockwise" }),
+    pushDevice("hub", item.node, "hub", { rotation: item.dir === true ? "counterclockwise" : "clockwise" }),
   );
   save.bridges.forEach((item) => pushDevice("bridge", item.node, "bridge"));
   save.antennas.forEach((item) => pushDevice("antenna", item.node, "antenna"));
