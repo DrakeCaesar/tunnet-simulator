@@ -908,3 +908,35 @@ export function updateEntityPlacement(
     ),
   };
 }
+
+/** Drop duplicate entity placements at the same template/layer/segment/tile (keep first). Prune orphan links. */
+export function sanitizeDuplicateTypePlacements(input: BuilderState): { state: BuilderState; changed: boolean } {
+  const seen = new Set<string>();
+  const entities: BuilderEntityRoot[] = [];
+  let changed = false;
+  input.entities.forEach((ent) => {
+    const key = `${ent.templateType}:${ent.layer}:${ent.segmentIndex}:${ent.x}:${ent.y}`;
+    if (seen.has(key)) {
+      changed = true;
+      return;
+    }
+    seen.add(key);
+    entities.push(ent);
+  });
+  const validIds = new Set(entities.map((e) => e.id));
+  const links = input.links.filter((l) => validIds.has(l.fromEntityId) && validIds.has(l.toEntityId));
+  if (links.length !== input.links.length) {
+    changed = true;
+  }
+  if (!changed) {
+    return { state: input, changed: false };
+  }
+  return {
+    state: {
+      ...input,
+      entities,
+      links,
+    },
+    changed: true,
+  };
+}

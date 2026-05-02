@@ -20,8 +20,39 @@ import {
   removeEntityGroup,
   removeLinkGroup,
   removeLinksTouchingInstancePort,
+  sanitizeDuplicateTypePlacements,
   updateEntitySettings,
 } from "./state";
+import {
+  formatPacketLabelSubject,
+  packetIpLabelBgDimensions,
+  PACKET_DOT_RADIUS_PX,
+  PACKET_IP_LABEL_HEIGHT_PX,
+  PACKET_IP_LABEL_OFFSET_X_PX,
+  PACKET_IP_LABEL_OFFSET_Y_PX,
+  PACKET_IP_LABEL_WIDTH_PX,
+  PACKET_LABEL_ANCHOR_X_PX,
+} from "./builder-packet-overlay-metrics";
+import {
+  BUILDER_CANVAS_SCALE_KEY,
+  clampCanvasScaleX,
+  clampCanvasScaleY,
+  canvasScaleXIndexFromValue,
+  canvasScaleXValueFromIndex,
+  DEFAULT_LAYER_SCALE_Y,
+  formatScaleLabel,
+  type CanvasScale,
+} from "./canvas-scale";
+import { builderViewShellHtml } from "./builder-view-shell";
+import {
+  buildFilterDescription,
+  buildTemplateDragImage,
+  isBuilderTemplateType,
+  templateLabel,
+  templateList,
+  textTileSizeFromEntity,
+  textTileSizeFromSettings,
+} from "./template-sidebar";
 import { layoutPacketLabelBackgroundRect } from "../packet-label-layout";
 import {
   nextPacketLabelMode,
@@ -75,13 +106,23 @@ import {
   setSimulatorPanelLayoutVariant,
 } from "../ui/components/simulator-panel-ui";
 import {
+  HUB_LAYOUT,
+  HUB_VIEW,
+  HUB_REVERSE_BUTTON_SIZE,
+  HUB_REVERSE_ICON_SIZE,
+  hubDistToSeg,
+  hubLocalToModel,
+  hubPointInOrOnTri,
+  hubPointerMode,
+  hubPortPinUprightStyle,
+  hubTriangleSvg,
+  relayPointerMode,
   startRelayRotateDrag,
   startSnappedRotateDragAroundPivot,
   tryStartTextEntityResizeDrag,
   type RotateDragChrome,
 } from "../ui/canvas-entities";
 
-const BUILDER_CANVAS_SCALE_KEY = "tunnet.builder.canvasScale";
 const BUILDER_PAGE_STATE_KEY = "tunnet.builder.pageState";
 const BUILDER_SIDEBAR_WIDTH_KEY = "tunnet.builder.sidebarWidth";
 const BUILDER_LAYER_GAP_PX = 4;
@@ -92,68 +133,11 @@ const BUILDER_SIDEBAR_MIN_WIDTH_PX = 240;
 const BUILDER_SIDEBAR_COLLAPSED_WIDTH_PX = 16;
 const BUILDER_SIDEBAR_COLLAPSE_THRESHOLD_PX = 160;
 const BUILDER_MAIN_MIN_WIDTH_PX = 240;
-const PACKET_IP_LABEL_CHAR_COUNT = 7;
-const PACKET_IP_LABEL_MONO_CHAR_ADVANCE_PX = 6.1;
-const PACKET_IP_LABEL_WIDTH_PX = Math.ceil(PACKET_IP_LABEL_CHAR_COUNT * PACKET_IP_LABEL_MONO_CHAR_ADVANCE_PX + 8);
-const PACKET_IP_LABEL_HEIGHT_PX = 24;
-const PACKET_DOT_RADIUS_PX = 8;
-/** Gap from dot edge to label (text + bg follow this anchor). */
-const PACKET_LABEL_ANCHOR_GAP_PX = 12;
-const PACKET_LABEL_ANCHOR_X_PX = PACKET_DOT_RADIUS_PX + PACKET_LABEL_ANCHOR_GAP_PX;
-const PACKET_IP_LABEL_OFFSET_X_PX = -3;
-const PACKET_IP_LABEL_OFFSET_Y_PX = -13;
-/** Extra vertical space when showing subject line under src/dest. */
-const PACKET_IP_LABEL_HEIGHT_WITH_SUBJECT_PX = 38;
-const PACKET_SUBJECT_LABEL_MAX_CHARS = 40;
 const BUILDER_LAYOUT_SLOT_COUNT = 5;
-const CANVAS_SCALE_X_STEPS = [1 / 16, 1 / 8, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.25, 2.5, 2.75, 3, 3.25, 3.5, 3.75, 4] as const;
-const DEFAULT_LAYER_SCALE_Y = { outer64: 0.5, middle16: 1.5, inner4: 1.5, core1: 0.5 } as const;
 const BUILDER_PANEL_SECTION_IDS = ["performance"] as const;
 
 /** One mask nibble cycles * → 0 → 1 → 2 → 3 → * (matches game semantics). */
 const MASK_VALUE_CYCLE = ["*", "0", "1", "2", "3"] as const;
-
-function formatPacketLabelSubject(subject: string | undefined): string {
-  const t = (subject ?? "").trim();
-  if (!t.length) return "";
-  return t.length > PACKET_SUBJECT_LABEL_MAX_CHARS
-    ? `${t.slice(0, PACKET_SUBJECT_LABEL_MAX_CHARS - 1)}…`
-    : t;
-}
-
-function packetIpLabelBgDimensions(src: string, dest: string, subjectDisplay: string): { width: number; height: number } {
-  const maxChars = Math.max(src.length, dest.length, subjectDisplay.length, PACKET_IP_LABEL_CHAR_COUNT);
-  const width = Math.min(
-    260,
-    Math.ceil(maxChars * PACKET_IP_LABEL_MONO_CHAR_ADVANCE_PX + 10),
-  );
-  const height = subjectDisplay.length ? PACKET_IP_LABEL_HEIGHT_WITH_SUBJECT_PX : PACKET_IP_LABEL_HEIGHT_PX;
-  return { width, height };
-}
-
-function hubMarkerId(instanceId: string): string {
-  return `hubmk-${instanceId.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
-}
-
-/**
- * Single hub size knob: all hub render/interaction geometry scales from this side length.
- * Change this one number to resize hubs.
- */
-const HUB_TRIANGLE_SIDE = 50;
-const HUB_BASE_TRIANGLE_SIDE = 50;
-const HUB_SCALE = HUB_TRIANGLE_SIDE / HUB_BASE_TRIANGLE_SIDE;
-/** SVG / hit box for hub (mirrors original proportions at side=70). */
-const HUB_VIEW = { w: 108 * HUB_SCALE, h: 96 * HUB_SCALE } as const;
-const HUB_PORT_RADIUS = 8.5 * HUB_SCALE;
-const HUB_TOP_PADDING = 18 * HUB_SCALE;
-const HUB_ROTATE_OUTER_BAND_PX = 8 * HUB_SCALE;
-// Keep center reverse button visually aligned with `.builder-port` (17px).
-const HUB_REVERSE_BUTTON_SIZE = 17;
-const HUB_REVERSE_ICON_SIZE = 11;
-
-type HubVec = { x: number; y: number };
-
-type HubLayout = { T: HubVec; L: HubVec; R: HubVec; r: number; G: HubVec };
 
 type BuilderPanelSectionId = (typeof BUILDER_PANEL_SECTION_IDS)[number];
 
@@ -165,250 +149,9 @@ type BuilderPageState = {
   activeLayoutKind: "slot" | "url";
 };
 
-/** Equilateral triangle: apex up, base horizontal; `r` matches half of global `.builder-port` (17px). */
-function hubEquilateralLayout(): HubLayout {
-  const r = HUB_PORT_RADIUS;
-  const s = HUB_TRIANGLE_SIDE;
-  const h = (s * Math.sqrt(3)) / 2;
-  const cx = HUB_VIEW.w / 2;
-  const ty = HUB_TOP_PADDING;
-  const by = ty + h;
-  const T: HubVec = { x: cx, y: ty };
-  const L: HubVec = { x: cx - s / 2, y: by };
-  const R: HubVec = { x: cx + s / 2, y: by };
-  const G: HubVec = { x: (T.x + L.x + R.x) / 3, y: (T.y + L.y + R.y) / 3 };
-  return { T, L, R, r, G };
-}
-
-const HUB_LAYOUT = hubEquilateralLayout();
-
-function hubPortPinStyle(c: HubVec): string {
-  return `left:${(c.x / HUB_VIEW.w) * 100}%;top:${(c.y / HUB_VIEW.h) * 100}%;transform:translate(-50%,-50%)`;
-}
-
-/** Port pins on a rotating layer: keep port labels world-upright. */
-function hubPortPinUprightStyle(c: HubVec, faceDeg: number): string {
-  return `left:${(c.x / HUB_VIEW.w) * 100}%;top:${(c.y / HUB_VIEW.h) * 100}%;transform:translate(-50%,-50%) rotate(${-faceDeg}deg)`;
-}
-
-function hubLocalToModel(localX: number, localY: number, faceDeg: number): HubVec {
-  const g = HUB_LAYOUT.G;
-  const rad = (-faceDeg * Math.PI) / 180;
-  const c = Math.cos(rad);
-  const s = Math.sin(rad);
-  const relx = localX - g.x;
-  const rely = localY - g.y;
-  return { x: g.x + relx * c - rely * s, y: g.y + relx * s + rely * c };
-}
-
-function hubPointInOrOnTri(p: HubVec, t: HubVec, l: HubVec, r: HubVec): boolean {
-  const v0x = l.x - t.x;
-  const v0y = l.y - t.y;
-  const v1x = r.x - t.x;
-  const v1y = r.y - t.y;
-  const v2x = p.x - t.x;
-  const v2y = p.y - t.y;
-  const d00 = v0x * v0x + v0y * v0y;
-  const d01 = v0x * v1x + v0y * v1y;
-  const d11 = v1x * v1x + v1y * v1y;
-  const d20 = v2x * v0x + v2y * v0y;
-  const d21 = v2x * v1x + v2y * v1y;
-  const denom = d00 * d11 - d01 * d01;
-  if (Math.abs(denom) < 1e-9) return false;
-  const v = (d11 * d20 - d01 * d21) / denom;
-  const w = (d00 * d21 - d01 * d20) / denom;
-  const u = 1 - v - w;
-  const e = 1e-4;
-  return u >= -e && v >= -e && w >= -e;
-}
-
-function hubDistToSeg(p: HubVec, a: HubVec, b: HubVec): number {
-  const dx = b.x - a.x;
-  const dy = b.y - a.y;
-  const l2 = dx * dx + dy * dy;
-  if (l2 < 1e-9) return Math.hypot(p.x - a.x, p.y - a.y);
-  let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / l2;
-  t = Math.max(0, Math.min(1, t));
-  const qx = a.x + t * dx;
-  const qy = a.y + t * dy;
-  return Math.hypot(p.x - qx, p.y - qy);
-}
-
-function hubPointerMode(
-  localX: number,
-  localY: number,
-  faceDeg: number,
-): "move" | "rotate" | "none" {
-  const t = HUB_LAYOUT.T;
-  const l = HUB_LAYOUT.L;
-  const r = HUB_LAYOUT.R;
-  const p = hubLocalToModel(localX, localY, faceDeg);
-  if (hubPointInOrOnTri(p, t, l, r)) return "move";
-  const d = Math.min(
-    hubDistToSeg(p, t, l),
-    hubDistToSeg(p, l, r),
-    hubDistToSeg(p, r, t),
-  );
-  // The visible hub body is a rounded triangle built around the core equilateral by radius `HUB_LAYOUT.r`.
-  // Treat that rounded band as "move" so pointer behavior matches the rendered shape.
-  if (d <= HUB_LAYOUT.r) return "move";
-  if (d <= HUB_LAYOUT.r + HUB_ROTATE_OUTER_BAND_PX) return "rotate";
-  return "none";
-}
-
-function relayPointerMode(
-  localX: number,
-  localY: number,
-  outerWidth: number,
-  outerHeight: number,
-  coreLeft: number,
-  coreTop: number,
-  coreWidth: number,
-  coreHeight: number,
-): "move" | "rotate" | "none" {
-  const ow = Math.max(1, outerWidth);
-  const oh = Math.max(1, outerHeight);
-  if (localX < 0 || localY < 0 || localX > ow || localY > oh) return "none";
-  const insideCore =
-    localX >= coreLeft &&
-    localX <= coreLeft + coreWidth &&
-    localY >= coreTop &&
-    localY <= coreTop + coreHeight;
-  return insideCore ? "move" : "rotate";
-}
-
-function hvDist(a: HubVec, b: HubVec): number {
-  return Math.hypot(a.x - b.x, a.y - b.y);
-}
-
-function hvUnit(v: HubVec): HubVec {
-  const d = Math.hypot(v.x, v.y);
-  return { x: v.x / d, y: v.y / d };
-}
-
-function hvAdd(a: HubVec, b: HubVec): HubVec {
-  return { x: a.x + b.x, y: a.y + b.y };
-}
-
-function hvSub(a: HubVec, b: HubVec): HubVec {
-  return { x: a.x - b.x, y: a.y - b.y };
-}
-
-function hvScale(v: HubVec, s: number): HubVec {
-  return { x: v.x * s, y: v.y * s };
-}
-
-function hvPerpL(v: HubVec): HubVec {
-  return { x: -v.y, y: v.x };
-}
-
-/** Same-radius outer tangent segment [on a, on b] whose midpoint is farther from ref (outside the cluster). */
-function hubOuterTangent(a: HubVec, b: HubVec, r: number, ref: HubVec): [HubVec, HubVec] {
-  const u = hvUnit(hvSub(b, a));
-  const n = hvPerpL(u);
-  const p0 = hvAdd(a, hvScale(n, r));
-  const p1 = hvAdd(b, hvScale(n, r));
-  const m0 = hvAdd(a, hvScale(n, -r));
-  const m1 = hvAdd(b, hvScale(n, -r));
-  const midP = hvScale(hvAdd(p0, p1), 0.5);
-  const midM = hvScale(hvAdd(m0, m1), 0.5);
-  return hvDist(midP, ref) > hvDist(midM, ref) ? [p0, p1] : [m0, m1];
-}
-
-function hubAngle(c: HubVec, p: HubVec): number {
-  return Math.atan2(p.y - c.y, p.x - c.x);
-}
-
-function hubPolylineArc(c: HubVec, r: number, p0: HubVec, p1: HubVec, ref: HubVec, steps: number): string {
-  const a0 = hubAngle(c, p0);
-  const a1 = hubAngle(c, p1);
-  let delta = a1 - a0;
-  const normalize = (): void => {
-    while (delta > Math.PI) delta -= 2 * Math.PI;
-    while (delta <= -Math.PI) delta += 2 * Math.PI;
-  };
-  normalize();
-  let alt = delta > 0 ? delta - 2 * Math.PI : delta + 2 * Math.PI;
-  const mid0 = a0 + delta * 0.5;
-  const mid1 = a0 + alt * 0.5;
-  const pt0 = { x: c.x + r * Math.cos(mid0), y: c.y + r * Math.sin(mid0) };
-  const pt1 = { x: c.x + r * Math.cos(mid1), y: c.y + r * Math.sin(mid1) };
-  if (hvDist(pt1, ref) > hvDist(pt0, ref)) delta = alt;
-  let s = "";
-  for (let i = 1; i <= steps; i += 1) {
-    const t = i / steps;
-    const ang = a0 + delta * t;
-    s += ` L ${c.x + r * Math.cos(ang)} ${c.y + r * Math.sin(ang)}`;
-  }
-  return s;
-}
-
-function hubArrowBetween(a: HubVec, b: HubVec, r: number, pad: number): string {
-  const u = hvUnit(hvSub(b, a));
-  const start = hvAdd(a, hvScale(u, r + pad));
-  const end = hvSub(b, hvScale(u, r + pad));
-  return `M ${start.x} ${start.y} L ${end.x} ${end.y}`;
-}
-
-/** Pool-rack outline + arrows between port circles. ViewBox matches `HUB_VIEW` / `.builder-hub`. */
-function hubTriangleSvg(instanceId: string, rotation: string | undefined): string {
-  const mid = hubMarkerId(instanceId);
-  const cw = (rotation ?? "clockwise") !== "counterclockwise";
-  const { T, L, R, r, G } = HUB_LAYOUT;
-
-  const [tTL, lTL] = hubOuterTangent(T, L, r, G);
-  const [lLR, rLR] = hubOuterTangent(L, R, r, G);
-  const [rRT, tRT] = hubOuterTangent(R, T, r, G);
-
-  const arcSteps = 16;
-  const d = [
-    `M ${tRT.x} ${tRT.y}`,
-    hubPolylineArc(T, r, tRT, tTL, G, arcSteps),
-    ` L ${lTL.x} ${lTL.y}`,
-    hubPolylineArc(L, r, lTL, lLR, G, arcSteps),
-    ` L ${rLR.x} ${rLR.y}`,
-    hubPolylineArc(R, r, rLR, rRT, G, arcSteps),
-    " Z",
-  ].join("");
-
-  const pad = 3.5;
-  /* Clockwise sim 0→1→2→0 matches screen-clockwise around triangle: top → bottom-right → bottom-left. */
-  const arrows = cw
-    ? [
-        hubArrowBetween(T, R, r, pad),
-        hubArrowBetween(R, L, r, pad),
-        hubArrowBetween(L, T, r, pad),
-      ]
-        .map((p) => `<path class="builder-hub-arrow" marker-end="url(#${mid}-tip)" d="${p}" />`)
-        .join("")
-    : [
-        hubArrowBetween(T, L, r, pad),
-        hubArrowBetween(L, R, r, pad),
-        hubArrowBetween(R, T, r, pad),
-      ]
-        .map((p) => `<path class="builder-hub-arrow" marker-end="url(#${mid}-tip)" d="${p}" />`)
-        .join("");
-
-  return `<svg class="builder-hub-svg" viewBox="0 0 ${HUB_VIEW.w} ${HUB_VIEW.h}" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
-    <defs>
-      <marker id="${mid}-tip" viewBox="0 0 6 6" refX="5.1" refY="3" markerWidth="4.5" markerHeight="4.5" orient="auto">
-        <path d="M1,0.8 L5,3 L1,5.2" fill="none" stroke="#d9e1f3" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round" />
-      </marker>
-    </defs>
-    <path class="builder-hub-rotate-hint" d="${d}" />
-    <path class="builder-hub-triangle" d="${d}" />
-    <g pointer-events="none">${arrows}</g>
-  </svg>`;
-}
-
 interface BuilderMountOptions {
   root: HTMLDivElement;
 }
-
-type CanvasScale = {
-  x: number;
-  yByLayer: Record<BuilderLayer, number>;
-};
 
 type EntitySelection = { kind: "entity"; rootId: string };
 type LinkSelection = { kind: "link"; rootId: string };
@@ -423,174 +166,11 @@ type BoxSelectionState = {
   mode: "replace" | "add" | "remove";
 } | null;
 
-function sanitizeDuplicateTypePlacements(input: BuilderState): { state: BuilderState; changed: boolean } {
-  const seen = new Set<string>();
-  const entities: BuilderEntityRoot[] = [];
-  let changed = false;
-  input.entities.forEach((ent) => {
-    const key = `${ent.templateType}:${ent.layer}:${ent.segmentIndex}:${ent.x}:${ent.y}`;
-    if (seen.has(key)) {
-      changed = true;
-      return;
-    }
-    seen.add(key);
-    entities.push(ent);
-  });
-  const validIds = new Set(entities.map((e) => e.id));
-  const links = input.links.filter((l) => validIds.has(l.fromEntityId) && validIds.has(l.toEntityId));
-  if (links.length !== input.links.length) {
-    changed = true;
-  }
-  if (!changed) {
-    return { state: input, changed: false };
-  }
-  return {
-    state: {
-      ...input,
-      entities,
-      links,
-    },
-    changed: true,
-  };
-}
-
 interface LinkSourceSelection {
   rootId: string;
   port: number;
   /** Port DOM identity for this clone (mirrors share rootId). */
   instanceId: string;
-}
-
-function buildTemplateDragImage(templateType: BuilderTemplateType): HTMLDivElement {
-  const wrap = document.createElement("div");
-  wrap.className = "builder-drag-image";
-  const portBtn = (port: number): string =>
-    `<button class="builder-port" type="button" disabled>${port}</button>`;
-  if (templateType === "text") {
-    wrap.innerHTML = `
-      <div class="builder-entity builder-entity--text" style="--builder-text-w:41px;--builder-text-h:41px;">
-        <div class="builder-entity-title">Note</div>
-        <div class="builder-text-box"></div>
-      </div>
-    `;
-    return wrap;
-  }
-  if (templateType === "hub") {
-    const faceDeg = 0;
-    const hubOriginX = (HUB_LAYOUT.G.x / HUB_VIEW.w) * 100;
-    const hubOriginY = (HUB_LAYOUT.G.y / HUB_VIEW.h) * 100;
-    wrap.innerHTML = `
-      <div class="builder-entity builder-entity--hub">
-        <div class="builder-hub" data-face-angle="${faceDeg}" style="--hub-w:${HUB_VIEW.w}px;--hub-h:${HUB_VIEW.h}px;--hub-reverse-size:${HUB_REVERSE_BUTTON_SIZE}px;--hub-reverse-icon-size:${HUB_REVERSE_ICON_SIZE}px;">
-          <div class="builder-hub-rot" style="transform:rotate(${faceDeg}deg);transform-origin:${hubOriginX}% ${hubOriginY}%;">
-            ${hubTriangleSvg("drag-preview", "clockwise")}
-            <button type="button" class="builder-port builder-hub-port" style="${hubPortPinUprightStyle(HUB_LAYOUT.T, faceDeg)}" disabled>0</button>
-            <button type="button" class="builder-port builder-hub-port" style="${hubPortPinUprightStyle(HUB_LAYOUT.R, faceDeg)}" disabled>1</button>
-            <button type="button" class="builder-port builder-hub-port" style="${hubPortPinUprightStyle(HUB_LAYOUT.L, faceDeg)}" disabled>2</button>
-          </div>
-          <button type="button" class="builder-hub-reverse" style="left:${hubOriginX}%;top:${hubOriginY}%;transform:translate(-50%,-50%)" disabled><span class="builder-hub-reverse-icon" aria-hidden="true">↻</span></button>
-        </div>
-      </div>
-    `;
-    return wrap;
-  }
-  if (templateType === "filter") {
-    const settings = defaultSettings("filter");
-    const maskParts = (settings.mask ?? "*.*.*.*").split(".");
-    while (maskParts.length < 4) maskParts.push("*");
-    const displayAddressField =
-      (settings.addressField ?? "destination") === "source"
-        ? "Source"
-        : "Destination";
-    const displayOperation =
-      (settings.operation ?? "differ") === "match" ? "Match" : "Differ";
-    const displayAction =
-      (settings.action ?? "send_back") === "drop" ? "Drop" : "Send back";
-    const displayCollision =
-      (() => {
-        const value = settings.collisionHandling ?? "drop_inbound";
-        if (value === "drop_inbound") return "Drop<br/>Inbound";
-        if (value === "drop_outbound") return "Drop<br/>Outbound";
-        return "Send back<br/>Outbound";
-      })();
-    wrap.innerHTML = `
-      <div class="builder-entity builder-entity--filter">
-        <div class="builder-ports builder-ports--filter-top">${portBtn(0)}</div>
-        <div class="builder-entity-title">filter</div>
-        <div class="builder-filter-ui" data-root-id="drag-preview">
-          <div class="builder-filter-left">
-            <div class="builder-row">
-              <span class="builder-row-label">Port:</span>
-              <div class="builder-cycle">
-                <button class="builder-cycle-btn" type="button" disabled>&lt;</button>
-                <span class="builder-cycle-value">${settings.operatingPort ?? "0"}</span>
-                <button class="builder-cycle-btn" type="button" disabled>&gt;</button>
-              </div>
-            </div>
-            <div class="builder-row">
-              <span class="builder-row-label">Address:</span>
-              <div class="builder-cycle">
-                <button class="builder-cycle-btn" type="button" disabled>&lt;</button>
-                <span class="builder-cycle-value">${displayAddressField}</span>
-                <button class="builder-cycle-btn" type="button" disabled>&gt;</button>
-              </div>
-            </div>
-            <div class="builder-row">
-              <span class="builder-row-label">Operation:</span>
-              <div class="builder-cycle">
-                <button class="builder-cycle-btn" type="button" disabled>&lt;</button>
-                <span class="builder-cycle-value">${displayOperation}</span>
-                <button class="builder-cycle-btn" type="button" disabled>&gt;</button>
-              </div>
-            </div>
-            <div class="builder-row builder-row-mask">
-              <span class="builder-row-label">Mask:</span>
-              <div class="builder-mask-row">
-                ${[0, 1, 2, 3]
-                  .map(
-                    (idx) => `
-                      <div class="builder-mask-cell">
-                        <button class="builder-mask-arrow" type="button" disabled>+</button>
-                        <span class="${(maskParts[idx] ?? "*") === "*" ? "builder-mask-value-wildcard" : ""}">${maskParts[idx] ?? "*"}</span>
-                        <button class="builder-mask-arrow" type="button" disabled>-</button>
-                      </div>
-                    `,
-                  )
-                  .join(`<span class="builder-mask-dot" aria-hidden="true">.</span>`)}
-              </div>
-            </div>
-            <div class="builder-row">
-              <span class="builder-row-label">Action:</span>
-              <div class="builder-cycle">
-                <button class="builder-cycle-btn" type="button" disabled>&lt;</button>
-                <span class="builder-cycle-value">${displayAction}</span>
-                <button class="builder-cycle-btn" type="button" disabled>&gt;</button>
-              </div>
-            </div>
-            <div class="builder-row builder-row-collision">
-              <span class="builder-row-label">Collision<br/>handling:</span>
-              <div class="builder-cycle builder-cycle--tall">
-                <button class="builder-cycle-btn" type="button" disabled>&lt;</button>
-                <span class="builder-cycle-value">${displayCollision}</span>
-                <button class="builder-cycle-btn" type="button" disabled>&gt;</button>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div class="builder-ports builder-ports--filter-bottom">${portBtn(1)}</div>
-      </div>
-    `;
-    return wrap;
-  }
-  wrap.innerHTML = `
-    <div class="builder-entity builder-entity--relay">
-      <div class="builder-relay-core">
-        <div class="builder-relay-port-dock builder-relay-port-a">${portBtn(0)}</div>
-        <div class="builder-relay-port-dock builder-relay-port-b">${portBtn(1)}</div>
-      </div>
-    </div>
-  `;
-  return wrap;
 }
 
 type BuilderPerfKey =
@@ -612,63 +192,6 @@ type BuilderPerfKey =
   | "packet.domCommit";
 
 type BuilderPerfStat = { lastMs: number; emaMs: number; maxMs: number; samples: number };
-
-function templateList(): BuilderTemplateType[] {
-  return ["relay", "hub", "filter", "text"];
-}
-
-function isBuilderTemplateType(value: string): value is BuilderTemplateType {
-  return value === "relay" || value === "hub" || value === "filter" || value === "text";
-}
-
-function templateLabel(type: BuilderTemplateType): string {
-  if (type === "relay") return "Relay";
-  if (type === "hub") return "Hub";
-  if (type === "text") return "Note";
-  return "Filter";
-}
-
-function buildFilterDescription(settings: Record<string, string>): string {
-  const operatingPort = settings.operatingPort === "1" ? 1 : 0;
-  const nonOperatingPort = operatingPort === 0 ? 1 : 0;
-  const addressField = settings.addressField === "source" ? "source" : "destination";
-  const operation = settings.operation === "match" ? "match" : "differ";
-  const action = settings.action === "drop" ? "drop" : "send_back";
-  const collisionHandling =
-    settings.collisionHandling === "drop_inbound" ||
-    settings.collisionHandling === "drop_outbound" ||
-    settings.collisionHandling === "send_back_outbound"
-      ? settings.collisionHandling
-      : "drop_inbound";
-  const mask = settings.mask ?? "*.*.*.*";
-
-  const fieldText = addressField === "destination" ? `addressed to ${mask}` : `emitted by ${mask}`;
-  const qualifier = operation === "match" ? `which are ${fieldText}` : `which are not ${fieldText}`;
-  const actionText = action === "drop" ? "Drops" : "Sends back";
-  const firstLine = `${actionText} packets received on port ${operatingPort} ${qualifier}.`;
-  if (action === "drop") {
-    return firstLine;
-  }
-  if (collisionHandling === "drop_inbound") {
-    return `${firstLine}\nIn case of collision, the packet received on port ${operatingPort} is dropped.`;
-  }
-  if (collisionHandling === "drop_outbound") {
-    return `${firstLine}\nIn case of collision, the packet received on port ${nonOperatingPort} is dropped.`;
-  }
-  return `${firstLine}\nIn case of collision, the packet received on port ${nonOperatingPort} is sent back.`;
-}
-
-function textTileSizeFromSettings(settings: Record<string, string>): { wTiles: number; hTiles: number } {
-  const wRaw = Number.parseInt(settings.widthTiles ?? "2", 10);
-  const hRaw = Number.parseInt(settings.heightTiles ?? "2", 10);
-  const wTiles = Number.isFinite(wRaw) ? Math.max(2, Math.min(64, wRaw)) : 2;
-  const hTiles = Number.isFinite(hRaw) ? Math.max(2, Math.min(64, hRaw)) : 2;
-  return { wTiles, hTiles };
-}
-
-function textTileSizeFromEntity(entity: { settings: Record<string, string> }): { wTiles: number; hTiles: number } {
-  return textTileSizeFromSettings(entity.settings);
-}
 
 export function mountBuilderView(options: BuilderMountOptions): void {
   const { root } = options;
@@ -698,34 +221,6 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   let suppressBoxSelectionUntilMouseUp = false;
   const WIRE_PORT_DROP_ZONE_PX = 5;
   const WIRE_DRAG_START_THRESHOLD_PX = 3;
-  const nearestCanvasScaleXStep = (v: number): number => {
-    let best = CANVAS_SCALE_X_STEPS[0];
-    let bestDelta = Math.abs(v - best);
-    for (const step of CANVAS_SCALE_X_STEPS) {
-      const delta = Math.abs(v - step);
-      if (delta < bestDelta) {
-        best = step;
-        bestDelta = delta;
-      }
-    }
-    return best;
-  };
-  const clampCanvasScaleX = (v: number): number => nearestCanvasScaleXStep(Math.max(CANVAS_SCALE_X_STEPS[0], Math.min(4, v)));
-  const canvasScaleXIndexFromValue = (v: number): number =>
-    Math.max(0, CANVAS_SCALE_X_STEPS.findIndex((step) => step === clampCanvasScaleX(v)));
-  const canvasScaleXValueFromIndex = (index: number): number => {
-    const i = Math.max(0, Math.min(CANVAS_SCALE_X_STEPS.length - 1, Math.round(index)));
-    return CANVAS_SCALE_X_STEPS[i];
-  };
-  const formatScaleLabel = (v: number): string => {
-    if (Math.abs(v - 1 / 32) < 1e-9) return "1/32x";
-    if (Math.abs(v - 1 / 16) < 1e-9) return "1/16x";
-    if (Math.abs(v - 1 / 8) < 1e-9) return "1/8x";
-    if (Math.abs(v - 1 / 4) < 1e-9) return "1/4x";
-    if (Math.abs(v - 1 / 2) < 1e-9) return "1/2x";
-    return `${v.toFixed(2)}x`;
-  };
-  const clampCanvasScaleY = (v: number): number => Math.max(0.25, Math.min(4, v));
   const loadCanvasScale = (): CanvasScale => {
     try {
       const rawScale = window.localStorage.getItem(BUILDER_CANVAS_SCALE_KEY);
@@ -877,73 +372,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     return `<button class="section-title builder-panel-section-toggle" type="button" data-builder-panel-toggle="${id}" aria-expanded="${collapsed ? "false" : "true"}" aria-controls="builder-panel-${id}-body"><span>${title}</span><span class="builder-panel-section-caret" aria-hidden="true">›</span></button>`;
   };
 
-  root.innerHTML = `
-    <div
-      class="builder-layout"
-      data-1p-ignore="true"
-      data-lpignore="true"
-      data-bwignore="true"
-      data-form-type="other"
-    >
-      <aside class="builder-sidebar ui-panel">
-        <div id="builder-controls-sidebar-host" class="builder-controls-sidebar-host"></div>
-      </aside>
-      <div class="builder-sidebar-resizer" role="button" tabindex="0" aria-label="Close side panel" title="Close side panel"></div>
-      <main class="builder-main ui-panel">
-        <div class="builder-canvas-wrap">
-          <svg id="builder-wire-overlay" class="builder-wire-overlay"></svg>
-          <svg id="builder-packet-overlay" class="builder-packet-overlay" aria-hidden="true"></svg>
-          <div id="builder-canvas" class="builder-canvas"></div>
-        </div>
-        <div id="builder-controls-floating-host" class="builder-controls-floating-host" aria-label="Canvas tools">
-          <div id="builder-panel-templates" class="builder-floating-tool-stack">
-            <div id="builder-delete-drop-zone" class="builder-delete-drop-zone" aria-label="Drop here to delete">
-              Drop to delete
-            </div>
-            <div id="builder-templates" class="builder-floating-templates"></div>
-          </div>
-          <div id="builder-panel-scale" class="builder-floating-scale-area">
-            <div class="builder-floating-scale" aria-label="Canvas scale controls">
-              <div class="builder-scale-controls">
-                <label class="builder-scale-row" for="builder-scale-x">
-                  <span>Horizontal</span>
-                  <input id="builder-scale-x" type="range" min="0" max="${CANVAS_SCALE_X_STEPS.length - 1}" step="1" value="${canvasScaleXIndexFromValue(canvasScale.x)}" />
-                  <span id="builder-scale-x-value">${formatScaleLabel(canvasScale.x)}</span>
-                </label>
-                <label class="builder-scale-row" for="builder-scale-y-outer64">
-                  <span>Octet 4</span>
-                  <input id="builder-scale-y-outer64" type="range" min="0.25" max="4" step="0.25" value="${canvasScale.yByLayer.outer64.toFixed(2)}" />
-                  <span id="builder-scale-y-outer64-value">${formatScaleLabel(canvasScale.yByLayer.outer64)}</span>
-                </label>
-                <label class="builder-scale-row" for="builder-scale-y-middle16">
-                  <span>Octet 3</span>
-                  <input id="builder-scale-y-middle16" type="range" min="0.25" max="4" step="0.25" value="${canvasScale.yByLayer.middle16.toFixed(2)}" />
-                  <span id="builder-scale-y-middle16-value">${formatScaleLabel(canvasScale.yByLayer.middle16)}</span>
-                </label>
-                <label class="builder-scale-row" for="builder-scale-y-inner4">
-                  <span>Octet 2</span>
-                  <input id="builder-scale-y-inner4" type="range" min="0.25" max="4" step="0.25" value="${canvasScale.yByLayer.inner4.toFixed(2)}" />
-                  <span id="builder-scale-y-inner4-value">${formatScaleLabel(canvasScale.yByLayer.inner4)}</span>
-                </label>
-                <label class="builder-scale-row" for="builder-scale-y-core1">
-                  <span>Octet 1</span>
-                  <input id="builder-scale-y-core1" type="range" min="0.25" max="4" step="0.25" value="${canvasScale.yByLayer.core1.toFixed(2)}" />
-                  <span id="builder-scale-y-core1-value">${formatScaleLabel(canvasScale.yByLayer.core1)}</span>
-                </label>
-              </div>
-            </div>
-          </div>
-          <div id="builder-sim-panel-host"></div>
-          <div id="builder-panel-layouts" class="builder-floating-loadouts builder-floating-loadouts-detached">
-            <div id="builder-layout-slots" class="builder-layout-slots builder-layout-slots--floating"></div>
-          </div>
-          <div id="builder-panel-performance" class="builder-floating-performance">
-            <pre id="builder-perf" class="builder-perf">Collecting samples...</pre>
-          </div>
-        </div>
-      </main>
-    </div>
-  `;
+  root.innerHTML = builderViewShellHtml(canvasScale);
 
   const builderLayoutEl = root.querySelector<HTMLDivElement>(".builder-layout")!;
   const builderSidebarEl = root.querySelector<HTMLElement>(".builder-sidebar")!;
@@ -4185,6 +3614,46 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     },
   });
 
+  const finalizeEntityGroupMovePointerUp = (
+    up: MouseEvent,
+    ctx: {
+      movingRootIds: string[];
+      primaryRootId: string;
+      didModifierCopy: boolean;
+      didMove: boolean;
+      preCopyState: BuilderState;
+      preCopySelection: Set<string>;
+      shouldUpdateWiresDuringDrag: boolean;
+    },
+  ): void => {
+    const droppedInDeleteZone = isPointInDeleteDropZone(up.clientX, up.clientY);
+    setDeleteDropZoneActive(false);
+    if (dragRenderRaf !== null) {
+      window.cancelAnimationFrame(dragRenderRaf);
+      dragRenderRaf = null;
+    }
+    clearBuilderDragCursor();
+    if (droppedInDeleteZone) {
+      hideDragGroupBounds();
+      deleteEntityRootIds(ctx.movingRootIds);
+      return;
+    }
+    if (ctx.didModifierCopy && !ctx.didMove) {
+      state = ctx.preCopyState;
+      const next = new Set(ctx.preCopySelection);
+      if (next.has(ctx.primaryRootId)) next.delete(ctx.primaryRootId);
+      else next.add(ctx.primaryRootId);
+      setEntitySelectionSet(next);
+      return;
+    }
+    hideDragGroupBounds();
+    if (!ctx.shouldUpdateWiresDuringDrag) {
+      scheduleWireOverlayRender();
+    }
+    schedulePersist();
+    renderInspector();
+  };
+
   const startEntityDragFromElement = (entityEl: HTMLElement, ev: MouseEvent): void => {
     const target = ev.target as HTMLElement;
     const btn = target.closest<HTMLButtonElement>("button");
@@ -4515,32 +3984,15 @@ export function mountBuilderView(options: BuilderMountOptions): void {
           }
         };
         const onUp = (up: MouseEvent): void => {
-          const droppedInDeleteZone = isPointInDeleteDropZone(up.clientX, up.clientY);
-          setDeleteDropZoneActive(false);
-          if (dragRenderRaf !== null) {
-            window.cancelAnimationFrame(dragRenderRaf);
-            dragRenderRaf = null;
-          }
-          clearBuilderDragCursor();
-          if (droppedInDeleteZone) {
-            hideDragGroupBounds();
-            deleteEntityRootIds(movingRootIds);
-            return;
-          }
-          if (didModifierCopy && !didMove) {
-            state = preCopyState;
-            const next = new Set(preCopySelection);
-            if (next.has(rootEnt.id)) next.delete(rootEnt.id);
-            else next.add(rootEnt.id);
-            setEntitySelectionSet(next);
-            return;
-          }
-          hideDragGroupBounds();
-          if (!shouldUpdateWiresDuringDrag) {
-            scheduleWireOverlayRender();
-          }
-          schedulePersist();
-          renderInspector();
+          finalizeEntityGroupMovePointerUp(up, {
+            movingRootIds,
+            primaryRootId: rootEnt.id,
+            didModifierCopy,
+            didMove,
+            preCopyState,
+            preCopySelection,
+            shouldUpdateWiresDuringDrag,
+          });
         };
         setBuilderDragCursor("grabbing");
         capturePrimaryDragOnWindow(ev, { onMove, onEnd: onUp });
@@ -4783,32 +4235,15 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       }
     };
     const onUp = (up: MouseEvent): void => {
-      const droppedInDeleteZone = isPointInDeleteDropZone(up.clientX, up.clientY);
-      setDeleteDropZoneActive(false);
-      clearBuilderDragCursor();
-      if (dragRenderRaf !== null) {
-        window.cancelAnimationFrame(dragRenderRaf);
-        dragRenderRaf = null;
-      }
-      if (droppedInDeleteZone) {
-        hideDragGroupBounds();
-        deleteEntityRootIds(movingRootIds);
-        return;
-      }
-      if (didModifierCopy && !didMove) {
-        state = preCopyState;
-        const next = new Set(preCopySelection);
-        if (next.has(rootEnt.id)) next.delete(rootEnt.id);
-        else next.add(rootEnt.id);
-        setEntitySelectionSet(next);
-        return;
-      }
-      hideDragGroupBounds();
-      if (!shouldUpdateWiresDuringDrag) {
-        scheduleWireOverlayRender();
-      }
-      schedulePersist();
-      renderInspector();
+      finalizeEntityGroupMovePointerUp(up, {
+        movingRootIds,
+        primaryRootId: rootEnt.id,
+        didModifierCopy,
+        didMove,
+        preCopyState,
+        preCopySelection,
+        shouldUpdateWiresDuringDrag,
+      });
     };
     setBuilderDragCursor("grabbing");
     capturePrimaryDragOnWindow(ev, { onMove, onEnd: onUp });
