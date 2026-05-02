@@ -1,5 +1,8 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { CSS2DObject, CSS2DRenderer } from "three/examples/jsm/renderers/CSS2DRenderer.js";
+import { portKey, type Packet, type PortRef } from "../simulation";
+import type { PacketLabelMode } from "../packet-label-mode";
 import type { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
 import type { SSAOPass } from "three/examples/jsm/postprocessing/SSAOPass.js";
 import type { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
@@ -9,6 +12,21 @@ import { createWorldSsao } from "./world-ao-ssao";
 import { buildWorldCullCapGeometry, createWorldCullCapMaterial } from "./world-cull-cap";
 import { createWorldGridLines, type WorldGridLines } from "./world-grid-lines";
 import { decodeAddress, type SaveData, type SaveNode, type VisualNode } from "./model";
+
+const PACKET_3D_SUBJECT_MAX_CHARS = 40;
+
+function parseDeviceNodeIndexForPackets(deviceId: string): number | null {
+  const idx = deviceId.lastIndexOf("-");
+  if (idx <= 0) return null;
+  const n = Number(deviceId.slice(idx + 1));
+  return Number.isFinite(n) ? n : null;
+}
+
+function formatPacketSubjectLine(subject: string | undefined): string {
+  const t = (subject ?? "").trim();
+  if (!t.length) return "";
+  return t.length > PACKET_3D_SUBJECT_MAX_CHARS ? `${t.slice(0, PACKET_3D_SUBJECT_MAX_CHARS - 1)}…` : t;
+}
 
 {
   const meshProto = THREE.Mesh.prototype as THREE.Mesh & { __svBvhPatched?: boolean };
@@ -153,6 +171,7 @@ export type Viewer3DState = {
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
   controls: OrbitControls;
+  css2DRenderer: CSS2DRenderer;
   animationFrame: number;
   clipPlane: THREE.Plane;
   cullMinY: number;
@@ -173,6 +192,13 @@ export type Viewer3DState = {
   resetCamera: () => void;
   onKeyDown: (event: KeyboardEvent) => void;
   onKeyUp: (event: KeyboardEvent) => void;
+  updatePackets: (
+    prevOccupancy: Array<{ port: PortRef; packet: Packet }>,
+    occupancy: Array<{ port: PortRef; packet: Packet }>,
+    adjacency: Map<string, PortRef> | null,
+    progress: number,
+    packetLabelMode: PacketLabelMode,
+  ) => void;
   dispose: () => void;
 };
 
@@ -251,7 +277,15 @@ export async function createOrRefresh3DWorld(
   renderer.localClippingEnabled = true;
   container.innerHTML = "";
   container.appendChild(renderer.domElement);
+  const css2DRenderer = new CSS2DRenderer();
+  css2DRenderer.setSize(width, height);
+  css2DRenderer.domElement.style.position = "absolute";
+  css2DRenderer.domElement.style.inset = "0";
+  css2DRenderer.domElement.style.pointerEvents = "none";
+  css2DRenderer.domElement.style.zIndex = "3";
+  container.appendChild(css2DRenderer.domElement);
   const perfOverlay = document.createElement("div");
+  perfOverlay.style.zIndex = "4";
   perfOverlay.style.position = "absolute";
   perfOverlay.style.top = "10px";
   perfOverlay.style.right = "10px";
@@ -538,6 +572,191 @@ export async function createOrRefresh3DWorld(
   entityGraphGroup.add(edgeLines);
   for (const mesh of entityInstancedMeshes) entityGraphGroup.add(mesh);
   scene.add(entityGraphGroup);
+
+  const packetSphereGeom = new THREE.SphereGeometry(0.16, 12, 10);
+  const packetGroup = new THREE.Group();
+  packetGroup.name = "sv-packets";
+  entityGraphGroup.add(packetGroup);
+
+  type PacketVizHandle = {
+    group: THREE.Group;
+    mesh: THREE.Mesh;
+    label: CSS2DObject | null;
+    lastLabelSig: string;
+  };
+  const packetVizById = new Map<number, PacketVizHandle>();
+  const packetLerpA = new THREE.Vector3();
+  const packetLerpB = new THREE.Vector3();
+
+  const clearAllPacketViz = (): void => {
+    for (const h of Array.from(packetVizById.values())) {
+      packetGroup.remove(h.group);
+      (h.mesh.material as THREE.Material).dispose();
+      h.label?.element.remove();
+    }
+    packetVizById.clear();
+  };
+
+  const labelSig = (p: Packet, mode: PacketLabelMode): string =>
+    `${p.src}\0${p.dest}\0${formatPacketSubjectLine(p.subject)}\0${mode}\0${p.sensitive ? 1 : 0}`;
+
+  const fillPacketLabelDiv = (el: HTMLElement, packet: Packet, mode: PacketLabelMode): void => {
+    el.replaceChildren();
+    if (mode === "hide") return;
+    const ips = document.createElement("div");
+    ips.className = "sv-packet-css-label-ips";
+    ips.textContent = `${packet.src} → ${packet.dest}`;
+    el.appendChild(ips);
+    if (mode === "ipsSubject") {
+      const subj = formatPacketSubjectLine(packet.subject);
+      if (subj) {
+        const s = document.createElement("div");
+        s.className = "sv-packet-css-label-subject";
+        s.textContent = subj;
+        el.appendChild(s);
+      }
+    }
+  };
+
+  const makePacketViz = (packet: Packet, initialMode: PacketLabelMode): PacketVizHandle => {
+    const hue = (packet.id * 47) % 360;
+    const col = new THREE.Color().setHSL(hue / 360, 0.82, 0.58);
+    if (packet.sensitive) col.set(0xff9bb8);
+    const mat = new THREE.MeshBasicMaterial({
+      color: col,
+      clippingPlanes: [clipPlane],
+      clipIntersection: false,
+    });
+    const mesh = new THREE.Mesh(packetSphereGeom, mat);
+    if (packet.sensitive) mesh.scale.setScalar(1.12);
+    const group = new THREE.Group();
+    group.name = `sv-packet-${packet.id}`;
+    group.add(mesh);
+    let label: CSS2DObject | null = null;
+    if (initialMode !== "hide") {
+      const div = document.createElement("div");
+      div.className = "sv-packet-css-label";
+      div.style.pointerEvents = "none";
+      fillPacketLabelDiv(div, packet, initialMode);
+      label = new CSS2DObject(div);
+      label.position.set(0, 0.32, 0);
+      group.add(label);
+    }
+    return { group, mesh, label, lastLabelSig: labelSig(packet, initialMode) };
+  };
+
+  const syncPacketViz = (handle: PacketVizHandle, packet: Packet, mode: PacketLabelMode): void => {
+    const sig = labelSig(packet, mode);
+    if (mode === "hide") {
+      if (handle.label) {
+        handle.group.remove(handle.label);
+        handle.label.element.remove();
+        handle.label = null;
+      }
+      handle.lastLabelSig = sig;
+      return;
+    }
+    if (!handle.label) {
+      const div = document.createElement("div");
+      div.className = "sv-packet-css-label";
+      div.style.pointerEvents = "none";
+      fillPacketLabelDiv(div, packet, mode);
+      const o = new CSS2DObject(div);
+      o.position.set(0, 0.32, 0);
+      handle.label = o;
+      handle.group.add(o);
+    } else if (handle.lastLabelSig !== sig) {
+      fillPacketLabelDiv(handle.label.element, packet, mode);
+    }
+    handle.lastLabelSig = sig;
+  };
+
+  const updatePackets = (
+    prevOccupancy: Array<{ port: PortRef; packet: Packet }>,
+    occupancy: Array<{ port: PortRef; packet: Packet }>,
+    adjacency: Map<string, PortRef> | null,
+    progress: number,
+    packetLabelMode: PacketLabelMode,
+  ): void => {
+    if (!adjacency) {
+      clearAllPacketViz();
+      return;
+    }
+    if (occupancy.length === 0) {
+      clearAllPacketViz();
+      return;
+    }
+
+    const nodes = save.nodes;
+    const resolve = (
+      port: PortRef,
+    ): { ax: number; ay: number; az: number; bx: number; by: number; bz: number } | null => {
+      const niFrom = parseDeviceNodeIndexForPackets(port.deviceId);
+      if (niFrom === null) return null;
+      const neighbor = adjacency.get(portKey(port));
+      if (!neighbor) return null;
+      const niTo = parseDeviceNodeIndexForPackets(neighbor.deviceId);
+      if (niTo === null) return null;
+      const pa = nodes[niFrom]?.pos;
+      const pb = nodes[niTo]?.pos;
+      if (!pa || !pb) return null;
+      return {
+        ax: Number(pa[0] ?? 0),
+        ay: Number(pa[1] ?? 0),
+        az: Number(pa[2] ?? 0),
+        bx: Number(pb[0] ?? 0),
+        by: Number(pb[1] ?? 0),
+        bz: Number(pb[2] ?? 0),
+      };
+    };
+
+    const tAlong = 0.35;
+    const setLerp = (
+      out: THREE.Vector3,
+      w: { ax: number; ay: number; az: number; bx: number; by: number; bz: number },
+    ): void => {
+      out.set(
+        w.ax + (w.bx - w.ax) * tAlong,
+        w.ay + (w.by - w.ay) * tAlong,
+        w.az + (w.bz - w.az) * tAlong,
+      );
+    };
+
+    const prevByPacketId = new Map(prevOccupancy.map((o) => [o.packet.id, o]));
+    const active = new Set<number>();
+    for (const occ of occupancy) {
+      const wCur = resolve(occ.port);
+      if (!wCur) continue;
+      active.add(occ.packet.id);
+      setLerp(packetLerpA, wCur);
+      const prevOcc = prevByPacketId.get(occ.packet.id);
+      const wPrev = prevOcc && prevOcc.packet.id === occ.packet.id ? resolve(prevOcc.port) : null;
+      if (wPrev) setLerp(packetLerpB, wPrev);
+      else packetLerpB.copy(packetLerpA);
+      const x = packetLerpB.x + (packetLerpA.x - packetLerpB.x) * progress;
+      const y = packetLerpB.y + (packetLerpA.y - packetLerpB.y) * progress;
+      const z = packetLerpB.z + (packetLerpA.z - packetLerpB.z) * progress;
+
+      let h = packetVizById.get(occ.packet.id);
+      if (!h) {
+        h = makePacketViz(occ.packet, packetLabelMode);
+        packetVizById.set(occ.packet.id, h);
+        packetGroup.add(h.group);
+      } else {
+        syncPacketViz(h, occ.packet, packetLabelMode);
+      }
+      h.group.position.set(x, y, z);
+    }
+
+    for (const [id, h] of Array.from(packetVizById.entries())) {
+      if (!active.has(id)) {
+        packetGroup.remove(h.group);
+        (h.mesh.material as THREE.Material).dispose();
+        h.label?.element.remove();
+        packetVizById.delete(id);
+      }
+    }
+  };
 
   const chunkEntries = Array.isArray(save.chunks) ? save.chunks : [];
   const worldMeshes: THREE.Mesh[] = [];
@@ -1135,6 +1354,7 @@ export async function createOrRefresh3DWorld(
     renderStepFrameMs.render_other = 0;
     const tRenderMain = performance.now();
     composer!.render();
+    css2DRenderer.render(scene, camera);
     const renderMainMs = performance.now() - tRenderMain;
     const minimapTiming = effectEnabledInCurrentMode("minimap")
       ? renderMinimap()
@@ -1169,7 +1389,7 @@ export async function createOrRefresh3DWorld(
   };
 
   const state: Viewer3DState = {
-    renderer, composer, ssaoPass, outputPass, scene, camera, controls, animationFrame: 0, clipPlane,
+    renderer, composer, ssaoPass, outputPass, scene, camera, controls, css2DRenderer, updatePackets, animationFrame: 0, clipPlane,
     cullMinY: worldMinY,
     cullMaxY: worldMaxY + WORLD_CHUNK_SIZE * 0.5,
     worldMeshes, cullCapMesh, worldBoundaryLines, worldMaterials, worldMeshWorkers,
@@ -1269,6 +1489,8 @@ export async function createOrRefresh3DWorld(
       renderer.domElement.removeEventListener("click", onPointerLockClick);
       if (document.pointerLockElement === renderer.domElement) document.exitPointerLock();
       controls.dispose();
+      clearAllPacketViz();
+      packetSphereGeom.dispose();
       for (const mesh of entityInstancedMeshes) mesh.dispose();
       entityAoTexture.dispose();
       scene.remove(entityGraphGroup);

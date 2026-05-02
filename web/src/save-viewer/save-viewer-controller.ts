@@ -184,7 +184,12 @@ export function startSaveViewerController(): void {
   };
 
   const renderGraphAndPackets = (progress = 1): void => {
-    if (use3DView) return;
+    if (use3DView) {
+      if (world3D) {
+        world3D.updatePackets(previousOccupancy, currentOccupancy, simAdj, progress, packetLabelMode);
+      }
+      return;
+    }
     const drawBox = renderGraph(currentModel, cameraBox);
     renderPacketOverlay(currentModel, previousOccupancy, currentOccupancy, simAdj, progress, packetLabelMode, drawBox);
   };
@@ -256,6 +261,9 @@ export function startSaveViewerController(): void {
       applyAoForCullState();
       applyVertexAoState();
       if (pendingTeleportPosition) applyTeleportPosition(pendingTeleportPosition);
+      if (use3DView) {
+        world3D.updatePackets(previousOccupancy, currentOccupancy, simAdj, 1, packetLabelMode);
+      }
     }
     hideLoadProgress();
   };
@@ -279,6 +287,7 @@ export function startSaveViewerController(): void {
           world3D.camera.updateProjectionMatrix();
           world3D.renderer.setSize(w, h);
           world3D.composer?.setSize(w, h);
+          world3D.css2DRenderer.setSize(w, h);
           for (const lines of world3D.worldBoundaryLines) setWorldGridLineResolution(lines, w, h);
         };
         window.addEventListener("resize", world3DResizeHandler);

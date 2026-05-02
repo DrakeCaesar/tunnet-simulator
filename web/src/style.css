@@ -2359,3 +2359,30 @@ textarea {
   dominant-baseline: hanging;
   pointer-events: none;
 }
+
+/* 3D save viewer: HTML labels for CSS2DRenderer */
+.sv-packet-css-label {
+  background: rgba(9, 12, 19, 0.82);
+  color: #d8e6ff;
+  border: 1px solid rgba(137, 180, 250, 0.25);
+  border-radius: 4px;
+  padding: 3px 7px;
+  font: 12px/1.25 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  white-space: nowrap;
+  text-align: left;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+  user-select: none;
+}
+
+.sv-packet-css-label-ips {
+  color: #d8e6ff;
+}
+
+.sv-packet-css-label-subject {
+  color: #a6adc8;
+  margin-top: 3px;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
