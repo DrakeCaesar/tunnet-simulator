@@ -175,9 +175,14 @@ type BuilderPerfKey =
   | "canvas.domCommit"
   | "canvas.portCache"
   | "wire.total"
+  | "wire.packetHook"
   | "wire.expandLinks"
+  | "wire.overlayWrapRect"
+  | "wire.overlayScrollExtents"
   | "wire.portResolve"
   | "wire.lineBuild"
+  | "wire.dragMarkup"
+  | "wire.domCommit"
   | "packet.total"
   | "packet.overlayResize"
   | "packet.compute"
@@ -865,9 +870,14 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       "canvas.domCommit",
       "canvas.portCache",
       "wire.total",
+      "wire.packetHook",
       "wire.expandLinks",
+      "wire.overlayWrapRect",
+      "wire.overlayScrollExtents",
       "wire.portResolve",
       "wire.lineBuild",
+      "wire.dragMarkup",
+      "wire.domCommit",
       "packet.total",
       "packet.overlayResize",
       "packet.compute",
@@ -889,13 +899,18 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       .sort((a, b) => b.v - a.v)
       .slice(0, 3);
     const topWire = ([
-      "wire.expandLinks",
-      "wire.portResolve",
+      "wire.packetHook",
+      "wire.domCommit",
+      "wire.overlayScrollExtents",
+      "wire.overlayWrapRect",
+      "wire.dragMarkup",
       "wire.lineBuild",
+      "wire.portResolve",
+      "wire.expandLinks",
     ] as BuilderPerfKey[])
       .map((k) => ({ k, v: get(k).lastMs }))
       .sort((a, b) => b.v - a.v)
-      .slice(0, 3);
+      .slice(0, 5);
     const topPacket = ([
       "packet.overlayResize",
       "packet.compute",
@@ -1116,11 +1131,15 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     recordPerf: (key, ms) => recordPerf(key as BuilderPerfKey, ms),
     perfCounts,
     afterWireOverlayPaint: (overlayPassStartMs, paintOpts) => {
+      let packetHookMs = 0;
       if (!paintOpts?.skipPacketRefresh) {
+        const tp0 = performance.now();
         invalidateBuilderPacketGeometryCache();
         invalidateBuilderPacketRenderCache();
         renderBuilderPacketCircles(simPacketProgress);
+        packetHookMs = performance.now() - tp0;
       }
+      recordPerf("wire.packetHook", packetHookMs);
       recordPerf("wire.total", performance.now() - overlayPassStartMs);
       renderPerfPanel();
     },
@@ -3256,7 +3275,11 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     return false;
   }
 
-  function syncEntityDomForRoots(rootIds: ReadonlySet<string>): boolean {
+  /** Pass `true` for pointer-up wired flush (paint + bake). Use `{ syncPartial: true, bake: false }` mid-drag DOM rebuild (layer/segment hop). */
+  function syncEntityDomForRoots(
+    rootIds: ReadonlySet<string>,
+    entityWireOverlay?: boolean | { syncPartial: true; bake?: boolean },
+  ): boolean {
     if (rootIds.size === 0) return false;
     const expanded = expandBuilderState(state, { builderView: true });
     const staticRootIds = new Set(
@@ -3313,7 +3336,23 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     });
     applySelectionToCanvas();
     applySimTickHighlightsToCanvas();
-    return wireBag.w!.refreshWireOverlayAfterEntityPatch(rootIds);
+    let syncPartial = false;
+    let bakeAfterPartial = true;
+    if (entityWireOverlay === true) {
+      syncPartial = true;
+      bakeAfterPartial = true;
+    } else if (
+      entityWireOverlay &&
+      typeof entityWireOverlay === "object" &&
+      entityWireOverlay.syncPartial === true
+    ) {
+      syncPartial = true;
+      bakeAfterPartial = entityWireOverlay.bake !== false;
+    }
+    return wireBag.w!.refreshWireOverlayAfterEntityPatch(rootIds, {
+      syncEntityWirePartial: syncPartial,
+      entityWireBakeAfterPartial: bakeAfterPartial,
+    });
   }
 
   function removeEntityDomForIds(removedRootIds: ReadonlySet<string>, wireGeometryChanged = true): void {
@@ -3336,7 +3375,10 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       const ids = new Set(pendingDragEntityPatchRootIds);
       pendingDragEntityPatchRootIds.clear();
       if (ids.size > 0) {
-        syncEntityDomForRoots(ids);
+        syncEntityDomForRoots(
+          ids,
+          wireBag.w!.isEntityWireDragActive() ? { syncPartial: true, bake: false } : undefined,
+        );
       }
     });
   }
@@ -3575,15 +3617,11 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     scheduleWireOverlayIfDragging: () => {
       if (shouldUpdateWiresDuringDrag) {
         wireBag.w!.scheduleWireOverlayRender();
-      } else {
-        wireBag.w!.scheduleWireOverlayRender({ scrollOnly: true });
       }
     },
     scheduleWireOverlayIfIdle: () => {
       if (shouldUpdateWiresDuringDrag) {
         wireBag.w!.scheduleWireOverlayRender();
-      } else {
-        wireBag.w!.scheduleWireOverlayRender({ scrollOnly: true });
       }
     },
     clearBuilderDragCursor,
@@ -3611,7 +3649,6 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       shouldUpdateWiresDuringDrag: boolean;
     },
   ): void => {
-    wireBag.w!.endEntityWireDrag();
     const droppedInDeleteZone = isPointInDeleteDropZone(up.clientX, up.clientY);
     setDeleteDropZoneActive(false);
     let entityPatchFlushIds: Set<string> | null = null;
@@ -3624,10 +3661,12 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     clearBuilderDragCursor();
     if (droppedInDeleteZone) {
       hideDragGroupBounds();
+      wireBag.w!.endEntityWireDrag();
       deleteEntityRootIds(ctx.movingRootIds);
       return;
     }
     if (ctx.didModifierCopy && !ctx.didMove) {
+      wireBag.w!.endEntityWireDrag();
       state = ctx.preCopyState;
       const next = new Set(ctx.preCopySelection);
       if (next.has(ctx.primaryRootId)) next.delete(ctx.primaryRootId);
@@ -3636,17 +3675,18 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       return;
     }
     hideDragGroupBounds();
-    let wireGeometryRedrawnFromSync = false;
+    let overlayRedrawn = false;
     if (entityPatchFlushIds && entityPatchFlushIds.size > 0) {
-      wireGeometryRedrawnFromSync = syncEntityDomForRoots(entityPatchFlushIds);
+      overlayRedrawn = syncEntityDomForRoots(entityPatchFlushIds, true);
     }
     if (ctx.shouldUpdateWiresDuringDrag) {
-      if (!wireGeometryRedrawnFromSync) {
-        wireBag.w!.renderWireOverlay();
+      if (!overlayRedrawn) {
+        overlayRedrawn = wireBag.w!.refreshWireOverlayAfterEntityPatch(new Set(), {
+          syncEntityWirePartial: true,
+        });
       }
-    } else {
-      wireBag.w!.scheduleWireOverlayRender({ scrollOnly: true });
     }
+    wireBag.w!.endEntityWireDrag();
     schedulePersist();
     renderInspector();
   };
@@ -3677,7 +3717,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
         textTileSizeFromEntity,
         setEntityDomPosition,
         setTextEntitySizeDom,
-        scheduleWireOverlayRender: () => wireBag.w!.scheduleWireOverlayRender({ scrollOnly: true }),
+        scheduleWireOverlayRender: () => wireBag.w!.scheduleWireOverlayRender(),
         clearBuilderDragCursor,
         schedulePersist,
         renderInspector,
