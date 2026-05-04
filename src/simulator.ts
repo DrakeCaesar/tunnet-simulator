@@ -275,7 +275,7 @@ export class TunnetSimulator {
             dest: inbound.src,
             ttl: device.generator?.ttl ?? INFINITE_PACKET_TTL,
             sensitive: false,
-            subject: undefined,
+            subject: `Re: ${inbound.subject ?? ""}`,
           };
           if (this.enqueueOutbound(ctx, device.id, 0, reply)) {
             ctx.stats.emitted += 1;

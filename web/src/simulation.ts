@@ -357,7 +357,7 @@ export class TunnetSimulator {
             dest: inbound.src,
             ttl: device.generator?.ttl ?? INFINITE_PACKET_TTL,
             sensitive: false,
-            subject: undefined,
+            subject: `Re: ${inbound.subject ?? ""}`,
           });
         }
       } else if (inbound.sensitive) {
