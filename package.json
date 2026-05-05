@@ -18,6 +18,7 @@
     "sched:compare": "tsx src/analysis/compare-scheduler.ts",
     "sched:sequence": "tsx src/analysis/export-message-sequence.ts",
     "compare:edges": "tsx src/analysis/compare-endpoint-edges.ts",
+    "compare:edge-ttls": "tsx src/analysis/compare-edge-ttls.ts",
     "compare:edges:scan": "tsx src/analysis/compare-endpoint-edges.ts scan 1000 0 8 0 8",
     "extract:exe-strings": "python analysis/scripts/extract-tunnet-rdata-strings.py",
     "extract:packet-pools": "python analysis/scripts/extract-packet-string-pools.py",

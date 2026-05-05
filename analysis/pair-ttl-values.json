@@ -1,0 +1,2584 @@
+{
+  "ticks": 10000,
+  "strategy": "plus_one_all_octets_regional_mainframe",
+  "phaseA": 0,
+  "phaseB": 0,
+  "finalPhaseA": 0,
+  "finalPhaseB": 0,
+  "bridgeCoverage": [
+    {
+      "bridge": "1.0.1.0",
+      "touchedPairCount": 0,
+      "status": "not_exercised",
+      "reason": "no recovered pair in this run touched bridge endpoint",
+      "pairs": []
+    },
+    {
+      "bridge": "1.1.1.0",
+      "touchedPairCount": 0,
+      "status": "not_exercised",
+      "reason": "no recovered pair in this run touched bridge endpoint",
+      "pairs": []
+    },
+    {
+      "bridge": "1.2.1.0",
+      "touchedPairCount": 0,
+      "status": "not_exercised",
+      "reason": "no recovered pair in this run touched bridge endpoint",
+      "pairs": []
+    },
+    {
+      "bridge": "1.3.1.0",
+      "touchedPairCount": 0,
+      "status": "not_exercised",
+      "reason": "no recovered pair in this run touched bridge endpoint",
+      "pairs": []
+    }
+  ],
+  "records": [
+    {
+      "pair": "0.0.0.0>0.0.0.1",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.0.0.0>0.0.0.2",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.0.0.0>0.0.0.3",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.0.0.0>0.0.1.1",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.0.0.0>0.0.1.2",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.0.0.0>0.0.1.3",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.0.0.0>0.0.3.0",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.0.0.0>0.0.3.1",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.0.0.0>0.0.3.2",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.0.0.0>0.0.3.3",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.0.0.0>0.1.0.0",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.0.0.0>0.2.0.0",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.0.0.0>0.3.0.0",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.0.3.1>0.0.0.0",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.0.3.1>0.0.0.1",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.0.3.1>0.0.0.2",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.0.3.1>0.0.0.3",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.0.3.1>0.0.1.1",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.0.3.1>0.0.1.2",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.0.3.1>0.0.1.3",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.0.3.1>0.0.3.0",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.0.3.1>0.0.3.2",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.0.3.1>0.0.3.3",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.1.0.0>0.1.0.1",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.1.0.0>0.1.0.2",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.1.0.0>0.1.0.3",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.1.0.0>0.1.1.1",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.1.0.0>0.1.1.2",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.1.0.0>0.1.1.3",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.1.0.0>0.1.2.0",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.1.0.0>0.1.2.1",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.1.0.0>0.1.2.2",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.1.0.0>0.1.2.3",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.1.0.0>0.1.3.0",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.1.0.0>0.1.3.1",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.1.0.0>0.1.3.2",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.1.0.0>0.1.3.3",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.1.0.0>0.2.2.2",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.1.0.0>0.3.2.2",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.1.0.1>0.1.1.1",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.1.0.1>0.1.2.0",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.1.0.1>0.2.0.0",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.1.0.2>0.0.0.2",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.1.0.2>0.2.0.2",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.1.0.2>0.3.0.2",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.1.1.2>0.1.3.1",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.1.2.1>0.1.0.0",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.1.2.1>0.1.0.1",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.1.2.1>0.1.0.2",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.1.2.1>0.1.0.3",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.1.2.1>0.1.1.1",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.1.2.1>0.1.1.2",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.1.2.1>0.1.1.3",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.1.2.1>0.1.2.0",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.1.2.1>0.1.2.2",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.1.2.1>0.1.2.3",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.1.2.1>0.1.3.0",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.1.2.1>0.1.3.1",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.1.2.1>0.1.3.2",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.1.2.1>0.1.3.3",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.1.2.2>0.1.0.0",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.1.2.2>0.1.2.1",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.1.2.2>0.1.3.1",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.1.3.1>0.1.0.0",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.1.3.1>0.1.0.1",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.1.3.1>0.1.0.2",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.1.3.1>0.1.0.3",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.1.3.1>0.1.1.1",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.1.3.1>0.1.1.2",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.1.3.1>0.1.1.3",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.1.3.1>0.1.2.0",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.1.3.1>0.1.2.1",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.1.3.1>0.1.2.2",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.1.3.1>0.1.2.3",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.1.3.1>0.1.3.0",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.1.3.1>0.1.3.2",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.1.3.1>0.1.3.3",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.1.3.2>0.0.1.1",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.1.3.2>0.1.1.1",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.1.3.2>0.1.3.0",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.1.3.2>0.2.1.1",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.1.3.2>0.3.1.1",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.1.3.3>0.0.3.3",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.1.3.3>0.1.0.0",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.1.3.3>0.2.3.3",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.1.3.3>0.3.3.3",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.0>0.0.0.0",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.0>0.0.0.1",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.0>0.0.0.2",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.0>0.0.0.3",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.0>0.0.1.1",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.0>0.0.1.2",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.0>0.0.1.3",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.0>0.0.3.0",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.0>0.0.3.1",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.0>0.0.3.2",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.0>0.0.3.3",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.0>0.1.0.0",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.0>0.1.0.1",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.0>0.1.0.2",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.0>0.1.0.3",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.0>0.1.1.1",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.0>0.1.1.2",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.0>0.1.1.3",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.0>0.1.2.0",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.0>0.1.2.1",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.0>0.1.2.2",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.0>0.1.2.3",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.0>0.1.3.0",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.0>0.1.3.1",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.0>0.1.3.2",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.0>0.1.3.3",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.0>0.2.0.1",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.0>0.2.0.2",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.0>0.2.0.3",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.0>0.2.1.1",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.0>0.2.1.2",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.0>0.2.1.3",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.0>0.2.2.0",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.0>0.2.2.1",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.0>0.2.2.2",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.0>0.2.2.3",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.0>0.2.3.0",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.0>0.2.3.1",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.0>0.2.3.2",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.0>0.2.3.3",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.0>0.3.0.0",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.0>0.3.0.1",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.0>0.3.0.2",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.0>0.3.0.3",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.0>0.3.1.1",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.0>0.3.1.2",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.0>0.3.1.3",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.0>0.3.2.0",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.0>0.3.2.1",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.0>0.3.2.2",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.0>0.3.2.3",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.0>0.3.3.0",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.0>0.3.3.1",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.0>0.3.3.2",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.0>0.3.3.3",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.1>0.1.1.1",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.1>0.1.2.0",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.1>0.2.0.0",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.2>0.0.0.2",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.2>0.1.0.2",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.2>0.3.0.2",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.3>0.2.1.2",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.3>0.2.2.3",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.3>0.2.3.1",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.0.3>0.2.3.3",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.1.2>0.2.3.1",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.2.1>0.2.0.0",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.2.1>0.2.0.1",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.2.1>0.2.0.2",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.2.1>0.2.0.3",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.2.1>0.2.1.1",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.2.1>0.2.1.2",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.2.1>0.2.1.3",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.2.1>0.2.2.0",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.2.1>0.2.2.2",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.2.1>0.2.2.3",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.2.1>0.2.3.0",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.2.1>0.2.3.1",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.2.1>0.2.3.2",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.2.1>0.2.3.3",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.2.2>0.1.0.0",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.2.2>0.2.2.1",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.2.2>0.2.3.1",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.3.2>0.0.1.1",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.3.2>0.1.1.1",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.3.2>0.2.1.1",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.3.2>0.2.3.0",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.3.2>0.3.1.1",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.3.3>0.0.3.3",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.3.3>0.1.3.3",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.3.3>0.2.0.0",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.2.3.3>0.3.3.3",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.3.0.2>0.0.0.2",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.3.0.2>0.1.0.2",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.3.0.2>0.2.0.2",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.3.0.3>0.3.1.2",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.3.0.3>0.3.2.3",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.3.0.3>0.3.3.1",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.3.0.3>0.3.3.3",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.3.1.2>0.3.3.1",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.3.2.2>0.1.0.0",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.3.2.2>0.3.2.1",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.3.2.2>0.3.3.1",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.3.3.1>0.3.0.0",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.3.3.1>0.3.0.1",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.3.3.1>0.3.0.2",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.3.3.1>0.3.0.3",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.3.3.1>0.3.1.1",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.3.3.1>0.3.1.2",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.3.3.1>0.3.1.3",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.3.3.1>0.3.2.0",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.3.3.1>0.3.2.1",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.3.3.1>0.3.2.2",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.3.3.1>0.3.2.3",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.3.3.1>0.3.3.0",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.3.3.1>0.3.3.2",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.3.3.1>0.3.3.3",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.3.3.2>0.0.1.1",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.3.3.2>0.1.1.1",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.3.3.2>0.2.1.1",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.3.3.2>0.3.1.1",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.3.3.2>0.3.3.0",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.3.3.3>0.0.3.3",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.3.3.3>0.1.3.3",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.3.3.3>0.2.3.3",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    },
+    {
+      "pair": "0.3.3.3>0.3.0.0",
+      "ttlValues": [],
+      "min": null,
+      "max": null,
+      "ruleIds": [
+        "ttl.2f5840.encode_buffer_plus8",
+        "ttl.6b6820.table_times_r15"
+      ],
+      "status": "unresolved",
+      "reason": "needs real r15 from sub_1406b6820 hash-match row(+0x18); static shortcut removed because it mismatches in-game measurements"
+    }
+  ]
+}
