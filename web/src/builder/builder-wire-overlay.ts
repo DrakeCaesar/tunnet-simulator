@@ -56,7 +56,7 @@ const WIRE_PORT_DROP_ZONE_PX = 5;
 const WIRE_DRAG_START_THRESHOLD_PX = 3;
 const BUILDER_WIRE_STROKE_WIDTH_PX = 3;
 const BUILDER_WIRE_DEFAULT_OUTLINE_WIDTH_PX = 1;
-const BUILDER_WIRE_DEFAULT_OUTLINE_HEX = "#ffffff";
+const BUILDER_WIRE_DEFAULT_OUTLINE_HEX = "#aaaaaa";
 const DEFAULT_WIRE_COLOR_INDEX = 0;
 
 function isDefaultWireColor(index: number | undefined): boolean {
