@@ -1083,8 +1083,9 @@ textarea {
 }
 
 .builder-sim-speed-inline-value {
-  color: var(--text-main);
+  color: inherit;
   white-space: nowrap;
+  font-weight: inherit;
 }
 
 .builder-sim-speed-inline-range {

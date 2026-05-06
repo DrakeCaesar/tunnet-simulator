@@ -1484,7 +1484,12 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   }
 
   function syncBuilderSimSliderLabels(): void {
-    simSpeedValueEl.textContent = formatSpeedLabel(simSpeedExponent);
+    const target = formatSpeedLabel(simSpeedExponent);
+    const measured =
+      simEmaAchievedSpeed !== null && Number.isFinite(simEmaAchievedSpeed)
+        ? `${Math.max(0, simEmaAchievedSpeed).toFixed(0)}`
+        : null;
+    simSpeedValueEl.textContent = measured ? `${target} (${measured})` : target;
   }
 
   function formatSimDropRowLabelForExpanded(expanded: ExpandedBuilderState, deviceId: string): string {
@@ -1495,6 +1500,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   }
 
   function updateBuilderSimMeta(): void {
+    syncBuilderSimSliderLabels();
     simMetaEl.innerHTML = renderSimulatorMetaGridHtml({
       stats: simStats,
       inFlight: simCurrentOccupancy.length,
