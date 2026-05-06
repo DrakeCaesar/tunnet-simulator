@@ -602,6 +602,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     }
     syncBuilderControlPanelPlacement();
     wireBag.w!.scheduleWireOverlayRender();
+    invalidatePacketOverlayExtent();
     renderBuilderPacketCircles(simPacketProgress);
   }
 
@@ -1118,6 +1119,12 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   let packetRenderFrameId = 0;
   let packetOverlayWidthPx = -1;
   let packetOverlayHeightPx = -1;
+  let packetOverlayExtentDirty = true;
+  let packetOverlayExtentWidth = 0;
+  let packetOverlayExtentHeight = 0;
+  const invalidatePacketOverlayExtent = (): void => {
+    packetOverlayExtentDirty = true;
+  };
   let simTickDeliveredEntityRootIds = new Set<string>();
   let simTickCollisionDropEntityInstanceIds = new Set<string>();
   let simTickCollisionDropEntityRootIds = new Set<string>();
@@ -2759,6 +2766,17 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     packetOverlayEl.style.height = `${h}px`;
   }
 
+  function readBuilderPacketOverlayExtent(wrap: HTMLElement): { width: number; height: number } {
+    if (packetOverlayExtentDirty) {
+      const contentWidth = Math.max(canvasEl.scrollWidth, canvasEl.clientWidth);
+      const contentHeight = Math.max(canvasEl.scrollHeight, canvasEl.clientHeight);
+      packetOverlayExtentWidth = Math.max(wrap.clientWidth, contentWidth);
+      packetOverlayExtentHeight = Math.max(wrap.clientHeight, contentHeight);
+      packetOverlayExtentDirty = false;
+    }
+    return { width: packetOverlayExtentWidth, height: packetOverlayExtentHeight };
+  }
+
   function invalidateBuilderPacketRenderCache(): void {
     simPreparedPacketRenderDirty = true;
   }
@@ -2781,6 +2799,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     packetRenderFrameId = 0;
     packetOverlayWidthPx = -1;
     packetOverlayHeightPx = -1;
+    invalidatePacketOverlayExtent();
   }
 
   function ensureBuilderPacketCircleGroup(): SVGGElement {
@@ -3081,10 +3100,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     if (!wrap) return;
     const progress = clamp01(t);
     const tResize0 = performance.now();
-    const contentWidth = Math.max(canvasEl.scrollWidth, canvasEl.clientWidth);
-    const contentHeight = Math.max(canvasEl.scrollHeight, canvasEl.clientHeight);
-    const overlayWidth = Math.max(wrap.clientWidth, contentWidth);
-    const overlayHeight = Math.max(wrap.clientHeight, contentHeight);
+    const { width: overlayWidth, height: overlayHeight } = readBuilderPacketOverlayExtent(wrap);
     syncBuilderPacketOverlayDimensions(overlayWidth, overlayHeight);
     const tResize1 = performance.now();
 
@@ -3433,6 +3449,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
         .forEach((el) => el.remove());
     });
     markEntityDomIndexDirty();
+    invalidatePacketOverlayExtent();
     const htmlCtx = {
       gridTileXPx: BUILDER_GRID_TILE_SIZE_X_PX,
       gridTileYPx: BUILDER_GRID_TILE_SIZE_Y_PX,
@@ -3505,6 +3522,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
         .forEach((el) => el.remove());
     });
     markEntityDomIndexDirty();
+    invalidatePacketOverlayExtent();
     applySelectionToCanvas();
     applySimTickHighlightsToCanvas();
     wireBag.w!.refreshWireOverlayAfterEntityRemoval(wireGeometryChanged);
@@ -4521,6 +4539,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       })
       .join("");
     markEntityDomIndexDirty();
+    invalidatePacketOverlayExtent();
     const tHtml1 = performance.now();
     recordPerf("canvas.htmlBuild", tHtml1 - tHtml0);
     canvasEl.querySelectorAll<HTMLTextAreaElement>(".builder-note-editor[data-note-root-id]").forEach((editor) => {
@@ -5144,9 +5163,11 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   if (wrap) {
     wireBag.w!.attachScrollAndResizeListeners(wrap);
     const wrapResizeObserver = new ResizeObserver(() => {
+      invalidatePacketOverlayExtent();
       applyCanvasScale();
     });
     wrapResizeObserver.observe(wrap);
+    wrapResizeObserver.observe(canvasEl);
   }
   window.addEventListener("resize", applyCanvasScale);
   window.addEventListener("resize", () => applyBuilderSidebarWidth(builderSidebarWidth));
