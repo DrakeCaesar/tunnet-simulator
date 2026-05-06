@@ -190,7 +190,13 @@ type BuilderPerfKey =
   | "packet.compute"
   | "packet.polyline"
   | "packet.interpolate"
-  | "packet.domCommit";
+  | "packet.domCommit"
+  | "sim.meta"
+  | "sim.finishTotal"
+  | "sim.finishRenderPackets"
+  | "sim.finishMeta"
+  | "sim.finishRefresh"
+  | "sim.finishDispatch";
 
 type BuilderPerfStat = { lastMs: number; emaMs: number; maxMs: number; samples: number };
 
@@ -889,10 +895,17 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       "packet.polyline",
       "packet.interpolate",
       "packet.domCommit",
+      "sim.meta",
+      "sim.finishTotal",
+      "sim.finishRenderPackets",
+      "sim.finishMeta",
+      "sim.finishRefresh",
+      "sim.finishDispatch",
     ];
     const totalCanvas = Math.max(0.0001, get("canvas.total").lastMs);
     const totalWire = Math.max(0.0001, get("wire.total").lastMs);
     const totalPacket = Math.max(0.0001, get("packet.total").lastMs);
+    const totalSim = Math.max(0.0001, get("sim.finishTotal").lastMs);
     const topCanvas = ([
       "canvas.expand",
       "canvas.bucketSort",
@@ -926,6 +939,15 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       .map((k) => ({ k, v: get(k).lastMs }))
       .sort((a, b) => b.v - a.v)
       .slice(0, 3);
+    const topSim = ([
+      "sim.finishRenderPackets",
+      "sim.finishMeta",
+      "sim.finishRefresh",
+      "sim.finishDispatch",
+    ] as BuilderPerfKey[])
+      .map((k) => ({ k, v: get(k).lastMs }))
+      .sort((a, b) => b.v - a.v)
+      .slice(0, 4);
     const lines = [
       `entities=${perfCounts.expandedEntities}  stateLinks=${perfCounts.stateLinks}  expandedLinks=${perfCounts.expandedLinks}  packets=${perfCounts.packetsInFlight}`,
       `sim mode=main  step compute=${(simLastStepComputeMs ?? 0).toFixed(2)}ms  ema=${(simEmaStepComputeMs ?? 0).toFixed(2)}ms`,
@@ -945,6 +967,9 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       "",
       `Top packet contributors (last=${totalPacket.toFixed(2)}ms):`,
       ...topPacket.map((x) => `  ${x.k.padEnd(22, " ")} ${(x.v / totalPacket * 100).toFixed(1).padStart(5)}% (${x.v.toFixed(2)}ms)`),
+      "",
+      `Top sim contributors (last=${totalSim.toFixed(2)}ms):`,
+      ...topSim.map((x) => `  ${x.k.padEnd(22, " ")} ${(x.v / totalSim * 100).toFixed(1).padStart(5)}% (${x.v.toFixed(2)}ms)`),
     ];
     perfEl.textContent = lines.join("\n");
   }
@@ -1095,6 +1120,17 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   let simTickDeliveredEntityRootIds = new Set<string>();
   let simTickCollisionDropEntityInstanceIds = new Set<string>();
   let simTickCollisionDropEntityRootIds = new Set<string>();
+  let simUiExpandedCacheState: BuilderState | null = null;
+  let simUiExpandedCache: ExpandedBuilderState | null = null;
+  const expandedBuilderStateForSimUi = (): ExpandedBuilderState => {
+    if (simUiExpandedCacheState === state && simUiExpandedCache) {
+      return simUiExpandedCache;
+    }
+    const expanded = expandBuilderState(state, { builderView: true });
+    simUiExpandedCacheState = state;
+    simUiExpandedCache = expanded;
+    return expanded;
+  };
   const simDropBoardRef: { board: SimulatorDropBoardController | null } = { board: null };
   const simDropBoard = new SimulatorDropBoardController(
     simPanel.dropListEl,
@@ -1102,7 +1138,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     () => compileBuilderPayload(state).topology as unknown as Topology,
     {
       rowMeta(deviceId) {
-        const expanded = expandBuilderState(state, { builderView: true });
+        const expanded = expandedBuilderStateForSimUi();
         const inst = expanded.entities.find((e) => e.instanceId === deviceId);
         const rootId = inst?.rootId ?? simRootIdFromDeviceId(deviceId);
         if (!rootId) return null;
@@ -1112,7 +1148,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
         const b = simDropBoardRef.board;
         if (!b || b.traceDeviceId !== deviceId) return false;
         if (selection?.kind !== "entity") return false;
-        const expanded = expandBuilderState(state, { builderView: true });
+        const expanded = expandedBuilderStateForSimUi();
         const inst = expanded.entities.find((e) => e.instanceId === deviceId);
         const rootId = inst?.rootId ?? simRootIdFromDeviceId(deviceId);
         return rootId !== null && selection.rootId === rootId;
@@ -1121,7 +1157,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   );
   simDropBoardRef.board = simDropBoard;
   simDropBoard.onPick = (deviceId) => {
-    const expanded = expandBuilderState(state, { builderView: true });
+    const expanded = expandedBuilderStateForSimUi();
     const inst = expanded.entities.find((e) => e.instanceId === deviceId);
     const rootId = inst?.rootId ?? simRootIdFromDeviceId(deviceId);
     if (!rootId) return;
@@ -1500,6 +1536,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   }
 
   function updateBuilderSimMeta(): void {
+    const tMeta0 = performance.now();
     syncBuilderSimSliderLabels();
     simMetaEl.innerHTML = renderSimulatorMetaGridHtml({
       stats: simStats,
@@ -1508,6 +1545,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       dropPctCumulative: simDropPctCumulative,
     });
     simDropBoard.refresh();
+    recordPerf("sim.meta", performance.now() - tMeta0);
   }
 
   function cancelBuilderSimTickTimers(): void {
@@ -1688,6 +1726,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     let finished = false;
     const finishTick = (): void => {
       if (finished) return;
+      const tFinish0 = performance.now();
       const now = performance.now();
       finished = true;
       cancelBuilderSimTickTimers();
@@ -1704,33 +1743,50 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       simAnimating = false;
       updateSimBackButtonState();
       simPacketProgress = 1;
+      const tRender0 = performance.now();
       renderBuilderPacketCircles(1);
+      const tRender1 = performance.now();
+      const tMeta0 = performance.now();
       updateBuilderSimMeta();
+      const tMeta1 = performance.now();
+      const tRefresh0 = performance.now();
       flushPendingBuilderSimulatorRefresh();
+      const tRefresh1 = performance.now();
+      let dispatchMs = 0;
       if (simPlaying) {
+        const tDispatch0 = performance.now();
         runOneBuilderSimTick();
+        dispatchMs = performance.now() - tDispatch0;
       } else {
         simNextTickDeadlineMs = null;
       }
+      const tFinish1 = performance.now();
+      recordPerf("sim.finishRenderPackets", tRender1 - tRender0);
+      recordPerf("sim.finishMeta", tMeta1 - tMeta0);
+      recordPerf("sim.finishRefresh", tRefresh1 - tRefresh0);
+      recordPerf("sim.finishDispatch", dispatchMs);
+      recordPerf("sim.finishTotal", tFinish1 - tFinish0);
     };
     simAnimFinishFn = finishTick;
-    const animate = (now: number): void => {
-      if (finished) return;
-      const start = simTickAnimStartMs ?? animStart;
-      const dur = simTickAnimDurationMs ?? durationMs;
-      const t = dur <= 0 ? 1 : clamp01((now - start) / dur);
-      simPacketProgress = t;
-      renderBuilderPacketCircles(t);
-      if (t < 1) {
-        simAnimHandle = requestAnimationFrame(animate);
-        return;
-      }
-      finishTick();
-    };
     simPacketProgress = 0;
-    renderBuilderPacketCircles(0);
     simTickTimeoutHandle = window.setTimeout(finishTick, durationMs);
-    simAnimHandle = requestAnimationFrame(animate);
+    const shouldAnimatePackets = simSpeed <= 8;
+    if (shouldAnimatePackets) {
+      const animate = (now: number): void => {
+        if (finished) return;
+        const start = simTickAnimStartMs ?? animStart;
+        const dur = simTickAnimDurationMs ?? durationMs;
+        const t = dur <= 0 ? 1 : clamp01((now - start) / dur);
+        simPacketProgress = t;
+        renderBuilderPacketCircles(t);
+        if (t < 1) {
+          simAnimHandle = requestAnimationFrame(animate);
+          return;
+        }
+        finishTick();
+      };
+      simAnimHandle = requestAnimationFrame(animate);
+    }
   }
 
   function setBuilderSimPlaying(enabled: boolean): void {
