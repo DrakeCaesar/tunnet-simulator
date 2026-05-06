@@ -55,6 +55,8 @@ export type RenderWireOpts = {
 const WIRE_PORT_DROP_ZONE_PX = 5;
 const WIRE_DRAG_START_THRESHOLD_PX = 3;
 const BUILDER_WIRE_STROKE_WIDTH_PX = 3;
+const BUILDER_WIRE_DEFAULT_OUTLINE_WIDTH_PX = 1;
+const BUILDER_WIRE_DEFAULT_OUTLINE_HEX = "#ffffff";
 const DEFAULT_WIRE_COLOR_INDEX = 0;
 
 function isDefaultWireColor(index: number | undefined): boolean {
@@ -435,6 +437,8 @@ export function createBuilderWireOverlay(opts: BuilderWireOverlayOptions): {
             break;
           }
           lineEl.setAttribute("transform", tr);
+          const outlineEl = wireOverlayEl.querySelector(`[data-builder-vlink-outline-internal="${i}"]`);
+          outlineEl?.setAttribute("transform", tr);
         }
       }
     }
@@ -473,6 +477,13 @@ export function createBuilderWireOverlay(opts: BuilderWireOverlayOptions): {
         lineEl.setAttribute("y1", String(e.sy));
         lineEl.setAttribute("x2", String(e.ex));
         lineEl.setAttribute("y2", String(e.ey));
+        const outlineEl = wireOverlayEl.querySelector(`[data-builder-vlink-outline="${i}"]`);
+        if (outlineEl) {
+          outlineEl.setAttribute("x1", String(e.sx));
+          outlineEl.setAttribute("y1", String(e.sy));
+          outlineEl.setAttribute("x2", String(e.ex));
+          outlineEl.setAttribute("y2", String(e.ey));
+        }
       }
     }
 
@@ -507,19 +518,39 @@ export function createBuilderWireOverlay(opts: BuilderWireOverlayOptions): {
             wireOverlayEl.appendChild(dragLine);
           }
           const activeWireColorIndex = getActiveWireColorIndex();
-          dragLine.setAttribute(
-            "class",
-            isDefaultWireColor(activeWireColorIndex) ? "builder-wire-drag builder-wire-default" : "builder-wire-drag",
-          );
+          const isDefaultColor = isDefaultWireColor(activeWireColorIndex);
+          dragLine.setAttribute("class", "builder-wire-drag");
           dragLine.setAttribute("stroke", builderWireStrokeHex(activeWireColorIndex));
           dragLine.setAttribute("x1", String(e.sx));
           dragLine.setAttribute("y1", String(e.sy));
           dragLine.setAttribute("x2", String(e.ex));
           dragLine.setAttribute("y2", String(e.ey));
+          let dragOutline = wireOverlayEl.querySelector(".builder-wire-drag-outline");
+          if (isDefaultColor) {
+            if (!dragOutline) {
+              dragOutline = document.createElementNS("http://www.w3.org/2000/svg", "line");
+              dragOutline.setAttribute("class", "builder-wire-drag-outline");
+              dragOutline.setAttribute("pointer-events", "none");
+              dragOutline.setAttribute("stroke", BUILDER_WIRE_DEFAULT_OUTLINE_HEX);
+              dragOutline.setAttribute("stroke-opacity", "0.95");
+              dragOutline.setAttribute(
+                "stroke-width",
+                String(BUILDER_WIRE_STROKE_WIDTH_PX + BUILDER_WIRE_DEFAULT_OUTLINE_WIDTH_PX * 2),
+              );
+              wireOverlayEl.insertBefore(dragOutline, dragLine);
+            }
+            dragOutline.setAttribute("x1", String(e.sx));
+            dragOutline.setAttribute("y1", String(e.sy));
+            dragOutline.setAttribute("x2", String(e.ex));
+            dragOutline.setAttribute("y2", String(e.ey));
+          } else {
+            dragOutline?.remove();
+          }
         }
       }
     } else {
       wireOverlayEl.querySelector(".builder-wire-drag")?.remove();
+      wireOverlayEl.querySelector(".builder-wire-drag-outline")?.remove();
     }
 
     recordPerf("wire.lineBuild", performance.now() - tLineBuild0);
@@ -682,8 +713,16 @@ export function createBuilderWireOverlay(opts: BuilderWireOverlayOptions): {
         linkTag = ` data-builder-vlink="${i}"`;
       }
       const strokeHex = builderWireStrokeHex(link.wireColorIndex);
-      const classMarkup = isDefaultWireColor(link.wireColorIndex) ? ` class="builder-wire-default"` : "";
-      lineMarkup += `<line${classMarkup}${linkTag} x1="${e.sx}" y1="${e.sy}" x2="${e.ex}" y2="${e.ey}" stroke="${strokeHex}" stroke-opacity="0.9" stroke-width="${BUILDER_WIRE_STROKE_WIDTH_PX}"></line>`;
+      const isDefaultColor = isDefaultWireColor(link.wireColorIndex);
+      if (isDefaultColor) {
+        const outlineTag = internalIndexSet?.has(i)
+          ? ` data-builder-vlink-outline-internal="${i}" transform="translate(0 0)"`
+          : externalIndexSet?.has(i)
+            ? ` data-builder-vlink-outline="${i}"`
+            : "";
+        lineMarkup += `<line class="builder-wire-outline"${outlineTag} x1="${e.sx}" y1="${e.sy}" x2="${e.ex}" y2="${e.ey}" stroke="${BUILDER_WIRE_DEFAULT_OUTLINE_HEX}" stroke-opacity="0.95" stroke-width="${BUILDER_WIRE_STROKE_WIDTH_PX + BUILDER_WIRE_DEFAULT_OUTLINE_WIDTH_PX * 2}"></line>`;
+      }
+      lineMarkup += `<line${linkTag} x1="${e.sx}" y1="${e.sy}" x2="${e.ex}" y2="${e.ey}" stroke="${strokeHex}" stroke-opacity="0.9" stroke-width="${BUILDER_WIRE_STROKE_WIDTH_PX}"></line>`;
     }
     recordPerf("wire.portResolve", resolveCost);
     recordPerf("wire.lineBuild", performance.now() - tLine0);
@@ -705,10 +744,10 @@ export function createBuilderWireOverlay(opts: BuilderWireOverlayOptions): {
           const e = lineEndpointsAtPortEdges(fromCenter.x, fromCenter.y, fromCenter.radius, x2, y2, 0);
           const activeWireColorIndex = getActiveWireColorIndex();
           const dragHex = builderWireStrokeHex(activeWireColorIndex);
-          const dragClass = isDefaultWireColor(activeWireColorIndex)
-            ? "builder-wire-drag builder-wire-default"
-            : "builder-wire-drag";
-          lineMarkup += `<line x1="${e.sx}" y1="${e.sy}" x2="${e.ex}" y2="${e.ey}" class="${dragClass}" pointer-events="none" stroke="${dragHex}" stroke-opacity="0.9" stroke-width="${BUILDER_WIRE_STROKE_WIDTH_PX}"></line>`;
+          if (isDefaultWireColor(activeWireColorIndex)) {
+            lineMarkup += `<line x1="${e.sx}" y1="${e.sy}" x2="${e.ex}" y2="${e.ey}" class="builder-wire-drag-outline" pointer-events="none" stroke="${BUILDER_WIRE_DEFAULT_OUTLINE_HEX}" stroke-opacity="0.95" stroke-width="${BUILDER_WIRE_STROKE_WIDTH_PX + BUILDER_WIRE_DEFAULT_OUTLINE_WIDTH_PX * 2}"></line>`;
+          }
+          lineMarkup += `<line x1="${e.sx}" y1="${e.sy}" x2="${e.ex}" y2="${e.ey}" class="builder-wire-drag" pointer-events="none" stroke="${dragHex}" stroke-opacity="0.9" stroke-width="${BUILDER_WIRE_STROKE_WIDTH_PX}"></line>`;
         }
       }
     }

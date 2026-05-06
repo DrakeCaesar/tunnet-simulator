@@ -1402,8 +1402,8 @@ textarea {
   stroke-linecap: round;
 }
 
-.builder-wire-overlay .builder-wire-default {
-  filter: drop-shadow(0 0 1px rgba(255, 255, 255, 1));
+.builder-wire-overlay .builder-wire-drag-outline {
+  stroke-linecap: round;
 }
 
 .builder-layer {
