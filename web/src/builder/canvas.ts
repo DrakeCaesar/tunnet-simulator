@@ -1718,7 +1718,6 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     }
     const tickDeadlineMs = simNextTickDeadlineMs;
     simNextTickDeadlineMs = tickDeadlineMs + targetTickIntervalMs;
-    updateBuilderSimMeta();
     let animStart = performance.now();
     let durationMs = Math.max(0, tickDeadlineMs - animStart);
     simTickAnimStartMs = animStart;
