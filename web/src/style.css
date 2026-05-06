@@ -1342,6 +1342,7 @@ textarea {
 .builder-packet-overlay {
   position: absolute;
   inset: 0;
+  display: block;
   height: 100%;
   min-width: 100%;
   pointer-events: none;

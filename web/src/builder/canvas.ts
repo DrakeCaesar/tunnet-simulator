@@ -25,12 +25,9 @@ import {
 } from "./state";
 import {
   formatPacketLabelSubject,
-  packetIpLabelBgDimensions,
   PACKET_DOT_RADIUS_PX,
-  PACKET_IP_LABEL_HEIGHT_PX,
   PACKET_IP_LABEL_OFFSET_X_PX,
   PACKET_IP_LABEL_OFFSET_Y_PX,
-  PACKET_IP_LABEL_WIDTH_PX,
   PACKET_LABEL_ANCHOR_X_PX,
 } from "./builder-packet-overlay-metrics";
 import {
@@ -55,7 +52,6 @@ import {
   textTileSizeFromEntity,
   textTileSizeFromSettings,
 } from "./template-sidebar";
-import { layoutPacketLabelBackgroundRect } from "../packet-label-layout";
 import {
   nextPacketLabelMode,
   packetLabelToggleButtonText,
@@ -403,7 +399,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   mountBuilderWireColorWheel(wireColorWheelHostEl, wireColorChoiceRef);
   const canvasEl = root.querySelector<HTMLDivElement>("#builder-canvas")!;
   const wireOverlayEl = root.querySelector<SVGSVGElement>("#builder-wire-overlay")!;
-  const packetOverlayEl = root.querySelector<SVGSVGElement>("#builder-packet-overlay")!;
+  const packetOverlayEl = root.querySelector<HTMLCanvasElement>("#builder-packet-overlay")!;
   const perfEl = root.querySelector<HTMLPreElement>("#builder-perf")!;
   const scaleXEl = root.querySelector<HTMLInputElement>("#builder-scale-x")!;
   const scaleYOuterEl = root.querySelector<HTMLInputElement>("#builder-scale-y-outer64")!;
@@ -649,17 +645,6 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       packetLabelMode: next,
     };
     simTogglePacketIpsBtn.textContent = packetLabelToggleButtonText(next);
-    if (next === "hide") {
-      packetLabelPool.forEach((label) => {
-        if (label.visible) {
-          label.bg.setAttribute("display", "none");
-          label.text.setAttribute("display", "none");
-          label.visible = false;
-        }
-        label.text.removeAttribute("data-packet-id");
-        label.lastLabelSig = "";
-      });
-    }
     persistBuilderPageState();
     renderBuilderPacketCircles(simPacketProgress);
   }
@@ -1085,40 +1070,69 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   const packetRouteTemplateByKey = new Map<string, PortRef[] | null>();
   let simPreparedPacketRenders: SimPreparedPacketRender[] = [];
   let simPreparedPacketRenderDirty = true;
-  let packetCircleGroupEl: SVGGElement | null = null;
-  let packetSelectedGuideEl: SVGLineElement | null = null;
   type SimPortPoint = SimXY & { clipped: boolean };
   const packetPortCenterCache = new Map<string, SimPortPoint | null>();
   const packetPreparedRouteByKey = new Map<string, SimPreparedPolyline | null>();
-  const packetCirclePool: Array<{
-    group: SVGGElement;
-    el: SVGCircleElement;
-    visible: boolean;
-    lastPacketId: number | null;
-    lastSelected: boolean | null;
-    lastStroke: string;
-    lastStrokeWidth: number;
-  }> = [];
-  const packetLabelPool: Array<{
-    bg: SVGRectElement;
-    text: SVGTextElement;
-    src: SVGTSpanElement;
-    dest: SVGTSpanElement;
-    subject: SVGTSpanElement;
-    bgOffsetX: number;
-    bgOffsetY: number;
-    bgWidth: number;
-    bgHeight: number;
-    /** Signature of last painted label text (empty when cleared). */
-    lastLabelSig: string;
-    visible: boolean;
-  }> = [];
-  const packetSlotByPacketId = new Map<number, number>();
-  const packetFreeSlots: number[] = [];
-  const packetSlotLastSeenFrame: number[] = [];
-  let packetRenderFrameId = 0;
   let packetOverlayWidthPx = -1;
   let packetOverlayHeightPx = -1;
+  let packetOverlayDpr = -1;
+  let packetOverlayCtx: CanvasRenderingContext2D | null = null;
+  const packetHitRegions: Array<{ packetId: number; x: number; y: number; r: number }> = [];
+  let packetHitRegionCount = 0;
+  type PacketDotSprite = { normal: HTMLCanvasElement; selected: HTMLCanvasElement };
+  let packetDotSpriteDpr = -1;
+  let packetDotSpriteRadiusPx = -1;
+  const packetDotSpritesByHue = new Map<number, PacketDotSprite>();
+  const packetDotSpriteSizePx = (): number => Math.ceil((PACKET_DOT_RADIUS_PX + 3) * 2);
+  const ensurePacketDotSprite = (hue: number, selected: boolean): HTMLCanvasElement => {
+    const dpr = Math.max(1, packetOverlayDpr > 0 ? packetOverlayDpr : window.devicePixelRatio || 1);
+    const spriteRadius = PACKET_DOT_RADIUS_PX;
+    if (
+      packetDotSpriteDpr !== dpr ||
+      packetDotSpriteRadiusPx !== spriteRadius ||
+      packetDotSpritesByHue.size === 0
+    ) {
+      packetDotSpritesByHue.clear();
+      packetDotSpriteDpr = dpr;
+      packetDotSpriteRadiusPx = spriteRadius;
+    }
+    const hueKey = ((hue % 360) + 360) % 360;
+    let sprite = packetDotSpritesByHue.get(hueKey);
+    if (!sprite) {
+      const mk = (isSelected: boolean): HTMLCanvasElement => {
+        const cssSize = packetDotSpriteSizePx();
+        const c = document.createElement("canvas");
+        c.width = Math.max(1, Math.ceil(cssSize * dpr));
+        c.height = Math.max(1, Math.ceil(cssSize * dpr));
+        c.style.width = `${cssSize}px`;
+        c.style.height = `${cssSize}px`;
+        const cctx = c.getContext("2d");
+        if (!cctx) return c;
+        cctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        const center = cssSize * 0.5;
+        cctx.beginPath();
+        cctx.arc(center, center, PACKET_DOT_RADIUS_PX, 0, Math.PI * 2);
+        cctx.fillStyle = `hsl(${hueKey} 82% 58%)`;
+        cctx.fill();
+        cctx.strokeStyle = isSelected ? "#f9e2af" : `hsl(${hueKey} 82% 38%)`;
+        cctx.lineWidth = isSelected ? 2.2 : 1.2;
+        cctx.stroke();
+        return c;
+      };
+      sprite = { normal: mk(false), selected: mk(true) };
+      packetDotSpritesByHue.set(hueKey, sprite);
+    }
+    return selected ? sprite.selected : sprite.normal;
+  };
+  let packetLabelFontFamily = "sans-serif";
+  let packetLabelFontSizePx = 11;
+  const refreshPacketLabelCanvasFont = (): void => {
+    const rootStyle = window.getComputedStyle(root);
+    const size = Number.parseFloat(rootStyle.fontSize || "");
+    packetLabelFontSizePx = Number.isFinite(size) && size > 0 ? size : 11;
+    packetLabelFontFamily = rootStyle.fontFamily || "sans-serif";
+  };
+  refreshPacketLabelCanvasFont();
   let packetOverlayExtentDirty = true;
   let packetOverlayExtentWidth = 0;
   let packetOverlayExtentHeight = 0;
@@ -2659,18 +2673,150 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     src: string;
     dest: string;
     subject?: string;
+    ttl: number;
     line: SimPreparedPolyline | null;
     fallback: SimXY;
-    fill: string;
-    stroke: string;
+    hue: number;
     x: number;
     y: number;
     targetX: number;
     targetY: number;
+    routeToDest: SimPreparedPolyline | null;
     selected: boolean;
     pathStartT: number;
     pathEndT: number;
   };
+
+  function matchAddressMask(mask: string, candidate: string): boolean {
+    const m = mask.split(".");
+    const c = candidate.split(".");
+    if (m.length !== 4 || c.length !== 4) return false;
+    for (let i = 0; i < 4; i += 1) {
+      if (m[i] === "*") continue;
+      if (m[i] !== c[i]) return false;
+    }
+    return true;
+  }
+
+  /** Destinations 0.0.3.0–0.0.3.3: void band IPs with no receive endpoint (packets drop by design). */
+  function isPacketDestVoid003Address(dest: string): boolean {
+    const p = dest.split(".");
+    if (p.length !== 4) return false;
+    if (p[0] !== "0" || p[1] !== "0" || p[2] !== "3") return false;
+    if (p[3] === "*") return true;
+    const last = Number(p[3]);
+    return Number.isInteger(last) && last >= 0 && last <= 3;
+  }
+
+  function void003BlockCandidateDeviceIdsInOrder(expanded: ExpandedBuilderState): string[] {
+    const ids: string[] = [];
+    for (const e of expanded.entities) {
+      const outerVoid = e.layer === "outer64" && isOuterLeafVoidSegment(e.segmentIndex);
+      const middleVoid = e.layer === "middle16" && e.segmentIndex === 3;
+      if (outerVoid || middleVoid) ids.push(e.instanceId);
+    }
+    return ids;
+  }
+
+  function buildPacketFullRouteTemplate(
+    from: PortRef,
+    to: PortRef,
+    packet: { src: string; dest: string; ttl: number },
+    maxHops = 128,
+    opts?: { stopAtDeviceId?: string },
+  ): PortRef[] | null {
+    const route: PortRef[] = [{ ...from }];
+    let cur: PortRef = { ...from };
+    let ttl = packet.ttl;
+    const visited = new Set<string>();
+    for (let hop = 0; hop < maxHops; hop += 1) {
+      const atDest = opts?.stopAtDeviceId
+        ? cur.deviceId === opts.stopAtDeviceId
+        : cur.deviceId === to.deviceId && cur.port === to.port;
+      if (atDest) {
+        return route;
+      }
+      const visitKey = `${cur.deviceId}:${cur.port}:${ttl}`;
+      if (visited.has(visitKey)) break;
+      visited.add(visitKey);
+      const dev = builderSimDevices[cur.deviceId];
+      if (!dev) break;
+      let outPort: number | null = null;
+      if (dev.type === "relay") {
+        outPort = cur.port === 0 ? 1 : 0;
+      } else if (dev.type === "hub") {
+        outPort = getHubEgressPort(dev.rotation, cur.port);
+      } else if (dev.type === "filter") {
+        const op = dev.operatingPort;
+        const nonOp = op === 0 ? 1 : 0;
+        if (cur.port === op) {
+          ttl -= 1;
+          if (ttl < 0) return route;
+          const value = dev.addressField === "source" ? packet.src : packet.dest;
+          const matched = matchAddressMask(dev.mask, value);
+          const acted = dev.operation === "match" ? matched : !matched;
+          if (acted && dev.action === "drop") return route;
+          outPort = acted && dev.action === "send_back" ? op : nonOp;
+        } else {
+          outPort = op;
+        }
+      } else {
+        return route;
+      }
+      if (outPort === null) return route;
+      const outRef: PortRef = { deviceId: cur.deviceId, port: outPort };
+      if (outRef.deviceId !== cur.deviceId || outRef.port !== cur.port) {
+        route.push(outRef);
+      }
+      const nbr = builderSimAdj.get(portKey(outRef));
+      if (!nbr) return route;
+      const nextRef: PortRef = { deviceId: nbr.deviceId, port: nbr.port };
+      route.push(nextRef);
+      cur = nextRef;
+    }
+    return route;
+  }
+
+  function preparePolylineFromRouteTemplate(
+    template: PortRef[],
+    centerCache: Map<string, SimPortPoint | null>,
+  ): SimPreparedPolyline | null {
+    if (template.length === 0) return null;
+    const points: SimXY[] = [];
+    for (const ref of template) {
+      const c = builderPortCenterInOverlayCoords(ref, centerCache);
+      if (!c) return null;
+      points.push({ x: c.x, y: c.y });
+    }
+    return preparePolyline(points);
+  }
+
+  function projectRayToViewportEdge(
+    x: number,
+    y: number,
+    dx: number,
+    dy: number,
+    minX: number,
+    minY: number,
+    maxX: number,
+    maxY: number,
+  ): { x: number; y: number } {
+    const eps = 1e-6;
+    const nx = Math.abs(dx) < eps ? 0 : dx;
+    const ny = Math.abs(dy) < eps ? 0 : dy;
+    const candidates: number[] = [];
+    if (nx > eps) candidates.push((maxX - x) / nx);
+    else if (nx < -eps) candidates.push((minX - x) / nx);
+    if (ny > eps) candidates.push((maxY - y) / ny);
+    else if (ny < -eps) candidates.push((minY - y) / ny);
+    const t = candidates
+      .filter((v) => Number.isFinite(v) && v > 0)
+      .reduce((best, v) => (v < best ? v : best), Number.POSITIVE_INFINITY);
+    if (!Number.isFinite(t)) {
+      return { x, y };
+    }
+    return { x: x + nx * t, y: y + ny * t };
+  }
 
   function preparePolyline(points: SimXY[]): SimPreparedPolyline | null {
     if (points.length === 0) return null;
@@ -2715,6 +2861,28 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       d -= L;
     }
     return pts[pts.length - 1] ?? null;
+  }
+
+  function simPreparedPolylineTailPoints(line: SimPreparedPolyline, t: number): SimXY[] {
+    const pts = line.points;
+    if (pts.length === 0) return [];
+    if (pts.length === 1) return [pts[0]!];
+    if (line.totalLen < 1e-6) return [pts[0]!, pts[pts.length - 1]!];
+    let d = clamp01(t) * line.totalLen;
+    for (let i = 0; i < line.segLens.length; i += 1) {
+      const L = line.segLens[i] ?? 0;
+      if (d <= L) {
+        const u = d / (L < 1e-9 ? 1 : L);
+        const p0 = pts[i]!;
+        const p1 = pts[i + 1]!;
+        const head = { x: p0.x + (p1.x - p0.x) * u, y: p0.y + (p1.y - p0.y) * u };
+        const tail: SimXY[] = [head];
+        for (let k = i + 1; k < pts.length; k += 1) tail.push(pts[k]!);
+        return tail;
+      }
+      d -= L;
+    }
+    return [pts[pts.length - 1]!];
   }
 
   function packetRouteKey(from: PortRef, to: PortRef): string {
@@ -2790,23 +2958,25 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   function syncBuilderPacketOverlayDimensions(overlayWidth: number, overlayHeight: number): void {
     const w = Math.ceil(overlayWidth);
     const h = Math.ceil(overlayHeight);
-    if (packetOverlayWidthPx === w && packetOverlayHeightPx === h) {
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
+    if (packetOverlayWidthPx === w && packetOverlayHeightPx === h && packetOverlayDpr === dpr) {
       return;
     }
     packetOverlayWidthPx = w;
     packetOverlayHeightPx = h;
-    packetOverlayEl.setAttribute("width", String(w));
-    packetOverlayEl.setAttribute("height", String(h));
+    packetOverlayDpr = dpr;
+    packetOverlayEl.width = Math.max(1, Math.ceil(w * dpr));
+    packetOverlayEl.height = Math.max(1, Math.ceil(h * dpr));
     packetOverlayEl.style.width = `${w}px`;
     packetOverlayEl.style.height = `${h}px`;
+    packetOverlayCtx = packetOverlayEl.getContext("2d");
+    refreshPacketLabelCanvasFont();
   }
 
   function readBuilderPacketOverlayExtent(wrap: HTMLElement): { width: number; height: number } {
     if (packetOverlayExtentDirty) {
-      const contentWidth = Math.max(canvasEl.scrollWidth, canvasEl.clientWidth);
-      const contentHeight = Math.max(canvasEl.scrollHeight, canvasEl.clientHeight);
-      packetOverlayExtentWidth = Math.max(wrap.clientWidth, contentWidth);
-      packetOverlayExtentHeight = Math.max(wrap.clientHeight, contentHeight);
+      packetOverlayExtentWidth = wrap.clientWidth;
+      packetOverlayExtentHeight = wrap.clientHeight;
       packetOverlayExtentDirty = false;
     }
     return { width: packetOverlayExtentWidth, height: packetOverlayExtentHeight };
@@ -2822,172 +2992,19 @@ export function mountBuilderView(options: BuilderMountOptions): void {
   }
 
   function clearBuilderPacketCirclePool(): void {
-    packetOverlayEl.innerHTML = "";
-    packetCircleGroupEl = null;
-    packetSelectedGuideEl = null;
+    packetHitRegionCount = 0;
+    packetOverlayCtx = packetOverlayEl.getContext("2d");
+    if (packetOverlayCtx && packetOverlayWidthPx > 0 && packetOverlayHeightPx > 0) {
+      packetOverlayCtx.clearRect(0, 0, packetOverlayWidthPx, packetOverlayHeightPx);
+    }
     invalidateBuilderPacketGeometryCache();
-    packetCirclePool.length = 0;
-    packetLabelPool.length = 0;
-    packetSlotByPacketId.clear();
-    packetFreeSlots.length = 0;
-    packetSlotLastSeenFrame.length = 0;
-    packetRenderFrameId = 0;
     packetOverlayWidthPx = -1;
     packetOverlayHeightPx = -1;
+    packetOverlayDpr = -1;
+    packetDotSpritesByHue.clear();
+    packetDotSpriteDpr = -1;
+    packetDotSpriteRadiusPx = -1;
     invalidatePacketOverlayExtent();
-  }
-
-  function ensureBuilderPacketCircleGroup(): SVGGElement {
-    if (packetCircleGroupEl?.parentNode === packetOverlayEl) {
-      return packetCircleGroupEl;
-    }
-    const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
-    packetOverlayEl.appendChild(group);
-    packetCircleGroupEl = group;
-    return group;
-  }
-
-  function ensureSelectedPacketGuide(): SVGLineElement {
-    if (packetSelectedGuideEl?.parentNode === packetOverlayEl) {
-      return packetSelectedGuideEl;
-    }
-    const guide = document.createElementNS("http://www.w3.org/2000/svg", "line");
-    guide.setAttribute("class", "builder-packet-selected-guide");
-    guide.setAttribute("display", "none");
-    packetOverlayEl.appendChild(guide);
-    packetSelectedGuideEl = guide;
-    return guide;
-  }
-
-  function ensureBuilderPacketCircle(index: number): {
-    group: SVGGElement;
-    el: SVGCircleElement;
-    visible: boolean;
-    lastPacketId: number | null;
-    lastSelected: boolean | null;
-    lastStroke: string;
-    lastStrokeWidth: number;
-  } {
-    const existing = packetCirclePool[index];
-    if (existing) {
-      return existing;
-    }
-    const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
-    const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-    circle.setAttribute("class", "builder-packet-dot");
-    circle.setAttribute("r", String(PACKET_DOT_RADIUS_PX));
-    circle.setAttribute("cx", "0");
-    circle.setAttribute("cy", "0");
-    group.appendChild(circle);
-    ensureBuilderPacketCircleGroup().appendChild(group);
-    const slot = {
-      group,
-      el: circle,
-      visible: true,
-      lastPacketId: null,
-      lastSelected: null,
-      lastStroke: "",
-      lastStrokeWidth: Number.NaN,
-    };
-    packetCirclePool[index] = slot;
-    return slot;
-  }
-
-  function ensureBuilderPacketLabel(index: number): {
-    bg: SVGRectElement;
-    text: SVGTextElement;
-    src: SVGTSpanElement;
-    dest: SVGTSpanElement;
-    subject: SVGTSpanElement;
-    bgOffsetX: number;
-    bgOffsetY: number;
-    bgWidth: number;
-    bgHeight: number;
-    lastLabelSig: string;
-    visible: boolean;
-  } {
-    const existing = packetLabelPool[index];
-    if (existing) {
-      return existing;
-    }
-    const circle = ensureBuilderPacketCircle(index);
-    const group = circle.group;
-    const bg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-    bg.setAttribute("class", "builder-packet-label-bg");
-    bg.setAttribute("rx", "4");
-    bg.setAttribute("ry", "4");
-    bg.setAttribute("display", "none");
-
-    const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
-    text.setAttribute("class", "builder-packet-label");
-    text.setAttribute("dominant-baseline", "middle");
-    text.setAttribute("x", "0");
-    text.setAttribute("y", "0");
-    text.setAttribute("display", "none");
-
-    const src = document.createElementNS("http://www.w3.org/2000/svg", "tspan");
-    src.setAttribute("class", "builder-packet-label-src");
-    src.setAttribute("dy", "-0.58em");
-    src.setAttribute("x", String(PACKET_LABEL_ANCHOR_X_PX));
-
-    const dest = document.createElementNS("http://www.w3.org/2000/svg", "tspan");
-    dest.setAttribute("class", "builder-packet-label-dest");
-    dest.setAttribute("dy", "1.16em");
-    dest.setAttribute("x", String(PACKET_LABEL_ANCHOR_X_PX));
-
-    const subject = document.createElementNS("http://www.w3.org/2000/svg", "tspan");
-    subject.setAttribute("class", "builder-packet-label-subject");
-    subject.setAttribute("dy", "1.16em");
-    subject.setAttribute("x", String(PACKET_LABEL_ANCHOR_X_PX));
-    subject.setAttribute("display", "none");
-
-    text.append(src, dest, subject);
-    bg.setAttribute("x", (PACKET_LABEL_ANCHOR_X_PX + PACKET_IP_LABEL_OFFSET_X_PX).toFixed(2));
-    bg.setAttribute("y", PACKET_IP_LABEL_OFFSET_Y_PX.toFixed(2));
-    text.setAttribute("x", String(PACKET_LABEL_ANCHOR_X_PX));
-    text.setAttribute("y", "0");
-    group.append(bg, text);
-    const label = {
-      bg,
-      text,
-      src,
-      dest,
-      subject,
-      bgOffsetX: PACKET_IP_LABEL_OFFSET_X_PX,
-      bgOffsetY: PACKET_IP_LABEL_OFFSET_Y_PX,
-      bgWidth: PACKET_IP_LABEL_WIDTH_PX,
-      bgHeight: PACKET_IP_LABEL_HEIGHT_PX,
-      lastLabelSig: "",
-      visible: false,
-    };
-    packetLabelPool[index] = label;
-    return label;
-  }
-
-  function hideBuilderPacketSlot(slotIndex: number): void {
-    const circle = packetCirclePool[slotIndex];
-    if (circle) {
-      if (circle.visible) {
-        circle.group.setAttribute("display", "none");
-        circle.visible = false;
-      }
-      if (circle.lastPacketId !== null) {
-        circle.el.removeAttribute("data-packet-id");
-        circle.lastPacketId = null;
-      }
-    }
-    const label = packetLabelPool[slotIndex];
-    if (label) {
-      if (label.visible) {
-        label.bg.setAttribute("display", "none");
-        label.text.setAttribute("display", "none");
-        label.visible = false;
-      }
-      if (label.lastLabelSig !== "") {
-        label.text.removeAttribute("data-packet-id");
-        label.lastLabelSig = "";
-      }
-    }
   }
 
   function prepareBuilderPacketRenders(): number {
@@ -2995,6 +3012,8 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     const preparedRouteByKey = packetPreparedRouteByKey;
     const prepared: SimPreparedPacketRender[] = [];
     const tPoly0 = performance.now();
+    const expandedForPackets = expandedBuilderStateForSimUi();
+    const void003CandidateIds = void003BlockCandidateDeviceIdsInOrder(expandedForPackets);
 
     for (const { port, packet } of simCurrentOccupancy) {
       const fromEntry = simPreviousOccupancyByPacketId.get(packet.id);
@@ -3014,7 +3033,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       const pb = builderPortCenterInOverlayCoords(toRef, centerCache);
       if (!pa || !pb) continue;
       if (pa.clipped && pb.clipped) continue;
-      const pFinal = finalDestRef ? builderPortCenterInOverlayCoords(finalDestRef, centerCache) : null;
+      let pFinal = finalDestRef ? builderPortCenterInOverlayCoords(finalDestRef, centerCache) : null;
 
       const fallback = { x: pa.x, y: pa.y };
       let line: SimPreparedPolyline | null = null;
@@ -3030,20 +3049,54 @@ export function mountBuilderView(options: BuilderMountOptions): void {
         }
       }
 
+      let routeToDest: SimPreparedPolyline | null = null;
+      if (
+        finalDestRef &&
+        (finalDestRef.deviceId !== toRef.deviceId || finalDestRef.port !== toRef.port)
+      ) {
+        const fullRoute = buildPacketFullRouteTemplate(toRef, finalDestRef, {
+          src: packet.src,
+          dest: packet.dest,
+          ttl: packet.ttl,
+        });
+        routeToDest = fullRoute ? preparePolylineFromRouteTemplate(fullRoute, centerCache) : null;
+        if (!routeToDest || routeToDest.points.length < 2 || routeToDest.totalLen < 1) {
+          routeToDest = null;
+        }
+      } else if (!finalDestRef && isPacketDestVoid003Address(packet.dest)) {
+        for (const deviceId of void003CandidateIds) {
+          const fullRoute = buildPacketFullRouteTemplate(
+            toRef,
+            { deviceId, port: 0 },
+            { src: packet.src, dest: packet.dest, ttl: packet.ttl },
+            128,
+            { stopAtDeviceId: deviceId },
+          );
+          if (!fullRoute) continue;
+          const poly = preparePolylineFromRouteTemplate(fullRoute, centerCache);
+          if (!poly || poly.points.length < 2 || poly.totalLen < 1) continue;
+          routeToDest = poly;
+          const endRef = fullRoute[fullRoute.length - 1]!;
+          pFinal = builderPortCenterInOverlayCoords(endRef, centerCache);
+          break;
+        }
+      }
+      const guideTarget = pFinal ?? (line?.points[line.points.length - 1] ?? pb);
       const hue = (packet.id * 47) % 360;
       prepared.push({
         packetId: packet.id,
         src: packet.src,
         dest: packet.dest,
         subject: packet.subject,
+        ttl: packet.ttl,
         line,
         fallback,
-        fill: `hsl(${hue} 82% 58%)`,
-        stroke: `hsl(${hue} 82% 38%)`,
+        hue,
         x: fallback.x,
         y: fallback.y,
-        targetX: (pFinal ?? pb).x,
-        targetY: (pFinal ?? pb).y,
+        targetX: guideTarget.x,
+        targetY: guideTarget.y,
+        routeToDest,
         selected: false,
         pathStartT: 0,
         pathEndT: 1,
@@ -3080,14 +3133,15 @@ export function mountBuilderView(options: BuilderMountOptions): void {
           src: packet.src,
           dest: packet.dest,
           subject: packet.subject,
+          ttl: packet.ttl,
           line,
           fallback,
-          fill: `hsl(${hue} 82% 58%)`,
-          stroke: `hsl(${hue} 82% 38%)`,
+          hue,
           x: fallback.x,
           y: fallback.y,
           targetX: pb.x,
           targetY: pb.y,
+          routeToDest: null,
           selected: false,
           // Reach endpoint before the end, then stay visible there.
           pathStartT: 0,
@@ -3109,14 +3163,15 @@ export function mountBuilderView(options: BuilderMountOptions): void {
           src: ghost.packet.src,
           dest: ghost.packet.dest,
           subject: ghost.packet.subject,
+          ttl: ghost.packet.ttl,
           line: null,
           fallback,
-          fill: `hsl(${hue} 82% 58%)`,
-          stroke: `hsl(${hue} 82% 38%)`,
+          hue,
           x: fallback.x,
           y: fallback.y,
           targetX: fallback.x,
           targetY: fallback.y,
+          routeToDest: null,
           selected: false,
           pathStartT: 0,
           pathEndT: 1,
@@ -3133,6 +3188,7 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     const t0 = performance.now();
     const wrap = packetOverlayEl.parentElement;
     if (!wrap) return;
+    packetOverlayEl.style.transform = `translate(${wrap.scrollLeft}px, ${wrap.scrollTop}px)`;
     const progress = clamp01(t);
     const tResize0 = performance.now();
     const { width: overlayWidth, height: overlayHeight } = readBuilderPacketOverlayExtent(wrap);
@@ -3167,116 +3223,126 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     }
     const tCompute1 = performance.now();
     const tCommit0 = performance.now();
-    if (simPreparedPacketRenders.length > 0) {
-      ensureBuilderPacketCircleGroup();
-    }
-    const selectedGuide = ensureSelectedPacketGuide();
-    packetRenderFrameId += 1;
-    const frameId = packetRenderFrameId;
+    const ctx = packetOverlayCtx ?? packetOverlayEl.getContext("2d");
+    packetOverlayCtx = ctx;
+    if (!ctx) return;
+    const dpr = Math.max(1, packetOverlayDpr > 0 ? packetOverlayDpr : window.devicePixelRatio || 1);
+    const viewMinX = wrap.scrollLeft;
+    const viewMinY = wrap.scrollTop;
+    const viewMaxX = viewMinX + wrap.clientWidth;
+    const viewMaxY = viewMinY + wrap.clientHeight;
+    ctx.setTransform(dpr, 0, 0, dpr, -viewMinX * dpr, -viewMinY * dpr);
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(viewMinX, viewMinY, wrap.clientWidth, wrap.clientHeight);
+    ctx.clip();
+    ctx.clearRect(viewMinX, viewMinY, wrap.clientWidth, wrap.clientHeight);
+    packetHitRegionCount = 0;
     for (let i = 0; i < simPreparedPacketRenders.length; i += 1) {
       const render = simPreparedPacketRenders[i]!;
-      let slotIndex = packetSlotByPacketId.get(render.packetId);
-      if (slotIndex === undefined) {
-        slotIndex =
-          packetFreeSlots.length > 0 ? (packetFreeSlots.pop() as number) : packetCirclePool.length;
-        packetSlotByPacketId.set(render.packetId, slotIndex);
+      if (
+        render.x + PACKET_DOT_RADIUS_PX < viewMinX ||
+        render.x - PACKET_DOT_RADIUS_PX > viewMaxX ||
+        render.y + PACKET_DOT_RADIUS_PX < viewMinY ||
+        render.y - PACKET_DOT_RADIUS_PX > viewMaxY
+      ) {
+        continue;
       }
-      packetSlotLastSeenFrame[slotIndex] = frameId;
-      const circle = ensureBuilderPacketCircle(slotIndex);
       const selected = render.selected;
-      const circleEl = circle.el;
-      if (!circle.visible) {
-        circle.group.removeAttribute("display");
-        circle.visible = true;
+      const sprite = ensurePacketDotSprite(render.hue, selected);
+      const spriteHalf = packetDotSpriteSizePx() * 0.5;
+      ctx.drawImage(sprite, render.x - spriteHalf, render.y - spriteHalf);
+      const hitIndex = packetHitRegionCount;
+      const hit = packetHitRegions[hitIndex];
+      if (hit) {
+        hit.packetId = render.packetId;
+        hit.x = render.x;
+        hit.y = render.y;
+        hit.r = PACKET_DOT_RADIUS_PX + 3;
+      } else {
+        packetHitRegions.push({ packetId: render.packetId, x: render.x, y: render.y, r: PACKET_DOT_RADIUS_PX + 3 });
       }
-      circle.group.setAttribute("transform", `translate(${render.x.toFixed(2)} ${render.y.toFixed(2)})`);
-      if (circle.lastPacketId !== render.packetId) {
-        circle.lastPacketId = render.packetId;
-        circleEl.setAttribute("data-packet-id", String(render.packetId));
-        circleEl.setAttribute("fill", render.fill);
-      }
-      const stroke = selected ? "#f9e2af" : render.stroke;
-      const strokeWidth = selected ? 2.2 : 1.2;
-      if (circle.lastSelected !== selected) {
-        circle.lastSelected = selected;
-        circleEl.setAttribute("class", selected ? "builder-packet-dot builder-packet-dot--selected" : "builder-packet-dot");
-      }
-      if (circle.lastStroke !== stroke) {
-        circle.lastStroke = stroke;
-        circleEl.setAttribute("stroke", stroke);
-      }
-      if (circle.lastStrokeWidth !== strokeWidth) {
-        circle.lastStrokeWidth = strokeWidth;
-        circleEl.setAttribute("stroke-width", String(strokeWidth));
-      }
+      packetHitRegionCount += 1;
       const labelMode = builderPageState.packetLabelMode;
-      const showPacketLabels = labelMode !== "hide";
-      const showSubjectLine = labelMode === "ipsSubject";
-      const label = showPacketLabels ? ensureBuilderPacketLabel(slotIndex) : packetLabelPool[slotIndex];
-      if (showPacketLabels) {
-        const shownLabel = label!;
-        if (!shownLabel.visible) {
-          shownLabel.bg.removeAttribute("display");
-          shownLabel.text.removeAttribute("display");
-          shownLabel.visible = true;
-        }
+      if (labelMode !== "hide") {
+        const showSubjectLine = labelMode === "ipsSubject";
         const subjRaw = formatPacketLabelSubject(render.subject);
         const subj = showSubjectLine ? subjRaw : "";
-        const labelSig = `${labelMode}\0${render.packetId}\0${render.src}\0${render.dest}\0${subj}`;
-        if (shownLabel.lastLabelSig !== labelSig) {
-          shownLabel.lastLabelSig = labelSig;
-          shownLabel.src.textContent = render.src;
-          shownLabel.dest.textContent = render.dest;
-          shownLabel.text.setAttribute("data-packet-id", String(render.packetId));
-          const dims = packetIpLabelBgDimensions(render.src, render.dest, subj);
-          const fallbackOrigin = {
-            x: PACKET_LABEL_ANCHOR_X_PX + PACKET_IP_LABEL_OFFSET_X_PX,
-            y: PACKET_IP_LABEL_OFFSET_Y_PX,
-          };
-          if (subj) {
-            shownLabel.subject.textContent = subj;
-            shownLabel.subject.removeAttribute("display");
-            shownLabel.src.setAttribute("dy", "-1.16em");
-            shownLabel.dest.setAttribute("dy", "1.16em");
-            shownLabel.subject.setAttribute("dy", "1.16em");
-          } else {
-            shownLabel.subject.textContent = "";
-            shownLabel.subject.setAttribute("display", "none");
-            shownLabel.src.setAttribute("dy", "-0.58em");
-            shownLabel.dest.setAttribute("dy", "1.16em");
-          }
-          layoutPacketLabelBackgroundRect(shownLabel.text, shownLabel.bg, dims, fallbackOrigin);
-          shownLabel.bgWidth = parseFloat(shownLabel.bg.getAttribute("width")!) || dims.width;
-          shownLabel.bgHeight = parseFloat(shownLabel.bg.getAttribute("height")!) || dims.height;
+        const lines = subj ? [render.src, render.dest, subj] : [render.src, render.dest];
+        const primaryFont = `600 ${packetLabelFontSizePx}px ${packetLabelFontFamily}`;
+        const subjectFont = `500 ${packetLabelFontSizePx}px ${packetLabelFontFamily}`;
+        ctx.font = primaryFont;
+        let maxTextWidth = 0;
+        for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+          const line = lines[lineIndex]!;
+          if (lineIndex === 2) ctx.font = subjectFont;
+          const w = ctx.measureText(line).width;
+          if (w > maxTextWidth) maxTextWidth = w;
+          if (lineIndex === 2) ctx.font = primaryFont;
         }
-      } else if (label) {
-        if (label.visible) {
-          label.bg.setAttribute("display", "none");
-          label.text.setAttribute("display", "none");
-          label.visible = false;
-        }
-        if (label.lastLabelSig !== "") {
-          label.text.removeAttribute("data-packet-id");
-          label.lastLabelSig = "";
+        const padX = 6;
+        const padY = 4;
+        const lineGap = Math.max(2, Math.round(packetLabelFontSizePx * 0.2));
+        const textBlockHeight =
+          lines.length * packetLabelFontSizePx + Math.max(0, lines.length - 1) * lineGap;
+        const dims = {
+          width: Math.ceil(maxTextWidth + padX * 2),
+          height: Math.ceil(textBlockHeight + padY * 2),
+        };
+        const boxX = render.x + PACKET_LABEL_ANCHOR_X_PX + PACKET_IP_LABEL_OFFSET_X_PX;
+        const boxY = render.y - dims.height * 0.5;
+        ctx.fillStyle = "rgba(15, 19, 27, 0.88)";
+        ctx.strokeStyle = "rgba(58, 68, 90, 0.9)";
+        ctx.lineWidth = 1;
+        const r = 4;
+        ctx.beginPath();
+        ctx.moveTo(boxX + r, boxY);
+        ctx.lineTo(boxX + dims.width - r, boxY);
+        ctx.quadraticCurveTo(boxX + dims.width, boxY, boxX + dims.width, boxY + r);
+        ctx.lineTo(boxX + dims.width, boxY + dims.height - r);
+        ctx.quadraticCurveTo(boxX + dims.width, boxY + dims.height, boxX + dims.width - r, boxY + dims.height);
+        ctx.lineTo(boxX + r, boxY + dims.height);
+        ctx.quadraticCurveTo(boxX, boxY + dims.height, boxX, boxY + dims.height - r);
+        ctx.lineTo(boxX, boxY + r);
+        ctx.quadraticCurveTo(boxX, boxY, boxX + r, boxY);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        ctx.font = primaryFont;
+        ctx.textBaseline = "top";
+        const textX = boxX + padX;
+        let textY = boxY + padY;
+        ctx.fillStyle = "#8f98aa";
+        ctx.fillText(render.src, textX, textY);
+        textY += packetLabelFontSizePx + lineGap;
+        ctx.fillStyle = "#f4f7ff";
+        ctx.fillText(render.dest, textX, textY);
+        if (subj) {
+          textY += packetLabelFontSizePx + lineGap;
+          ctx.font = subjectFont;
+          ctx.fillStyle = "#7a8499";
+          ctx.fillText(subj, textX, textY);
+          ctx.font = primaryFont;
         }
       }
     }
-    const stalePacketIds: number[] = [];
-    packetSlotByPacketId.forEach((slotIndex, packetId) => {
-      if (packetSlotLastSeenFrame[slotIndex] === frameId) return;
-      hideBuilderPacketSlot(slotIndex);
-      packetFreeSlots.push(slotIndex);
-      stalePacketIds.push(packetId);
-    });
-    stalePacketIds.forEach((packetId) => {
-      packetSlotByPacketId.delete(packetId);
-    });
+    ctx.setLineDash([]);
     if (selectedRender) {
-      selectedGuide.removeAttribute("display");
-      selectedGuide.setAttribute("x1", selectedRender.x.toFixed(2));
-      selectedGuide.setAttribute("y1", selectedRender.y.toFixed(2));
-      selectedGuide.setAttribute("x2", selectedRender.targetX.toFixed(2));
-      selectedGuide.setAttribute("y2", selectedRender.targetY.toFixed(2));
+      if (selectedRender.routeToDest && selectedRender.routeToDest.points.length > 0) {
+        ctx.strokeStyle = "rgba(137, 180, 250, 0.95)";
+        ctx.lineWidth = 2.6;
+        ctx.setLineDash([2, 3]);
+        ctx.lineCap = "round";
+        ctx.beginPath();
+        ctx.moveTo(selectedRender.x, selectedRender.y);
+        for (let i = 0; i < selectedRender.routeToDest.points.length; i += 1) {
+          const p = selectedRender.routeToDest.points[i]!;
+          ctx.lineTo(p.x, p.y);
+        }
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.lineCap = "butt";
+      }
     } else if (
       selection?.kind === "entity" &&
       simDropBoard.traceDeviceId &&
@@ -3285,17 +3351,19 @@ export function mountBuilderView(options: BuilderMountOptions): void {
       const vc = builderPacketOverlayViewportCenter();
       const anchor = builderPortCenterInOverlayCoords({ deviceId: simDropBoard.traceDeviceId, port: 0 });
       if (vc && anchor) {
-        selectedGuide.removeAttribute("display");
-        selectedGuide.setAttribute("x1", vc.x.toFixed(2));
-        selectedGuide.setAttribute("y1", vc.y.toFixed(2));
-        selectedGuide.setAttribute("x2", anchor.x.toFixed(2));
-        selectedGuide.setAttribute("y2", anchor.y.toFixed(2));
-      } else {
-        selectedGuide.setAttribute("display", "none");
+        ctx.strokeStyle = "rgba(249, 226, 175, 0.95)";
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([4, 4]);
+        ctx.lineCap = "round";
+        ctx.beginPath();
+        ctx.moveTo(vc.x, vc.y);
+        ctx.lineTo(anchor.x, anchor.y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.lineCap = "butt";
       }
-    } else {
-      selectedGuide.setAttribute("display", "none");
     }
+    ctx.restore();
     const tCommit1 = performance.now();
     perfCounts.packetsInFlight = simCurrentOccupancy.length;
     recordPerf("packet.overlayResize", tResize1 - tResize0);
@@ -4853,26 +4921,25 @@ export function mountBuilderView(options: BuilderMountOptions): void {
     renderLayoutSlots();
   });
 
-  packetOverlayEl.addEventListener("click", (ev) => {
+  canvasEl.addEventListener("click", (ev) => {
     if (suppressNextPacketClick) {
       suppressNextPacketClick = false;
       ev.preventDefault();
       ev.stopPropagation();
       return;
     }
-    const t = ev.target;
-    if (!(t instanceof Element)) return;
-    const el = t.closest("circle.builder-packet-dot");
-    if (!el) return;
-    const idRaw = el.getAttribute("data-packet-id");
-    if (idRaw === null) return;
-    const packetId = Number(idRaw);
-    if (!Number.isFinite(packetId)) return;
-    ev.stopPropagation();
-    setSelection({ kind: "packet", packetId });
-  });
-
-  canvasEl.addEventListener("click", (ev) => {
+    const wrapRect = packetOverlayEl.getBoundingClientRect();
+    const packetX = ev.clientX - wrapRect.left + (packetOverlayEl.parentElement?.scrollLeft ?? 0);
+    const packetY = ev.clientY - wrapRect.top + (packetOverlayEl.parentElement?.scrollTop ?? 0);
+    for (let i = packetHitRegionCount - 1; i >= 0; i -= 1) {
+      const region = packetHitRegions[i]!;
+      const dx = packetX - region.x;
+      const dy = packetY - region.y;
+      if (dx * dx + dy * dy > region.r * region.r) continue;
+      ev.stopPropagation();
+      setSelection({ kind: "packet", packetId: region.packetId });
+      return;
+    }
     const target = ev.target as HTMLElement | null;
     if (!target) return;
     if (target.closest(".builder-note-editor")) return;

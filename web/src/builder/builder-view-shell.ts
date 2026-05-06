@@ -22,7 +22,7 @@ export function builderViewShellHtml(canvasScale: CanvasScale): string {
       <main class="builder-main ui-panel">
         <div class="builder-canvas-wrap">
           <svg id="builder-wire-overlay" class="builder-wire-overlay"></svg>
-          <svg id="builder-packet-overlay" class="builder-packet-overlay" aria-hidden="true"></svg>
+          <canvas id="builder-packet-overlay" class="builder-packet-overlay" aria-hidden="true"></canvas>
           <div id="builder-canvas" class="builder-canvas"></div>
         </div>
         <div id="builder-controls-floating-host" class="builder-controls-floating-host" aria-label="Canvas tools">
